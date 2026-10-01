@@ -1,5 +1,6 @@
 import { AppError,need,cents,text,berlin,STATES,normalizeSource,protocolValid,transition,dueJobs,nextStep } from './domain.mjs';
 import { SCHEMA } from './schema.mjs';
+import {manualCatalogSource} from './catalog.mjs';
 const ready=new WeakMap();
 const security={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Permissions-Policy':'camera=(), microphone=(), geolocation=()'};
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{...security,'Content-Type':'application/json; charset=utf-8'}});
@@ -64,7 +65,7 @@ export default {
     if(u.pathname==='/api/check')return json(await checkProvider(env,b.kind));
     if(u.pathname==='/api/import')return json(await importWebsite(env));
     if(u.pathname==='/api/background')return json(await background(env));
-    if(u.pathname==='/api/create'){const source={...b.source};need(text(source.name)&&text(source.vehicle),'Name und Fahrzeug fehlen.');source.amountCents=cents(source.amountCents??0);source.pickupCents=cents(source.pickupCents??0);if(b.synthetic) {source.name='TEST · '+text(source.name,160);source.email='synthetisch@example.invalid';source.reviewConsent=false;}return json(await createOrder(env,source,b.synthetic===true));}
+    if(u.pathname==='/api/create'){const source={...b.source};if(b.selection){try{Object.assign(source,manualCatalogSource(b.selection));}catch(err){throw new AppError(err.message,400);}}need(text(source.name)&&text(source.vehicle),'Name und Fahrzeug fehlen.');source.amountCents=cents(source.amountCents??0);source.pickupCents=cents(source.pickupCents??0);if(b.synthetic) {source.name='TEST · '+text(source.name,160);source.email='synthetisch@example.invalid';source.reviewConsent=false;}return json(await createOrder(env,source,b.synthetic===true));}
     if(u.pathname==='/api/protocol/prepare'){const o=await getOrder(env,b.id);need(o.version===b.version,'Ansicht veraltet.',409);return json(await prepareProtocol(env,o,b.kind,b.protocol));}
     if(u.pathname==='/api/action'){const o=await getOrder(env,b.id);need(o.version===b.version,'Diese Ansicht ist veraltet. Bitte Auftrag neu öffnen.',409);need(b.action!=='accept','Der Betrieb darf keine Kundenannahme durchführen.',403);
       if(['invoice','sendOffer','calendarSync'].includes(b.action))throw new AppError(({invoice:'Qonto-Rechnungsadapter und Nummernabgleich müssen geprüft und freigegeben werden.',sendOffer:'Externer Angebotszugang und Versand sind noch nicht freigegeben.',calendarSync:'Dauerhafter Kalender-OAuth und Abgleichadapter sind noch nicht freigegeben.'})[b.action],409);

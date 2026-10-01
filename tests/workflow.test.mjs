@@ -23,6 +23,18 @@ test('synthetic orders never produce mail jobs',()=>{const o=done();o.synthetic=
 test('source fields are preserved separately and malformed cents fail',()=>{const raw={id:'website-1',name:'Test',phone:'1',email:'t@example.invalid',vehicle:'Test',package:'P',vehicleClass:'M',extras:['E'],city:'Horb',note:'N',amountCents:101,pickupCents:20,desiredDate:'2026-10-02',timeWindow:'10–12',address:'Test',reviewConsent:true};assert.deepEqual(normalizeSource(raw),{...raw,createdAt:'',raw});assert.throws(()=>normalizeSource({...raw,amountCents:1.5}));});
 class D1 {constructor(){this.sql=new DatabaseSync(':memory:');this.queue=Promise.resolve();}prepare(sql){const db=this;const args=[];return {bind(...v){args.push(...v);return this;},async run(){const r=db.sql.prepare(sql).run(...args);return {meta:{changes:Number(r.changes)}};},async first(){return db.sql.prepare(sql).get(...args)??null;},async all(){return {results:db.sql.prepare(sql).all(...args)};}};}async batch(stmts){const run=this.queue.then(async()=>{this.sql.exec('BEGIN');try{const r=[];for(const s of stmts)r.push(await s.run());this.sql.exec('COMMIT');return r;}catch(e){this.sql.exec('ROLLBACK');throw e;}});this.queue=run.catch(()=>{});return run;}}
 const ownerEmail='test-owner@example.invalid';
+test('manual catalogue choices persist with verified prices and an atomic audit',async()=>{
+  const e=env();const selection={packageId:'premium',classId:'suv',extraIds:['tierhaar'],delivery:'Abholung',citySlug:'calw'};
+  const r=await req(e,'create',{synthetic:true,source:{name:'Katalogtest',vehicle:'Testfahrzeug',amountCents:1,pickupCents:1},selection});
+  assert.equal(r.status,200);const order=await r.json();assert.equal(order.status,'Preise prüfen');
+  assert.equal(order.source.package,'Reinigung & Politur');assert.equal(order.source.vehicleClass,'SUV / Limousine');
+  assert.deepEqual(order.source.extras,['Tierhaarentfernung']);assert.equal(order.source.city,'Calw');
+  assert.equal(order.source.pickupCents,7000);assert.equal(order.source.amountCents,63000);assert.equal(order.source.delivery,'Abholung');
+  const stored=await(await req(e,'state')).json();assert.equal(stored.orders[0].source.catalogQuote.totalCents,63000);
+  assert.equal((await(await req(e,'audit')).json()).length,1);
+  assert.equal((await req(e,'create',{source:{name:'Test',vehicle:'Test'},synthetic:true,selection:{...selection,extraIds:['scheinwerfer']}})).status,400);
+  assert.equal((await(await req(e,'state')).json()).orders.length,1);
+});
 function env(){return {DB:new D1(),BUCKET:{},ASSETS:{fetch:async()=>new Response('asset')},OWNER_EMAIL_SHA256:createHash('sha256').update(ownerEmail).digest('hex'),CONFIG_KEY:Buffer.alloc(32,7).toString('base64')};}
 async function req(e,path,b,identity=ownerEmail){return worker.fetch(new Request('https://panel.example.invalid/api/'+path,{method:b===undefined?'GET':'POST',headers:{'oai-authenticated-user-email':identity,Origin:'https://panel.example.invalid','Content-Type':'application/json'},body:b===undefined?undefined:JSON.stringify(b)}),e);}
 test('private API denies anonymous and different users',async()=>{const e=env();assert.equal((await req(e,'state',undefined,'')).status,403);assert.equal((await req(e,'state',undefined,'different@example.invalid')).status,403);assert.equal((await req(e,'state')).status,200);});
