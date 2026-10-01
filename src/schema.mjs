@@ -13,4 +13,5 @@ export const SCHEMA=[
 `CREATE TRIGGER IF NOT EXISTS no_overlap_update BEFORE UPDATE ON appointments WHEN EXISTS(SELECT 1 FROM appointments WHERE start<NEW.end AND end>NEW.start AND order_id!=NEW.order_id) BEGIN SELECT RAISE(ABORT,'Terminüberschneidung'); END`,
 `CREATE TABLE IF NOT EXISTS offer_tokens(hash TEXT PRIMARY KEY,order_id TEXT NOT NULL,expires_at TEXT NOT NULL,revoked INTEGER NOT NULL DEFAULT 0)`,
 `CREATE TABLE IF NOT EXISTS protocol_drafts(id TEXT PRIMARY KEY,order_id TEXT NOT NULL,kind TEXT NOT NULL,version INTEGER NOT NULL,data TEXT NOT NULL,hash TEXT NOT NULL)`
+ ,`CREATE TABLE IF NOT EXISTS signature_bindings(asset_id TEXT PRIMARY KEY,draft_id TEXT NOT NULL,snapshot_hash TEXT NOT NULL)`
 ];
