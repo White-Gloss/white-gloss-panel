@@ -1,0 +1,7 @@
+node_modules/
+.npm-cache/
+dist/
+*.tar.gz
+*.env
+.env*
+test-results/
