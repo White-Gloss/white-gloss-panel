@@ -5,3 +5,12 @@ dist/
 *.env
 .env*
 test-results/
+data/
+backups/
+uploads/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.pem
+*.key
