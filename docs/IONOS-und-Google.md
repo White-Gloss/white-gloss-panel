@@ -29,9 +29,9 @@ Buchungsbilder und Videos kommen ausschließlich aus der freigegebenen Hub-Fotoa
 
 ## Vorhandene Anbieterzugänge übertragen
 
-IONOS erzeugt einen RSA-Schlüssel; nur dessen öffentlicher Teil kommt in die private Sites-Konfiguration. Sites verschlüsselt den vorhandenen geprüften Resend-Zugang und gegebenenfalls den geprüften Qonto-Zugang mit AES-GCM und RSA-OAEP für genau dieses Panel. Das Paket gilt 24 Stunden. Der private Schlüssel bleibt auf dem Server. Übertragung erfolgt erst nach ausdrücklicher Freigabe dieser Zugangsdaten und des IONOS-Ziels.
+IONOS erzeugt einen RSA-Schlüssel; nur dessen öffentlicher Teil kommt in die private Sites-Konfiguration. Sites verschlüsselt den vorhandenen geprüften Resend-Zugang und gegebenenfalls den geprüften Lexware-Zugang mit AES-GCM und RSA-OAEP für genau dieses Panel. Das Paket gilt 24 Stunden. Der private Schlüssel bleibt auf dem Server. Übertragung erfolgt erst nach ausdrücklicher Freigabe dieser Zugangsdaten und des IONOS-Ziels.
 
-Der Administrationsimport `import-connections` prüft Ziel, Fingerabdruck und Ablauf, entschlüsselt auf IONOS und speichert erneut unter dem dortigen CONFIG_KEY. Bereits vorhandene Zugänge werden nicht überschrieben. Frühere Verbindungsflags werden zurückgesetzt; tatsächliche Absenderdomain und Qonto-Organisation werden erneut lesend geprüft. Dabei wird keine Kundenmail versendet. Geheimnisse gehören weder in GitHub noch in Berichte.
+Der Administrationsimport `import-connections` prüft Ziel, Fingerabdruck und Ablauf, entschlüsselt auf IONOS und speichert erneut unter dem dortigen CONFIG_KEY. Bereits vorhandene Zugänge werden nicht überschrieben. Frühere Verbindungsflags werden zurückgesetzt; tatsächliche Absenderdomain und Lexware-Organisation werden erneut lesend geprüft. Dabei wird keine Kundenmail versendet. Geheimnisse gehören weder in GitHub noch in Berichte.
 
 ## Google-Kalender
 
@@ -47,17 +47,13 @@ Nach Verbindung und lesender Prüfung werden bestehende Google-Belegungen vor de
 
 Grundlage: [Google Ereignisse lesen](https://developers.google.com/workspace/calendar/api/v3/reference/events/list) und [Google Ereignisse anlegen](https://developers.google.com/workspace/calendar/api/v3/reference/events/insert).
 
-## Qonto und WG-Nummern
+## Lexware Office und WG-Nummern
 
-Der Organisationszugang nutzt Qontos API-Login und API-Schlüssel. Alle Seiten des Kunden- und Rechnungsbestands einschließlich importierter Rechnungen werden gelesen. Rechnungsnummern werden im vollständig gelesenen Bestand verglichen; kein erfundener Nummernfilter wird verwendet.
+Lexware Office ersetzt auf ausdrücklichen Betreiberwunsch die aktive Qonto-Anbindung. Der API-Schlüssel bleibt verschlüsselt, die tatsächliche Organisation wird lesend geprüft. Schlussrechnung erst nach vollständigem Arbeitsabschluss und Rückgabe, ausdrücklicher Prüfung von Kunde, Anschrift, Steuer, Leistungen, Fälligkeit und Bruttofestpreis. Die lokale Vorschau wird genau einmal als fertige Rechnung erstellt; Lexware vergibt die Rechnungsnummer, WG bleibt die Auftragsreferenz.
 
-Vor dem ersten echten Auftrag ist der bisherige WG-Nummernstand einschließlich Buchungsbestand und Rechnungen einmalig nachweisbar abzugleichen. Die App setzt keinen Nummernstand zurück. Testaufträge verwenden getrennte TEST-Nummern.
+Unklare Kunden-/Rechnungsanlagen bleiben gegen Wiederholung gesperrt. Historische Rechnungen und frühere Rechnungsvorgänge bleiben erhalten und verhindern eine zweite Rechnung. Vor dem ersten echten Auftrag bleibt der vollständige WG-Nummernabgleich einschließlich Buchungen und bisheriger Rechnungen notwendig. Neue Lexware-Rechnungsnummern setzen keinen WG-Zähler zurück.
 
-Schlussrechnungen sind erst nach vollständigem Arbeitsabschluss und Rückgabe möglich. Der Betreiber prüft Rechnungskunde, vollständige Rechnungsadresse, Steuersatz, Zahlungskonto, Fälligkeit und Leistungen. Zuerst entsteht ein Entwurf. Nur bei exakter Übereinstimmung der Bruttosumme mit dem unveränderlichen Festpreis wird finalisiert. Qonto verwendet Nettopreise je Position; die Umrechnung erfolgt ohne Fließkommafehler. Rechnungserstellung setzt einen Auftrag nicht auf Bezahlt.
-
-Unklare Antworten bleiben gegen erneute Erstellung gesperrt. Ein lesender Anbieterabgleich kann eine passende vorhandene Schlussrechnung zuordnen. Ein abweichender Entwurf bleibt zur Prüfung erhalten. Es werden keine Zahlungen, Überweisungen oder automatischen Rechnungsmails ausgelöst.
-
-Grundlage: [Qonto Authentifizierung](https://docs.qonto.com/get-started/business-api/authentication/introduction) und [Qonto Rechnung erstellen](https://docs.qonto.com/api-reference/business-api/expense-management/client-quotes-notes/client-invoices/create-a-client-invoice).
+Signierte Lexware-Änderungsmeldungen aktualisieren ausschließlich eigene zugeordnete Rechnungen. Keine periodische Abfrage aller Rechnungen, keine automatische Zahlungsbuchung und keine automatische Rechnungsmail. Annahme-/Rückgabe-PDF-Mails sind davon getrennt. Details und Voraussetzungen: [Lexware Office ersetzt Qonto](Lexware-statt-Qonto.md).
 
 ## Zeitplan und Sicherung
 
@@ -67,4 +63,4 @@ Die tägliche Sicherung erstellt eine konsistente SQLite-Kopie, prüft Integrit�
 
 ## Abschlussnachweise
 
-Für betriebsbereit sind zusätzlich zum geprüften Code nötig: freigegebener Panelweg, aktiver Dienst und Timer, HTTPS/DNS, Betreiberanmeldung, persistente Speicherung, isolierter Kundenablauf sowie bestätigte Resend-, Google- und Qonto-Verbindungen. Echte Kundenmails, Rechnungen, Zahlungen und Kundenannahmen werden nicht als Tests verwendet.
+Für betriebsbereit sind zusätzlich zum geprüften Code nötig: freigegebener Panelweg, aktiver Dienst und Timer, HTTPS/DNS, Betreiberanmeldung, persistente Speicherung, isolierter Kundenablauf sowie bestätigte Resend-, Google- und Lexware-Verbindungen. Echte Kundenmails, Rechnungen, Zahlungen und Kundenannahmen werden nicht als Tests verwendet.

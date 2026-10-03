@@ -1,5 +1,6 @@
 import worker,{init,setting,protect,settings,configuration,background} from '../src/worker.mjs';
 import {AppError} from '../src/domain.mjs';
+import {lexwareWebhook} from './lexware-webhooks.mjs';
 import {authSchema,sessionIdentity,requestLogin,redeemLogin,logout,loginPage,pruneAuth,digest} from './auth.mjs';
 import {passwordLogin,savePassword,passwordPage} from './password-auth.mjs';
 import {calendarOAuthSchema,calendarAuthorize,calendarCallback,calendarAccessToken} from './calendar-oauth.mjs';
@@ -22,6 +23,7 @@ export async function createApplication(env){
       if(request.method==='POST'&&url.pathname==='/auth/redeem')return await redeemLogin(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/password/login')return await passwordLogin(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/logout')return await logout(env,request);
+      if(url.pathname==='/api/lexware/webhook')return await lexwareWebhook(request,env);
       const identity=await sessionIdentity(env,request);
       if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/angebot\/[a-f0-9]{64}$/.test(url.pathname))login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
       const isOwner=digest(identity)===env.OWNER_EMAIL_SHA256;
@@ -41,6 +43,7 @@ export async function createApplication(env){
       }
       if(url.pathname==='/auth/calendar/callback'&&request.method==='GET')return calendarCallback(env,request,identity);
       if(!isOwner&&!url.pathname.startsWith('/angebot/')&&!url.pathname.startsWith('/api/offer/'))return errorResponse('Dieser Zugang ist für das persönliche Angebot vorgesehen.',403);
+      if(isOwner&&url.pathname==='/api/lexware/pdf'&&request.method==='GET')return await providerOperations.lexwarePDF(env,await (await import('../src/worker.mjs')).getOrder(env,url.searchParams.get('id')));
       if(isOwner&&url.pathname==='/api/protocol/pdf'&&request.method==='GET')return await providerOperations.protocolDownload(env,url.searchParams.get('id'),url.searchParams.get('kind'));
       if(isOwner&&url.pathname==='/api/check'&&request.method==='POST'){
         const input=await request.clone().json().catch(()=>({}));if(input.kind==='calendar'&&(await settings(env)).calendarOAuth)await calendarAccessToken(env);
@@ -52,7 +55,7 @@ export async function createApplication(env){
   };
   return {env,async fetch(request){const result=await handle(request);const secured=new Response(result.body,{status:result.status,headers:result.headers});for(const [key,value] of Object.entries(lockedHeaders))secured.headers.set(key,value);return secured;}};
 }
-export async function configureFromEnvironment(env){await init(env);const old=await settings(env);const secrets={HUB_SYNC_TOKEN:'hubKey',RESEND_API_KEY:'resendKey',QONTO_API_KEY:'qontoKey'};for(const [key,settingKey] of Object.entries(secrets))if(env[key]&&!old[settingKey])await setting(env,settingKey,await protect(env,env[key]));for(const [key,settingKey] of Object.entries({EMAIL_SENDER:'sender',QONTO_LOGIN:'qontoLogin',CALENDAR_ID:'calendarId',REVIEW_URL:'reviewUrl'}))if(env[key]&&old[settingKey]===undefined)await setting(env,settingKey,env[key]);await setting(env,'standaloneAuth',true);}
+export async function configureFromEnvironment(env){await init(env);const old=await settings(env);const secrets={HUB_SYNC_TOKEN:'hubKey',RESEND_API_KEY:'resendKey',LEXWARE_API_KEY:'lexwareKey'};for(const [key,settingKey] of Object.entries(secrets))if(env[key]&&!old[settingKey])await setting(env,settingKey,await protect(env,env[key]));for(const [key,settingKey] of Object.entries({EMAIL_SENDER:'sender',CALENDAR_ID:'calendarId',REVIEW_URL:'reviewUrl'}))if(env[key]&&old[settingKey]===undefined)await setting(env,settingKey,env[key]);await setting(env,'standaloneAuth',true);}
 /** @returns {Promise<any>} */
 export async function applicationEnvironment(variables=process.env){const env={...variables,...await createStorage(variables.PANEL_DATA_DIR,variables.PANEL_ASSETS_DIR)};await configureFromEnvironment(env);return env;}
 export async function maintenance(env,now=Date.now()){
