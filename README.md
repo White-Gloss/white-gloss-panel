@@ -3,13 +3,15 @@
 Privates Betriebspanel für Anfragen, manuelle Aufträge, Preisprüfung, Angebote,
 Termine, Fahrzeugprotokolle und Kundenbetreuung.
 
-Das veröffentlichte Panel läuft derzeit privat auf Sites. Dieses Repository enthält
-zusätzlich die eigenständige IONOS-Laufzeit mit Anmeldung, SQLite, privatem Fotospeicher,
-Google-OAuth, Qonto-Rechnungsablauf und Zeitplänen. **Der neue IONOS-Dienst ist vorbereitet;
-seine Aktivierung und die tatsächlichen Anbieterzugänge sind noch live zu prüfen.**
+Das eigene Panel läuft auf IONOS unter panel.white-gloss.de. Dieses Repository enthält
+die eigenständige Laufzeit mit Anmeldung, SQLite, privatem Fotospeicher,
+Google-OAuth, Qonto-Rechnungsablauf und Zeitplänen sowie den bisherigen privaten Sites-Worker.
+Jede Änderung benötigt einen eigenen geprüften IONOS-Release und einen Live-Nachweis.
 
-- [Aktuelles privates Panel](https://white-gloss-mein-panel.info261616.chatgpt.site/)
+- [Eigenes Panel](https://panel.white-gloss.de/)
+- [Bisherige private Sites-Kopie](https://white-gloss-mein-panel.info261616.chatgpt.site/)
 - [IONOS und Google Einrichtung](docs/IONOS-und-Google.md)
+- [Passwort, Kunden-PIN und Protokoll-PDF](docs/Passwort-PIN-und-Protokoll-PDF.md)
 
 ## Aufbau
 
@@ -18,8 +20,9 @@ seine Aktivierung und die tatsächlichen Anbieterzugänge sind noch live zu prü
 und Trigger. `public/` enthält die Oberfläche. Das Build erzeugt einen Sites-Worker
 und statische Dateien; `server/start.mjs` stellt separat die IONOS-Laufzeit bereit.
 
-Sites nutzt seine Anmeldung, D1 und R2. Die IONOS-Laufzeit nutzt eigene persönliche
-E-Mail-Anmeldelinks, serverseitige Sitzungen, SQLite und private Dateien außerhalb
+Sites nutzt seine Anmeldung, D1 und R2. Die IONOS-Laufzeit nutzt Betreiberpasswörter,
+persönliche E-Mail-Bestätigung zur Einrichtung/Wiederherstellung, Kundenlinks mit
+einmaliger PIN, serverseitige Sitzungen, SQLite und private Dateien außerhalb
 des Webroots. Alle Geheimnisse liegen außerhalb des Codes. Kundendaten,
 Fotos und Zugangsschlüssel gehören nicht in dieses Repository.
 
@@ -52,13 +55,12 @@ Paketen, Extras und Abholung sind implementiert. Die private Sites-Veröffentlic
 und der separate IONOS-Release müssen jeweils ihrem tatsächlich veröffentlichten
 Commit zugeordnet werden.
 
-Resend und Qonto sind im bisherigen privaten Panel hinterlegt; die neue IONOS-Laufzeit
-prüft übertragene Zugänge erneut. Website-Schlüssel, dauerhafter Google-Kalenderzugang,
-Nummernabgleich und ein nachgewiesener unabhängiger Hintergrundlauf bleiben
-Einrichtungsaufgaben.
-Echte Rechnungserstellung, Kalender-Synchronisierung und Angebotsversand sind
-noch gesperrt. Ein bestandener Test oder ein GitHub-Upload beweist keinen
-funktionierenden Anbieterzugriff oder IONOS-Betrieb.
+Website, Resend, Qonto und Google wurden in der getrennten IONOS-Installation
+verbunden. Der unabhängige Dienst und die Timer sind installiert. Der vollständige
+historische WG-Nummernabgleich bleibt eine gesonderte Voraussetzung für echte neue
+Aufträge und Rechnungen. Betriebsdaten, Zugangsprüfungen und Freigaben gehören zur
+geschützten Installation, nicht in GitHub. Ein bestandener Test oder GitHub-Upload
+beweist weder einen neuen Live-Release noch eine tatsächliche Kundenzustellung.
 
 `scripts/verify-live.mjs` ist eine frühere Prüfroutine mit schreibenden synthetischen
 Aktionen. Sie darf nicht ohne gezielt erlaubten Prüfzugang und vorherige Prüfung

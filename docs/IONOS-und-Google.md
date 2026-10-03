@@ -1,6 +1,6 @@
 # White Gloss Panel auf IONOS
 
-Stand: 3. Oktober 2026. Die eigenständige IONOS-Laufzeit ist implementiert und ohne lokalen Website-Server geprüft. Die nachstehenden Ressourcen sind vorbereitet. Aktivierung, HTTPS und Anbieterzugänge müssen zusätzlich live bestätigt werden; GitHub-CI allein beweist keine Veröffentlichung.
+Stand: 3. Oktober 2026. Die eigenständige IONOS-Laufzeit ist getrennt installiert. Paneldienst, Hauptwebsite und Caddy wurden aktiv geprüft. Jede neue Codeversion benötigt weiterhin ihren eigenen Aktivierungs- und HTTPS-Nachweis; GitHub-CI allein beweist keine Veröffentlichung.
 
 ## Getrennter Betrieb
 
@@ -21,7 +21,7 @@ Die Betreiberregel verlangt den freigegebenen IONOS-Weg. Der separate Panelweg m
 
 ## Anmeldung, Angebote und Fotos
 
-Einmalige persönliche E-Mail-Anmeldelinks gelten zehn Minuten und werden erst durch persönliche Bestätigung verbraucht. Private Secure/HttpOnly-Sitzungen ersetzen die Sites-Identitätsheader. Kunden dürfen ausschließlich ihr eigenes gültiges Angebot sehen; Auftragslisten, Betriebsfunktionen und Fotos bleiben gesperrt. Der Betreiber kann keine Kundenannahme ausführen.
+Der Betreiber meldet sich mit E-Mail und eigenem Passwort an. Einrichtung und Wiederherstellung benötigen einen frischen persönlichen E-Mail-Link. Kunden erhalten Link und eine separate sechsstellige PIN in derselben E-Mail. Private Secure/HttpOnly-Sitzungen ersetzen die Sites-Identitätsheader. Kunden dürfen ausschließlich ihr eigenes gültiges Angebot sehen; Auftragslisten, Betriebsfunktionen und Fotos bleiben gesperrt. Der Betreiber kann keine Kundenannahme ausführen. Details: [Passwort, PIN und Protokoll-PDF](Passwort-PIN-und-Protokoll-PDF.md).
 
 Pakete, Extras, eigene Leistungen und Abholung werden einzeln angepasst und serverseitig in ganzen Centbeträgen summiert. Jede Änderung verlangt erneute Preisprüfung und Speicherung vor dem Fixpreis. Das bestätigte Angebot bleibt unveränderlich. Originale Website-Wünsche bleiben separat erhalten.
 

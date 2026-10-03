@@ -1,6 +1,7 @@
 import worker,{init,setting,protect,settings,configuration,background} from '../src/worker.mjs';
 import {AppError} from '../src/domain.mjs';
 import {authSchema,sessionIdentity,requestLogin,redeemLogin,logout,loginPage,pruneAuth,digest} from './auth.mjs';
+import {passwordLogin,savePassword,passwordPage} from './password-auth.mjs';
 import {calendarOAuthSchema,calendarAuthorize,calendarCallback,calendarAccessToken} from './calendar-oauth.mjs';
 import {createStorage} from './storage.mjs';
 import {providerOperations,providerSchema} from './providers.mjs';
@@ -17,12 +18,19 @@ export async function createApplication(env){
       if(url.pathname==='/healthz')return new Response('ok',{headers:{'Content-Type':'text/plain'}});
       if(request.method==='GET'&&/^\/[a-zA-Z0-9_-]+\.(css|js|mjs)$/.test(url.pathname))return env.ASSETS.fetch(request);
       if(request.method==='GET'&&['/auth/login','/auth/verify'].includes(url.pathname))return loginPage();
-      if(request.method==='POST'&&url.pathname==='/auth/request')return requestLogin(env,request);
-      if(request.method==='POST'&&url.pathname==='/auth/redeem')return redeemLogin(env,request);
-      if(request.method==='POST'&&url.pathname==='/auth/logout')return logout(env,request);
+      if(request.method==='POST'&&url.pathname==='/auth/request')return await requestLogin(env,request);
+      if(request.method==='POST'&&url.pathname==='/auth/redeem')return await redeemLogin(env,request);
+      if(request.method==='POST'&&url.pathname==='/auth/password/login')return await passwordLogin(env,request);
+      if(request.method==='POST'&&url.pathname==='/auth/logout')return await logout(env,request);
       const identity=await sessionIdentity(env,request);
-      if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/angebot\/[a-f0-9]{64}$/.test(url.pathname))login.searchParams.set('returnTo',url.pathname);return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
+      if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/angebot\/[a-f0-9]{64}$/.test(url.pathname))login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
       const isOwner=digest(identity)===env.OWNER_EMAIL_SHA256;
+      if(url.pathname==='/auth/password'){
+        if(!isOwner)return errorResponse('Nur für den Betreiber vorgesehen.',403);
+        if(request.method==='GET')return passwordPage(env,request);
+        if(request.method==='POST')return await savePassword(env,request);
+        return errorResponse('Ungültige Anfrage.',405);
+      }
       if(url.pathname==='/auth/calendar/start'&&request.method==='POST'){
         if(request.headers.get('origin')!==env.PANEL_ORIGIN)return errorResponse('Ungültiger Ursprung.',403);
         const authorization=await calendarAuthorize(env,identity);
@@ -33,6 +41,7 @@ export async function createApplication(env){
       }
       if(url.pathname==='/auth/calendar/callback'&&request.method==='GET')return calendarCallback(env,request,identity);
       if(!isOwner&&!url.pathname.startsWith('/angebot/')&&!url.pathname.startsWith('/api/offer/'))return errorResponse('Dieser Zugang ist für das persönliche Angebot vorgesehen.',403);
+      if(isOwner&&url.pathname==='/api/protocol/pdf'&&request.method==='GET')return await providerOperations.protocolDownload(env,url.searchParams.get('id'),url.searchParams.get('kind'));
       if(isOwner&&url.pathname==='/api/check'&&request.method==='POST'){
         const input=await request.clone().json().catch(()=>({}));if(input.kind==='calendar'&&(await settings(env)).calendarOAuth)await calendarAccessToken(env);
       }
