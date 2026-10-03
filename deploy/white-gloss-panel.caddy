@@ -1,0 +1,9 @@
+panel.white-gloss.de {
+    encode zstd gzip
+    request_body {
+        max_size 6MB
+    }
+    reverse_proxy 127.0.0.1:3101 {
+        header_up -oai-authenticated-user-email
+    }
+}

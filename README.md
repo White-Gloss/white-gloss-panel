@@ -3,10 +3,10 @@
 Privates Betriebspanel für Anfragen, manuelle Aufträge, Preisprüfung, Angebote,
 Termine, Fahrzeugprotokolle und Kundenbetreuung.
 
-Der vorhandene Quellcode läuft derzeit auf Sites. Dieses Repository enthält den
-Code einschließlich Versionsverlauf und die Vorbereitung für einen eigenständigen
-IONOS-Betrieb. **Die Umstellung auf IONOS ist noch nicht implementiert oder
-veröffentlicht.**
+Das veröffentlichte Panel läuft derzeit privat auf Sites. Dieses Repository enthält
+zusätzlich die eigenständige IONOS-Laufzeit mit Anmeldung, SQLite, privatem Fotospeicher,
+Google-OAuth, Qonto-Rechnungsablauf und Zeitplänen. **Der neue IONOS-Dienst ist vorbereitet;
+seine Aktivierung und die tatsächlichen Anbieterzugänge sind noch live zu prüfen.**
 
 - [Aktuelles privates Panel](https://white-gloss-mein-panel.info261616.chatgpt.site/)
 - [IONOS und Google Einrichtung](docs/IONOS-und-Google.md)
@@ -15,12 +15,13 @@ veröffentlicht.**
 
 `src/worker.mjs` enthält die HTTP-Endpunkte und die Hintergrundprüfung.
 `src/domain.mjs` prüft den Auftragsablauf; `src/schema.mjs` definiert SQLite-Tabellen
-und Trigger. `public/` enthält die Oberfläche. Das aktuelle Build erzeugt einen
-Sites-Worker und dessen statische Dateien, keinen eigenständigen Node-Server.
+und Trigger. `public/` enthält die Oberfläche. Das Build erzeugt einen Sites-Worker
+und statische Dateien; `server/start.mjs` stellt separat die IONOS-Laufzeit bereit.
 
-Zur Laufzeit werden Sites-Anmeldung, D1-Datenbank, R2-Dateispeicher und ein außerhalb
-des Codes gespeicherter Verschlüsselungsschlüssel benötigt. Kundendaten und
-Zugangsschlüssel gehören nicht in dieses Repository.
+Sites nutzt seine Anmeldung, D1 und R2. Die IONOS-Laufzeit nutzt eigene persönliche
+E-Mail-Anmeldelinks, serverseitige Sitzungen, SQLite und private Dateien außerhalb
+des Webroots. Alle Geheimnisse liegen außerhalb des Codes. Kundendaten,
+Fotos und Zugangsschlüssel gehören nicht in dieses Repository.
 
 ## Prüfungen ohne lokalen Website-Server
 
@@ -32,6 +33,7 @@ npm run lint
 npm run typecheck
 npm test
 npm run build
+node --check dist/server/index.js
 ```
 
 Die Tests nutzen synthetische Daten und isoliertes SQLite. Der GitHub-Workflow

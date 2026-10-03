@@ -1,163 +1,68 @@
 # White Gloss Panel auf IONOS
 
-Stand der Prüfung: 3. Oktober 2026. Der vorhandene IONOS-VPS ist der passende
-Ausgangspunkt für eine unabhängige Panel-App. Der Quellcode wird in
-`White-Gloss/white-gloss-panel` privat verwaltet. Der eigentliche Laufzeitumbau
-und die Einrichtung des separaten Serverdienstes stehen noch aus.
+Stand: 3. Oktober 2026. Die eigenständige IONOS-Laufzeit ist implementiert und ohne lokalen Website-Server geprüft. Die nachstehenden Ressourcen sind vorbereitet. Aktivierung, HTTPS und Anbieterzugänge müssen zusätzlich live bestätigt werden; GitHub-CI allein beweist keine Veröffentlichung.
 
-## Tatsächlich geprüfter Server
+## Getrennter Betrieb
 
-| Eigenschaft | Festgestellter Stand |
-| --- | --- |
-| IONOS-Server | My VPS, VPS 6-8-240 |
-| Adresse | 217.154.124.239 |
-| Betriebssystem | Ubuntu 24.04 |
-| Ressourcen | 6 vCore, 8 GB RAM, 240 GB NVMe |
-| Freie Kapazität beim SSH-Abruf | etwa 7 GB verfügbarer RAM und 208 GB freier Speicher |
-| Node.js | 22.23.2 |
-| Reverse Proxy | Caddy aktiv |
-| Hauptwebsite | white-gloss.service aktiv, Benutzer deploy |
-| Aktive Hauptwebsite | /srv/white-gloss-releases/8e900aa082fa2f502290a85a6036fcc9a0b3a95a |
-| Laufzeitkonfiguration Hauptwebsite | /etc/white-gloss/environment |
-| Bestehender SSH-Zugang | white-gloss-ci, eingeschränkter Deployment-Zugang |
+Der vorhandene IONOS-VPS 217.154.124.239 verwendet Ubuntu 24.04, Node 22.23.2 und Caddy. Die Hauptwebsite läuft als white-gloss.service auf Port 3000. Deren vorhandener Deployment-Helfer wird weder verändert noch für das Panel verwendet.
 
-Die freie Kapazität spricht für einen zusätzlichen kleinen Paneldienst. Das ist
-eine Kapazitätseinschätzung, noch kein Lasttest. Es ist dafür aktuell kein neuer
-Serverkauf erforderlich. Den bestehenden Caddy-Dienst und die Hauptwebsite nur
-über einen getrennten, geprüften Änderungsschritt erweitern.
+Vorbereitet sind:
 
-## Hostingmöglichkeiten
+- https://panel.white-gloss.de mit persönlicher Anmeldung;
+- eigener Benutzer und white-gloss-panel.service, intern 127.0.0.1:3101;
+- Releases unter /srv/white-gloss-panel/releases und aktiver Verweis current;
+- Datenbank und private Dateien unter /var/lib/white-gloss-panel/data;
+- geschützte Konfiguration /etc/white-gloss-panel/environment, Modus 0600;
+- separater Hintergrundlauf alle 15 Minuten und tägliche private Sicherung.
 
-| Weg | Eignung für dieses Panel |
-| --- | --- |
-| Bestehender IONOS-VPS | Empfohlen: eigener Node-Dienst, dauerhafte Datenbank, privater Dateispeicher und unabhängiger Zeitplan möglich. Laufzeitumbau erforderlich. |
-| IONOS Deploy Now allein | Kein direkter Weg für den aktuellen Backendcode: Node-Buildschritte sind möglich, ein dauerhaft laufender Node-Backenddienst wird dort nicht angeboten. |
-| Statische Dateien auf Webspace, Backend separat | Möglich, aber Datenbank, Anmeldung, Uploads und Hintergrundprüfung brauchen weiterhin ein eigenes Backend. Bringt gegenüber dem vorhandenen VPS zusätzliche Aufteilung. |
+Der Installer verlangt Root, einen konkreten Commit und die richtige Archiv-Prüfsumme. Er kopiert das Paket zuerst in Root-Staging, prüft Archivpfade und Commit, lehnt Links ab und installiert ein unveränderliches Release. Caddy wird vor dem Reload geprüft. Ein fehlgeschlagener Start setzt Panelverweis und Caddy-Konfiguration zurück. Die Hauptwebsite wird nicht ersetzt oder neu gestartet.
 
-Die Unterscheidung von Build und Serverbetrieb ergibt sich aus den offiziellen
-[IONOS-Technologien](https://www.ionos.de/hilfe/hosting/deploy-now/unterstuetzte-technologien-und-umfang-des-kundenservice/)
-und der [Deploy-Now-FAQ](https://docs.ionos.space/docs/faq/).
+Die Betreiberregel verlangt den freigegebenen IONOS-Weg. Der separate Panelweg muss vor seiner ersten Verwendung konkret freigegeben sein. Lokales Hosting bleibt verboten; der Server verweigert den Start auf Windows, WSL und außerhalb des vorgesehenen IONOS-Verzeichnisses.
 
-## Vorgeschlagene getrennte Einrichtung
+## Anmeldung, Angebote und Fotos
 
-Alle folgenden Namen und Pfade sind Vorschläge, noch keine eingerichteten Ressourcen:
+Einmalige persönliche E-Mail-Anmeldelinks gelten zehn Minuten und werden erst durch persönliche Bestätigung verbraucht. Private Secure/HttpOnly-Sitzungen ersetzen die Sites-Identitätsheader. Kunden dürfen ausschließlich ihr eigenes gültiges Angebot sehen; Auftragslisten, Betriebsfunktionen und Fotos bleiben gesperrt. Der Betreiber kann keine Kundenannahme ausführen.
 
-- Adresse `https://panel.white-gloss.de`, nach DNS-Prüfung und Freigabe.
-- Eigener Dienst `white-gloss-panel.service` und eigener unprivilegierter
-  Betriebssystembenutzer `white-gloss-panel`.
-- Releases unter `/srv/white-gloss-panel/releases/`, aktiver Verweis
-  `/srv/white-gloss-panel/current`.
-- Datenbank und private Dateien unter `/var/lib/white-gloss-panel/`, getrennt von
-  den austauschbaren Releases.
-- Geheimnisse in `/etc/white-gloss-panel/environment`, nur für den Dienst lesbar.
-- Caddy übernimmt HTTPS und leitet ausschließlich den neuen Hostnamen an den
-  auf dem VPS intern gebundenen Paneldienst weiter. Port erst nach Prüfung wählen.
-- Eigener 15-Minuten-Zeitplan auf dem VPS für Fälligkeiten, mit dauerhaftem Lock,
-  Fehlerstatus und Nachweis eines tatsächlichen erfolgreichen Laufs.
-- Getrennter, begrenzter Panel-Deployment-Weg mit überprüfbarem Commit,
-  vorherigem Release und Rücksetzung; keine Wiederverwendung des Hauptwebsite-Helfers.
+Pakete, Extras, eigene Leistungen und Abholung werden einzeln angepasst und serverseitig in ganzen Centbeträgen summiert. Jede Änderung verlangt erneute Preisprüfung und Speicherung vor dem Fixpreis. Das bestätigte Angebot bleibt unveränderlich. Originale Website-Wünsche bleiben separat erhalten.
 
-Ein separater Serverdienst kann ohne offenen Desktopbrowser laufen. Der Zeitplan
-muss die vorhandenen Regeln für einmalige Nachrichten und unklare Providerantworten
-erhalten. Er darf keine unbekannten Versandresultate automatisch erneut senden.
+Buchungsbilder und Videos kommen ausschließlich aus der freigegebenen Hub-Fotoabfrage und werden geschützt auf IONOS übernommen. Wiederholungen erzeugen keine doppelten Kopien. Abgelaufene Website-Links beeinträchtigen gespeicherte Aufnahmen nicht. Manuelle Aufträge können eigene Buchungsbilder erhalten. Fahrzeugprotokolle verlangen weiterhin ihre eigenen Zustandsfotos sowie zwei persönlich geleistete, dem angezeigten Protokoll zugeordnete Unterschriften.
 
-## Nötiger Laufzeitumbau
+## Resend-Zugang übertragen
 
-| Aktuelle Abhängigkeit | Erforderlicher Ersatz und Nachweis |
-| --- | --- |
-| Worker-fetch und Sites-ASSETS | Node-HTTP-Adapter und sichere statische Auslieferung, einschließlich unverändertem privaten Angebotslink. |
-| D1 DB | Dauerhafte SQLite-Datenbank mit Transaktionen, Triggern, Konfliktprüfung, WG-Zähler und konsistenten Backups. Eine Adapteroption ist node:sqlite; dessen experimenteller Stand in Node 22 muss berücksichtigt werden. |
-| R2 BUCKET | Privater Dateispeicher außerhalb des Webroots; Zugriffsprüfung, Dateigrößen, MIME-Typ, Hash und Protokollbindung beibehalten. |
-| Sites-Anmeldung | Eigene geprüfte Anmeldung und serverseitige Rollen. Eingehende Identitätsheader des Browsers verwerfen; nicht ungeprüft als Betreiberkennung übernehmen. |
-| Sites scheduled | Eigene ausführbare Hintergrundprüfung und serverseitiger Zeitplan mit Lock und Protokollierung. |
-| Verschlüsselte Einstellungen | Sichere Übertragung des passenden CONFIG_KEY oder erneute geschützte Einrichtung; Geheimnisse niemals aus Git rekonstruieren. |
+IONOS erzeugt einen RSA-Schlüssel; nur dessen öffentlicher Teil kommt in die private Sites-Konfiguration. Sites verschlüsselt den vorhandenen Resend-Zugang mit AES-GCM und RSA-OAEP für genau dieses Panel. Das Paket gilt 24 Stunden. Der private Schlüssel bleibt auf dem Server.
 
-Die Betreiberkennung ist momentan der vertrauenswürdige Sites-Header
-`oai-authenticated-user-email`. Dieser allein schützt eine außerhalb von Sites
-betriebene App nicht. Die Portierung muss Sitzung, Herkunft und Identität selbst
-prüfen. Kunden dürfen nur das eigene Angebot öffnen und persönlich annehmen;
-der Betreiber bleibt von der Kundenannahme ausgeschlossen.
+Der Administrationsimport prüft Ziel, Fingerabdruck und Ablauf, entschlüsselt auf IONOS und speichert erneut unter dem dortigen CONFIG_KEY. Bereits vorhandene Zugänge werden nicht überschrieben. Die tatsächliche Absenderdomain wird danach erneut lesend geprüft. Dabei wird keine Kundenmail versendet. Geheimnisse gehören weder in GitHub noch in Berichte.
 
-Die [Node-Dokumentation zu SQLite](https://nodejs.org/download/release/latest-jod/docs/api/sqlite.html)
-beschreibt die Dateidatenbank-API. Bestehende Tests nutzen bereits isoliertes
-SQLite. Das ist eine Grundlage, kein geprüfter Ersatz für die produktive Speicherung.
+## Google-Kalender
 
-## Google Kalender
+Erforderlich ist ein OAuth-Client vom Typ Webanwendung mit Rückruf:
 
-Im Projekt `white-gloss-detailing` ist CalDAV aktiviert. Die vollständig gelesene
-Liste der 39 aktivierten APIs enthält keine Google Calendar API. Die
-Anmeldedatenseite zeigt keine OAuth-Clients. PageSpeed- und Firebase-API-Schlüssel
-sind kein persönlicher Kalenderzugang.
+https://panel.white-gloss.de/auth/calendar/callback
 
-Im weiteren geöffneten Projekt `solar-center-510300-k5` existiert
-`Desktop-Client 1`. Dieser ist als Desktop-Anwendung angelegt; der vorgesehene
-IONOS-Serverfluss benötigt einen passenden Web-Client.
+Ein Desktop-Client passt nicht zu diesem HTTPS-Rückruf. Das Backend verwendet PKCE, einen einmaligen OAuth-Zustand, die geprüfte Kontoidentität und geschützte Access-/Refresh-Tokens. Rechte: Kontoidentität, Kalender-Metadaten lesen sowie Ereignisse in eigenen Kalendern lesen und bearbeiten. Vorgesehen ist das Geschäftskonto anfrage@white-gloss.de. Der OAuth-Veröffentlichungsstatus muss geprüft werden: Googles externer Testmodus kann Kalender-Refresh-Tokens nach sieben Tagen verfallen lassen.
 
-Vorgeschlagene Einrichtung, noch nicht durchgeführt:
+Nach Verbindung und lesender Prüfung werden bestehende Google-Belegungen vor der Terminbestätigung geprüft, einschließlich wiederkehrender und ganztägiger Einträge. Verbindliche Paneltermine erhalten eine stabile Google-ID. Verschiebungen aktualisieren denselben Eintrag; Stornierungen entfernen ausschließlich den eigenen zugeordneten Eintrag. Externe Google-Änderungen übernehmen keine Kundenannahme und ändern nicht automatisch die Auftragsvereinbarung.
 
-1. Google Calendar API im Projekt `white-gloss-detailing` aktivieren.
-2. OAuth-Zustimmungsbildschirm für das private Panel einrichten und die benötigten
-   Betreiberkonten zulassen; Teststatus und Tokenlebensdauer ausdrücklich prüfen.
-3. OAuth-Client vom Typ **Webanwendung** anlegen, nachdem die endgültige Paneladresse
-   und der Callback im Backend feststehen. Vorgeschlagener Callback:
-   `https://panel.white-gloss.de/auth/google/callback`.
-4. Anmeldung und Kalenderfreigabe getrennt behandeln: für die Anmeldung
-   `openid email profile`, für den zuerst lesenden Kalenderabgleich nur die
-   erforderlichen Leserechte. Schreibrechte erst für den konkret freigegebenen
-   Synchronisierungsumfang anfordern.
-5. Kontoinhaber meldet sich bei Google an und bestätigt die gezielte Freigabe.
-   Der Server erhält mit Offline-Zugriff einen Refresh-Token, speichert ihn
-   verschlüsselt und erneuert kurzlebige Access-Tokens selbst.
-6. Den vorgesehenen Kalender `anfrage@white-gloss.de` zunächst lesend prüfen.
-   Den eigentlichen Kalender-Synchronisierungsadapter danach implementieren und
-   mit freigegebenen synthetischen Terminen prüfen.
+Grundlage: [Google Ereignisse lesen](https://developers.google.com/workspace/calendar/api/v3/reference/events/list) und [Google Ereignisse anlegen](https://developers.google.com/workspace/calendar/api/v3/reference/events/insert).
 
-Der Calendar-Token steht nicht dauerhaft als fertiger Schlüssel in der
-Anmeldedatentabelle. Er entsteht bei der Google-Freigabe. Der bisherige
-`calendarToken` im Panel reicht für einen lesenden Providercheck; er bildet noch
-keinen dauerhaften OAuth- und Synchronisierungsadapter.
+## Qonto und WG-Nummern
 
-Offizielle Grundlage: [OAuth für Webserver](https://developers.google.com/identity/protocols/oauth2/web-server?hl=de)
-und [Kalenderzugriffsrechte](https://developers.google.com/workspace/calendar/api/auth).
+Der Organisationszugang nutzt Qontos API-Login und API-Schlüssel. Alle Seiten des Kunden- und Rechnungsbestands einschließlich importierter Rechnungen werden gelesen. Rechnungsnummern werden im vollständig gelesenen Bestand verglichen; kein erfundener Nummernfilter wird verwendet.
 
-## Website-Schlüssel und Adminzugang
+Vor dem ersten echten Auftrag ist der bisherige WG-Nummernstand einschließlich Buchungsbestand und Rechnungen einmalig nachweisbar abzugleichen. Die App setzt keinen Nummernstand zurück. Testaufträge verwenden getrennte TEST-Nummern.
 
-Die aktive Hauptwebsite liest `/etc/white-gloss/environment`. Dort muss der
-Administrator den tatsächlich konfigurierten `HUB_SYNC_TOKEN` prüfen; sein Wert
-wurde mit dem eingeschränkten SSH-Konto nicht gelesen. Die bisherige Panelprüfung
-weist den eingetragenen Schlüssel mit HTTP 401 zurück.
+Schlussrechnungen sind erst nach vollständigem Arbeitsabschluss und Rückgabe möglich. Der Betreiber prüft Rechnungskunde, vollständige Rechnungsadresse, Steuersatz, Zahlungskonto, Fälligkeit und Leistungen. Zuerst entsteht ein Entwurf. Nur bei exakter Übereinstimmung der Bruttosumme mit dem unveränderlichen Festpreis wird finalisiert. Qonto verwendet Nettopreise je Position; die Umrechnung erfolgt ohne Fließkommafehler. Rechnungserstellung setzt einen Auftrag nicht auf Bezahlt.
 
-IONOS zeigt im Cloud Panel den Zugang `root` und die Funktion
-**Initial-Passwort → Passwort anzeigen**. Für die normale Serverkonsole:
-**Infrastruktur → Server → My VPS → Aktionen → Remotekonsole öffnen**.
-Das Passwort wurde bei dieser Prüfung nicht eingeblendet oder gespeichert.
-Ein Initialpasswort kann inzwischen geändert worden sein.
+Unklare Antworten bleiben gegen erneute Erstellung gesperrt. Ein lesender Anbieterabgleich kann eine passende vorhandene Schlussrechnung zuordnen. Ein abweichender Entwurf bleibt zur Prüfung erhalten. Es werden keine Zahlungen, Überweisungen oder automatischen Rechnungsmails ausgelöst.
 
-Der vorhandene SSH-Benutzer darf mit sudo nur
-`/usr/local/sbin/white-gloss-deploy` ausführen. Für einen separaten Paneldienst
-ist daher eine normale administrative Einrichtung oder ein dafür gezielt
-bereitgestellter, begrenzter Zugang nötig. Die bestehende Berechtigungsgrenze
-und der Hauptwebsite-Helfer werden nicht als Umweg zur Geheimnisabfrage benutzt.
+Grundlage: [Qonto Authentifizierung](https://docs.qonto.com/get-started/business-api/authentication/introduction) und [Qonto Rechnung erstellen](https://docs.qonto.com/api-reference/business-api/expense-management/client-quotes-notes/client-invoices/create-a-client-invoice).
 
-Der gültige Hub-Schlüssel wird nach der Prüfung direkt geschützt im Panel
-gespeichert. Anschließend ausschließlich den lesenden Providercheck durchführen.
-Keine Website-Buchung bestätigen oder Statusänderung auslösen.
+## Zeitplan und Sicherung
 
-## Reihenfolge bis zum Umzug
+Der 15-Minuten-Lauf besitzt eine Datenbanksperre. Fotoübernahmen, Kalenderabgleiche und Mails sind pro Lauf begrenzt. Ein einzelner Anbieterfehler blockiert nicht die unabhängige Prüfung abgelaufener Angebote. Einwilligung, Versandsperren sowie die 72-/168-Stunden-Grenzen bleiben unverändert. Autoimport, Kalenderabgleich und Versand benötigen separate sichtbare Aktivierung. Unklare Versandresultate werden nicht automatisch wiederholt.
 
-1. Quellcode privat auf GitHub sichern und Prüfungen ohne Website-Server bestehen lassen.
-2. Eigenständigen Node-, Datenbank-, Speicher- und Anmeldeadapter umsetzen und
-   zunächst mit isolierten synthetischen Daten prüfen.
-3. Endgültige Adresse, Callback und Anbieterrechte konkret zur Freigabe vorlegen.
-4. Administrator richtet den getrennten IONOS-Dienst, HTTPS und Deployment-Weg ein.
-5. Laufzeitgeheimnisse geschützt einrichten; synthetischen Testbestand getrennt
-   übernehmen oder neu anlegen. Vor Datenübernahme Export, Verschlüsselung und
-   Wiederherstellung prüfen. Kein automatischer Import alter Website-Aufträge.
-6. Auf IONOS Anmeldung, Speicherung nach Neustart, private Dateien, Angebotsrollen,
-   SQLite-Transaktionen, Hintergrundlauf und Rücksetzung nachweisen.
-7. Anbieterzugriffe zuerst lesend prüfen. Reale Nachrichten, Annahmen und Rechnungen
-   erst nach gezielter Freigabe und vollständigem Nummernabgleich testen.
-8. Bestehende Sites-App erst nach einem geprüften und genehmigten Umzug ablösen.
+Die tägliche Sicherung erstellt eine konsistente SQLite-Kopie, prüft Integrität und Foto-Hashes und speichert ein Manifest samt geschützter Konfiguration. Unveränderliche Fotos werden über private Hardlinks gesichert und beanspruchen nicht täglich erneut ihren vollständigen Speicher. Fehlerhafte Sicherungen bleiben als unvollständig erkennbar. Eine isolierte synthetische Wiederherstellung wird ohne Website-Server geprüft. Die Serverkopie ist noch keine nachgewiesene externe Katastrophensicherung.
 
-Bis dahin läuft das veröffentlichte Panel weiterhin auf Sites. Ein privates
-GitHub-Repository oder ein grüner Build bedeutet noch keinen IONOS-Livebetrieb.
+## Abschlussnachweise
+
+Für betriebsbereit sind zusätzlich zum geprüften Code nötig: freigegebener Panelweg, aktiver Dienst und Timer, HTTPS/DNS, Betreiberanmeldung, persistente Speicherung, isolierter Kundenablauf sowie bestätigte Resend-, Google- und Qonto-Verbindungen. Echte Kundenmails, Rechnungen, Zahlungen und Kundenannahmen werden nicht als Tests verwendet.

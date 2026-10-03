@@ -1,0 +1,7 @@
+import {readFileSync,writeFileSync} from 'node:fs';
+import {randomBytes,createHash} from 'node:crypto';
+if(process.platform!=='linux'||process.getuid?.()!==0||!import.meta.url.startsWith('file:///srv/white-gloss-panel/releases/'))throw Error('Nur auf dem freigegebenen IONOS-Server ausführen.');
+const main=readFileSync('/etc/white-gloss/environment','utf8');let hub='';for(const line of main.split(/\r?\n/)){const match=/^HUB_SYNC_TOKEN=(.*)$/.exec(line.trim());if(match){hub=match[1];if(hub.startsWith('"')&&hub.endsWith('"'))hub=JSON.parse(hub);else if(hub.startsWith("'")&&hub.endsWith("'"))hub=hub.slice(1,-1);}}
+const values={NODE_ENV:'production',PANEL_BIND:'127.0.0.1',PANEL_PORT:'3101',PANEL_DATA_DIR:'/var/lib/white-gloss-panel/data',PANEL_ASSETS_DIR:'/srv/white-gloss-panel/current/dist/client',PANEL_ORIGIN:'https://panel.white-gloss.de',OWNER_EMAIL_SHA256:createHash('sha256').update('info@white-gloss.de').digest('hex'),CONFIG_KEY:randomBytes(32).toString('base64'),CALENDAR_OWNER_EMAIL:'anfrage@white-gloss.de',CALENDAR_ID:'anfrage@white-gloss.de',EMAIL_SENDER:'buchung@hub.white-gloss.de',...(hub?{HUB_SYNC_TOKEN:hub}:{})};
+writeFileSync('/etc/white-gloss-panel/environment',Object.entries(values).map(([key,value])=>key+'='+JSON.stringify(value)).join('\n')+'\n',{mode:0o600,flag:'wx'});
+console.log('Panelkonfiguration geschützt vorbereitet. Website-Schlüssel '+(hub?'übernommen.':'noch einzurichten.'));

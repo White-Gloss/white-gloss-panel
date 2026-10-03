@@ -1,0 +1,20 @@
+[Unit]
+Description=White Gloss private database and photo backup
+
+[Service]
+Type=oneshot
+User=white-gloss-panel
+Group=white-gloss-panel
+WorkingDirectory=/srv/white-gloss-panel/current
+EnvironmentFile=/etc/white-gloss-panel/environment
+ExecStart=/usr/bin/node server/backup.mjs
+TimeoutStartSec=10min
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/white-gloss-panel
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+MemoryMax=512M

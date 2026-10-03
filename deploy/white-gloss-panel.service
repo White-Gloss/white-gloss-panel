@@ -1,0 +1,34 @@
+[Unit]
+Description=White Gloss private operations panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=white-gloss-panel
+Group=white-gloss-panel
+WorkingDirectory=/srv/white-gloss-panel/current
+EnvironmentFile=/etc/white-gloss-panel/environment
+ExecStart=/usr/bin/node server/start.mjs
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/white-gloss-panel
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+MemoryMax=512M
+TasksMax=100
+
+[Install]
+WantedBy=multi-user.target

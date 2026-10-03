@@ -1,0 +1,11 @@
+[Unit]
+Description=White Gloss daily private backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 Europe/Berlin
+Persistent=true
+RandomizedDelaySec=60
+Unit=white-gloss-panel-backup.service
+
+[Install]
+WantedBy=timers.target

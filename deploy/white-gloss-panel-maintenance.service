@@ -1,0 +1,25 @@
+[Unit]
+Description=White Gloss independent background processing
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=white-gloss-panel
+Group=white-gloss-panel
+WorkingDirectory=/srv/white-gloss-panel/current
+EnvironmentFile=/etc/white-gloss-panel/environment
+ExecStart=/usr/bin/node server/maintenance.mjs
+TimeoutStartSec=10min
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/white-gloss-panel
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+MemoryMax=512M

@@ -30,3 +30,5 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: node --check dist/server/index.js
+      - run: bash -n deploy/install-panel.sh
