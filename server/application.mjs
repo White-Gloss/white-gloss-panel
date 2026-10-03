@@ -23,7 +23,14 @@ export async function createApplication(env){
       const identity=await sessionIdentity(env,request);
       if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/angebot\/[a-f0-9]{64}$/.test(url.pathname))login.searchParams.set('returnTo',url.pathname);return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
       const isOwner=digest(identity)===env.OWNER_EMAIL_SHA256;
-      if(url.pathname==='/auth/calendar/start'&&request.method==='POST'){if(request.headers.get('origin')!==env.PANEL_ORIGIN)return errorResponse('Ungültiger Ursprung.',403);return calendarAuthorize(env,identity);}
+      if(url.pathname==='/auth/calendar/start'&&request.method==='POST'){
+        if(request.headers.get('origin')!==env.PANEL_ORIGIN)return errorResponse('Ungültiger Ursprung.',403);
+        const authorization=await calendarAuthorize(env,identity);
+        // Complete the same-origin request before navigating to Google's consent page.
+        // This avoids submitting a cross-origin redirect through a generated form.
+        if(request.headers.get('content-type')?.startsWith('application/json'))return new Response(JSON.stringify({authorizationUrl:authorization.headers.get('location')}),{headers:{'Content-Type':'application/json'}});
+        return authorization;
+      }
       if(url.pathname==='/auth/calendar/callback'&&request.method==='GET')return calendarCallback(env,request,identity);
       if(!isOwner&&!url.pathname.startsWith('/angebot/')&&!url.pathname.startsWith('/api/offer/'))return errorResponse('Dieser Zugang ist für das persönliche Angebot vorgesehen.',403);
       if(isOwner&&url.pathname==='/api/check'&&request.method==='POST'){
