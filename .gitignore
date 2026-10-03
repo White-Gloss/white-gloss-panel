@@ -14,3 +14,6 @@ uploads/
 *.db-*
 *.pem
 *.key
+*verschluesselt.json
+client_secret*.json
+migration-public.json

@@ -47,12 +47,15 @@ veröffentlichten Stand.
 
 ## Betriebsstand
 
-Der Ablauf und die manuelle Auswahl von Paketen, Extras und Abholung sind
-implementiert. Die letzte private Sites-Veröffentlichung basiert auf
-`56d73d76e60c0a6b3e4265e75ab29c3f1fda5459`.
+Der Ablauf, geschützte Buchungsfotos und die manuelle Auswahl sowie Anpassung von
+Paketen, Extras und Abholung sind implementiert. Die private Sites-Veröffentlichung
+und der separate IONOS-Release müssen jeweils ihrem tatsächlich veröffentlichten
+Commit zugeordnet werden.
 
-Website-Schlüssel, dauerhafter Google-Kalenderzugang, Qonto und Nummernabgleich sowie
-ein nachgewiesener unabhängiger Hintergrundlauf bleiben Einrichtungsaufgaben.
+Resend und Qonto sind im bisherigen privaten Panel hinterlegt; die neue IONOS-Laufzeit
+prüft übertragene Zugänge erneut. Website-Schlüssel, dauerhafter Google-Kalenderzugang,
+Nummernabgleich und ein nachgewiesener unabhängiger Hintergrundlauf bleiben
+Einrichtungsaufgaben.
 Echte Rechnungserstellung, Kalender-Synchronisierung und Angebotsversand sind
 noch gesperrt. Ein bestandener Test oder ein GitHub-Upload beweist keinen
 funktionierenden Anbieterzugriff oder IONOS-Betrieb.

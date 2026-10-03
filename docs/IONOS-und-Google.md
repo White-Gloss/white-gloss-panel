@@ -27,17 +27,19 @@ Pakete, Extras, eigene Leistungen und Abholung werden einzeln angepasst und serv
 
 Buchungsbilder und Videos kommen ausschließlich aus der freigegebenen Hub-Fotoabfrage und werden geschützt auf IONOS übernommen. Wiederholungen erzeugen keine doppelten Kopien. Abgelaufene Website-Links beeinträchtigen gespeicherte Aufnahmen nicht. Manuelle Aufträge können eigene Buchungsbilder erhalten. Fahrzeugprotokolle verlangen weiterhin ihre eigenen Zustandsfotos sowie zwei persönlich geleistete, dem angezeigten Protokoll zugeordnete Unterschriften.
 
-## Resend-Zugang übertragen
+## Vorhandene Anbieterzugänge übertragen
 
-IONOS erzeugt einen RSA-Schlüssel; nur dessen öffentlicher Teil kommt in die private Sites-Konfiguration. Sites verschlüsselt den vorhandenen Resend-Zugang mit AES-GCM und RSA-OAEP für genau dieses Panel. Das Paket gilt 24 Stunden. Der private Schlüssel bleibt auf dem Server.
+IONOS erzeugt einen RSA-Schlüssel; nur dessen öffentlicher Teil kommt in die private Sites-Konfiguration. Sites verschlüsselt den vorhandenen geprüften Resend-Zugang und gegebenenfalls den geprüften Qonto-Zugang mit AES-GCM und RSA-OAEP für genau dieses Panel. Das Paket gilt 24 Stunden. Der private Schlüssel bleibt auf dem Server. Übertragung erfolgt erst nach ausdrücklicher Freigabe dieser Zugangsdaten und des IONOS-Ziels.
 
-Der Administrationsimport prüft Ziel, Fingerabdruck und Ablauf, entschlüsselt auf IONOS und speichert erneut unter dem dortigen CONFIG_KEY. Bereits vorhandene Zugänge werden nicht überschrieben. Die tatsächliche Absenderdomain wird danach erneut lesend geprüft. Dabei wird keine Kundenmail versendet. Geheimnisse gehören weder in GitHub noch in Berichte.
+Der Administrationsimport `import-connections` prüft Ziel, Fingerabdruck und Ablauf, entschlüsselt auf IONOS und speichert erneut unter dem dortigen CONFIG_KEY. Bereits vorhandene Zugänge werden nicht überschrieben. Frühere Verbindungsflags werden zurückgesetzt; tatsächliche Absenderdomain und Qonto-Organisation werden erneut lesend geprüft. Dabei wird keine Kundenmail versendet. Geheimnisse gehören weder in GitHub noch in Berichte.
 
 ## Google-Kalender
 
 Erforderlich ist ein OAuth-Client vom Typ Webanwendung mit Rückruf:
 
 https://panel.white-gloss.de/auth/calendar/callback
+
+Die offizielle Webclient-JSON wird lokal mit `scripts/seal-google-client.mjs` und dem öffentlichen Serverschlüssel verschlüsselt. Nur die verschlüsselte Datei gelangt auf IONOS. `import-google-client` prüft den gesonderten Paketzweck und den exakten Rückruf; das Clientgeheimnis bleibt in der geschützten Datenbank. Ein bestehender Webclient wird nicht überschrieben.
 
 Ein Desktop-Client passt nicht zu diesem HTTPS-Rückruf. Das Backend verwendet PKCE, einen einmaligen OAuth-Zustand, die geprüfte Kontoidentität und geschützte Access-/Refresh-Tokens. Rechte: Kontoidentität, Kalender-Metadaten lesen sowie Ereignisse in eigenen Kalendern lesen und bearbeiten. Vorgesehen ist das Geschäftskonto anfrage@white-gloss.de. Der OAuth-Veröffentlichungsstatus muss geprüft werden: Googles externer Testmodus kann Kalender-Refresh-Tokens nach sieben Tagen verfallen lassen.
 

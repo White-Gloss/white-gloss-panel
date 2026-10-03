@@ -1,0 +1,12 @@
+import {readFileSync,writeFileSync} from 'node:fs';
+import {isAbsolute} from 'node:path';
+import {sealMigration} from '../src/migration.mjs';
+const [clientPath,publicPath,outputPath]=process.argv.slice(2);
+if(![clientPath,publicPath,outputPath].every(path=>path&&isAbsolute(path))||!outputPath.endsWith('verschluesselt.json'))throw Error('Absolute Dateipfade und verschlüsseltes Ausgabeziel erforderlich.');
+const clientBytes=readFileSync(clientPath),publicBytes=readFileSync(publicPath);if(clientBytes.length>50000||publicBytes.length>10000)throw Error('Konfiguration zu groß.');
+const client=JSON.parse(clientBytes.toString('utf8')).web,server=JSON.parse(publicBytes.toString('utf8')),redirectUri=server.targetOrigin+'/auth/calendar/callback';
+if(!client||!Array.isArray(client.redirect_uris)||!client.redirect_uris.includes(redirectUri)||!client.client_id||!client.client_secret)throw Error('Google-Webclient mit passendem HTTPS-Rückruf erforderlich.');
+const packet=await sealMigration({googleClientId:client.client_id,googleClientSecret:client.client_secret,redirectUri},server.publicKey,server.targetOrigin,Date.now(),'google-webclient');
+if(packet.fingerprint!==server.fingerprint)throw Error('Serverschlüssel stimmt nicht mit dem Fingerabdruck überein.');
+writeFileSync(outputPath,JSON.stringify(packet)+'\n',{mode:0o600,flag:'wx'});
+console.log(JSON.stringify({ok:true,targetOrigin:server.targetOrigin,fingerprint:packet.fingerprint,file:outputPath}));

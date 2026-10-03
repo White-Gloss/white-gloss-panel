@@ -10,7 +10,7 @@ erlaubt. Vorhandene isolierte Linux-GitHub-Prüfungen dürfen dort laufen.
 
 ## Betrieb und Veröffentlichung
 
-Der aktuelle Code ist ein Sites-Worker, noch kein eigenständiger IONOS-Dienst.
+Der aktuelle Code enthält einen Sites-Worker und eine separate IONOS-Laufzeit.
 Vor einer Migration `docs/IONOS-und-Google.md` lesen und den aktuellen Zustand
 erneut prüfen. Keine vermeintliche Node-Startanweisung erfinden.
 

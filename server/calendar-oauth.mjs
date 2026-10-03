@@ -3,17 +3,22 @@ import {settings,setting,protect,unprotect} from '../src/worker.mjs';
 import {AppError,need} from '../src/domain.mjs';
 import {digest} from './auth.mjs';
 const calendarScopes=['openid','email','https://www.googleapis.com/auth/calendar.calendars.readonly','https://www.googleapis.com/auth/calendar.events.owned'];
+async function calendarCredentials(env){
+  if(env.GOOGLE_CLIENT_ID&&env.GOOGLE_CLIENT_SECRET)return {id:env.GOOGLE_CLIENT_ID,secret:env.GOOGLE_CLIENT_SECRET};
+  const config=await settings(env);need(config.googleClientId&&config.googleClientSecret,'Google-Webclient ist noch nicht eingerichtet.',409);
+  return {id:config.googleClientId,secret:await unprotect(env,config.googleClientSecret)};
+}
 export async function calendarOAuthSchema(env){await env.DB.prepare('CREATE TABLE IF NOT EXISTS calendar_oauth_states(hash TEXT PRIMARY KEY,owner_hash TEXT NOT NULL,verifier TEXT NOT NULL,expires_at INTEGER NOT NULL)').run();}
 export async function calendarAuthorize(env,email,now=Date.now()){
   need(digest(email)===env.OWNER_EMAIL_SHA256,'Nur der Betreiber darf den Kalender verbinden.',403);
-  need(env.GOOGLE_CLIENT_ID&&env.GOOGLE_CLIENT_SECRET,'Google-Webclient ist noch nicht eingerichtet.',409);
+  const client=await calendarCredentials(env);
   const state=randomBytes(32).toString('hex'),verifier=randomBytes(48).toString('base64url');
   await env.DB.prepare('INSERT INTO calendar_oauth_states VALUES(?,?,?,?)').bind(digest(state),digest(email),await protect(env,verifier),now+600000).run();
   const url=new URL('https://accounts.google.com/o/oauth2/v2/auth');
-  for(const [key,value] of Object.entries({client_id:env.GOOGLE_CLIENT_ID,redirect_uri:env.PANEL_ORIGIN+'/auth/calendar/callback',response_type:'code',scope:calendarScopes.join(' '),access_type:'offline',prompt:'consent',state,code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256',login_hint:env.CALENDAR_OWNER_EMAIL??'anfrage@white-gloss.de'}))url.searchParams.set(key,value);
+  for(const [key,value] of Object.entries({client_id:client.id,redirect_uri:env.PANEL_ORIGIN+'/auth/calendar/callback',response_type:'code',scope:calendarScopes.join(' '),access_type:'offline',prompt:'consent',state,code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256',login_hint:env.CALENDAR_OWNER_EMAIL??'anfrage@white-gloss.de'}))url.searchParams.set(key,value);
   return Response.redirect(url,303);
 }
-async function exchange(env,params){const result=await fetch('https://oauth2.googleapis.com/token',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({...params,client_id:env.GOOGLE_CLIENT_ID,client_secret:env.GOOGLE_CLIENT_SECRET})});const data=await result.json();need(result.ok&&typeof data.access_token==='string'&&Number.isFinite(data.expires_in)&&data.expires_in>0,'Google hat keinen verwendbaren Kalenderzugang bestätigt.',502);return data;}
+async function exchange(env,params){const client=await calendarCredentials(env);const result=await fetch('https://oauth2.googleapis.com/token',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({...params,client_id:client.id,client_secret:client.secret})});const data=await result.json();need(result.ok&&typeof data.access_token==='string'&&Number.isFinite(data.expires_in)&&data.expires_in>0,'Google hat keinen verwendbaren Kalenderzugang bestätigt.',502);return data;}
 export async function calendarCallback(env,request,email,now=Date.now()){
   need(email&&digest(email)===env.OWNER_EMAIL_SHA256,'Bitte zuerst als Betreiber anmelden.',403);
   const url=new URL(request.url),state=url.searchParams.get('state');need(/^[a-f0-9]{64}$/.test(state??''),'OAuth-Zustand ungültig.',403);
