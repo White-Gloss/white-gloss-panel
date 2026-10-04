@@ -6,6 +6,6 @@ const qonto=readFileSync('src/qonto.mjs','utf8').replace(/^import .*;\r?\n/gm,''
 const calendar=readFileSync('src/calendar.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');
 const migration=readFileSync('src/migration.mjs','utf8').replace(/export /g,'');const assessment=readFileSync('src/assessment.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');const catalog=readFileSync('src/catalog.mjs','utf8').replace(/export /g,'');const domain=readFileSync('src/domain.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');const schema=readFileSync('src/schema.mjs','utf8').replace(/export /g,'');const worker=readFileSync('src/worker.mjs','utf8').replace(/^import .*;\r?\n/gm,'');
 writeFileSync('dist/server/index.js',company+'\n'+catalog+'\n'+assessment+'\n'+domain+'\n'+calendar+'\n'+qonto+'\n'+schema+'\n'+migration+'\n'+worker);
-for(const f of ['index.html','app.js','style.css','offer.js','manual.js','pricing.js','auth.js','password.js','protocol-photos.js','invoice.js','migration.js'])copyFileSync('public/'+f,'dist/client/'+f);
+for(const f of ['index.html','app.js','style.css','offer.js','manual.js','pricing.js','auth.js','password.js','protocol-photos.js','invoice.js','migration.js','mixing-calculator.js','dilution.mjs'])copyFileSync('public/'+f,'dist/client/'+f);
 copyFileSync('src/catalog.mjs','dist/client/catalog.mjs');copyFileSync('src/assessment.mjs','dist/client/assessment.mjs');
 copyFileSync('.openai/hosting.json','dist/.openai/hosting.json');console.log('Build abgeschlossen. Kein Server gestartet.');

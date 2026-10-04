@@ -12,6 +12,7 @@ Jede Änderung benötigt einen eigenen geprüften IONOS-Release und einen Live-N
 - [Bisherige private Sites-Kopie](https://white-gloss-mein-panel.info261616.chatgpt.site/)
 - [IONOS und Google Einrichtung](docs/IONOS-und-Google.md)
 - [Passwort, Kunden-PIN und Protokoll-PDF](docs/Passwort-PIN-und-Protokoll-PDF.md)
+- [Mischverhältnisrechner](docs/Mischrechner.md)
 
 ## Aufbau
 

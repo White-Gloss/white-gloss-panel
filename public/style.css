@@ -9,3 +9,45 @@
 .price-line{display:grid;grid-template-columns:minmax(140px,1fr) minmax(180px,2fr) 125px auto;gap:14px;align-items:start;padding:16px 0;border-bottom:1px solid var(--line)}.price-line textarea{min-height:65px}.price-line>button{margin-top:26px}.price-breakdown>div{display:flex;justify-content:space-between;gap:20px;padding:14px 0;border-bottom:1px solid var(--line);font-size:13px}.price-breakdown small{display:block;color:var(--muted);margin-top:5px;white-space:pre-wrap}.price-breakdown strong{white-space:nowrap}@media(max-width:900px){.price-line{grid-template-columns:1fr 1fr}.price-line>button{margin-top:26px}}@media(max-width:480px){.price-line{grid-template-columns:1fr}.price-line>button{margin-top:0}}
 
 .photos video{width:min(320px,100%);max-height:220px;border-radius:8px}.photos img{width:150px;height:110px}
+
+.sidebar{overflow-y:auto}
+.mix-layout{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:24px;max-width:1050px;align-items:start}
+.mix-fieldset{border:0;padding:0;margin:0 0 22px;min-width:0}
+.mix-fieldset legend{font-size:12px;font-weight:600;color:#5d6c7e;padding:0;margin-bottom:10px}
+.mix-basis{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mix-basis button{line-height:1.5;padding:10px 8px;font-size:12px}
+.mix-basis button[aria-pressed=true],.mix-presets button[aria-pressed=true]{border-color:#7e9bb6;background:var(--pale);color:var(--blue)}
+.mix-amount-row{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:14px}
+.mix-amount-row label{margin-bottom:12px}
+.mix-amount-row input{font-size:19px;font-variant-numeric:tabular-nums;padding:9px 12px}
+.mix-amount-row select{padding:12px 8px}
+.mix-presets{display:flex;flex-wrap:wrap;gap:7px}
+.mix-presets button{font-size:11px;padding:7px 10px;font-variant-numeric:tabular-nums}
+.mix-ratio-fieldset{margin-top:26px;margin-bottom:18px}
+.mix-ratio-row{display:grid;grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr);gap:8px;align-items:center}
+.mix-ratio-row label{margin-bottom:0}
+.mix-ratio-row input{font-size:19px;font-variant-numeric:tabular-nums;text-align:center;padding:9px 12px}
+.mix-colon{font-size:25px;text-align:center;padding-top:18px;color:var(--muted)}
+.mix-help{font-size:11px;line-height:1.7;color:var(--muted);margin:12px 0 15px}
+.mix-reset{color:var(--muted);border:0;padding:7px 0;background:transparent}
+.mix-reset:hover{background:transparent;color:var(--ink)}
+.mix-result-card{background:linear-gradient(145deg,#fff,#f4f7fa)}
+.mix-result-mark{font-size:20px;color:#728aa2}
+.mix-result-description{font-size:12px;line-height:1.7;color:#687c8e;margin:0 0 22px}
+.mix-results{margin:0}
+.mix-results>div{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 0;border-bottom:1px solid #dfe7ed}
+.mix-results dt{font-size:13px;color:#607386}
+.mix-results dd{margin:0;text-align:right;font-size:24px;letter-spacing:-.5px;font-weight:500;color:#3d576f;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.mix-results .mix-concentrate-result{padding-top:0}
+.mix-concentrate-result dt,.mix-concentrate-result dd{color:var(--blue)}
+.mix-results .mix-total-result{border:0;padding-top:22px;padding-bottom:6px}
+.mix-total-result dt{max-width:140px;font-weight:600;color:var(--ink)}
+.mix-total-result dd{font-size:20px;color:var(--ink)}
+.mix-summary{display:grid;gap:6px;margin-top:24px;font-size:11px;line-height:1.7;color:#73879a}
+.mix-summary strong{font-weight:500;color:#586f84}
+.mix-manufacturer{border-top:1px solid #dfe7ed;margin:0 23px;padding:19px 0;font-size:11px;line-height:1.8;color:#718295}
+.mix-manufacturer strong{display:block;color:#53677c;font-weight:600}
+.mix-manufacturer p{margin:5px 0 0}
+.mix-error{padding:0;min-height:100px}
+@media(max-width:1200px){.mix-layout{grid-template-columns:minmax(0,1fr);max-width:650px}.mix-result-card .card-body{padding-bottom:22px}}
+@media(max-width:480px){.mix-layout{gap:18px}.mix-basis{grid-template-columns:1fr}.mix-amount-row{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:10px}.mix-amount-row select{font-size:12px}.mix-ratio-row{gap:4px}.mix-results dd{font-size:21px}.mix-total-result dd{font-size:18px}.mix-results dt{font-size:12px}.mix-manufacturer{margin:0 18px}.mix-result-description{margin-bottom:18px}}
