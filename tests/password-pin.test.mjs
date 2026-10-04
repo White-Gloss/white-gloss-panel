@@ -84,6 +84,8 @@ test('customer access refuses foreign, synthetic and revoked offers',async t=>{
 });
 test('offer email includes the personal link and its distinct PIN in one email and is not resent',async t=>{
   const {env}=await fixture(t),order=await offer(env),messages=[];
+  order.appointmentOptions=[{id:'synthetic-option',start:'2099-12-01T10:00:00.000Z',end:'2099-12-01T12:00:00.000Z',duration:120,delivery:'Kunde bringt',location:'TEST · Betrieb'}];order.appointmentOptionsVersion=1;
+  await env.DB.prepare("UPDATE orders SET data=?,version=version+1,action='Synthetic proposal fixture' WHERE id=?").bind(JSON.stringify(order),order.id).run();order.version++;
   await setting(env,'resendKey',await protect(env,'synthetic-api-key'));await setting(env,'emailVerified',true);await setting(env,'sendApproved',true);await setting(env,'sender','test@example.invalid');
   t.mock.method(globalThis,'fetch',async(url,options)=>{assert.equal(url,'https://api.resend.com/emails');messages.push(JSON.parse(options.body));return new Response(JSON.stringify({id:'synthetic-message'}));});
   await providerOperations.action(env,order,'sendOffer',{});assert.equal(messages.length,1);assert.deepEqual(messages[0].to,[customer]);assert.match(messages[0].text,/PIN: \d{6}/);

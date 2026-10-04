@@ -51,3 +51,28 @@
 .mix-error{padding:0;min-height:100px}
 @media(max-width:1200px){.mix-layout{grid-template-columns:minmax(0,1fr);max-width:650px}.mix-result-card .card-body{padding-bottom:22px}}
 @media(max-width:480px){.mix-layout{gap:18px}.mix-basis{grid-template-columns:1fr}.mix-amount-row{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:10px}.mix-amount-row select{font-size:12px}.mix-ratio-row{gap:4px}.mix-results dd{font-size:21px}.mix-total-result dd{font-size:18px}.mix-results dt{font-size:12px}.mix-manufacturer{margin:0 18px}.mix-result-description{margin-bottom:18px}}
+
+.appointment-options-section{margin-top:26px;padding-top:2px;border-top:1px solid var(--line)}
+.appointment-options-section>.hint{max-width:800px;margin-bottom:20px}
+.appointment-option-row{min-width:0;margin:0 0 18px;padding:17px 18px 18px;border:1px solid #dce5ed;border-radius:11px;background:#fbfcfe}
+.appointment-option-row legend{padding:0 7px;font-size:12px;font-weight:600;color:var(--blue)}
+.appointment-option-row .grid2{gap:0 18px}
+.appointment-option-row label{margin-bottom:14px}
+.appointment-options-preview{display:grid;gap:12px;margin:18px 0}
+.appointment-stored{display:grid;gap:7px;margin-bottom:18px;border:1px solid #dce5ed;border-radius:10px;padding:18px;background:#f4f7fa;font-size:12px;line-height:1.7;color:#607386;overflow-wrap:anywhere}
+.appointment-stored strong{color:#304b65;font-size:14px;font-weight:600}
+.appointment-time{display:block;font-variant-numeric:tabular-nums}
+.appointment-location{display:block;white-space:pre-wrap;overflow-wrap:anywhere}
+.offer-appointment-choices{border:0;min-width:0;margin:24px 0 0;padding:0}
+.offer-appointment-choices legend{padding:0;color:var(--ink);font-size:15px;font-weight:600}
+.offer-appointment-choices>.hint{margin:10px 0 17px}
+.offer-appointment-option{display:flex;align-items:flex-start;gap:13px;border:1px solid #dce5ed;border-radius:11px;padding:17px;margin-bottom:12px;background:#fafbfd;cursor:pointer;line-height:1.7}
+.offer-appointment-option:hover{border-color:#97acc2;background:#f4f7fa}
+.offer-appointment-option:has(input:checked){border-color:#6385a5;background:#edf3f8;box-shadow:0 0 0 1px #6385a5}
+.offer-appointment-option>span{display:grid;gap:4px;min-width:0}
+.offer-appointment-option strong{font-size:13px;font-weight:600;color:#304b65}
+.offer-appointment-option input[type=radio]{accent-color:var(--blue);width:18px;height:18px;flex:0 0 18px;padding:0;margin:3px 0 0}
+.offer-selected-appointment{margin-top:21px;border-left:3px solid #6385a5;background:#edf3f8;border-radius:0 9px 9px 0;padding:15px 18px;font-size:12px;line-height:1.8;display:grid;gap:4px;color:#496780}
+.offer-selected-appointment>.sectiontitle{margin:0 0 4px;font-size:11px;color:#71849a}
+.offer-selected-appointment strong{font-weight:600}
+@media(max-width:480px){.appointment-option-row{padding:14px}.appointment-stored{padding:15px}.offer-appointment-option{padding:14px;gap:10px}.offer-appointment-option strong{font-size:12px}.offer-selected-appointment{padding:13px 15px}}
