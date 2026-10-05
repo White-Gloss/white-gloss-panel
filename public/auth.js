@@ -18,7 +18,7 @@ recovery.addEventListener('click',()=>useEmail(true));
 authForm.addEventListener('submit',async event=>{
   event.preventDefault();const button=authForm.querySelector('button');button.disabled=true;authMessage.textContent='';
   try{
-    const body=authToken?{token:authToken,pin:document.querySelector('#auth-pin')?.value}:emailMode?{email:document.querySelector('#auth-email').value,returnTo:authReturn}:{email:document.querySelector('#auth-email').value,password:document.querySelector('#auth-password').value};
+    const body=authToken?{token:authToken,pin:document.querySelector('#auth-pin')?.value}:emailMode?{email:document.querySelector('#auth-email').value,returnTo:authReturn}:{email:document.querySelector('#auth-email').value,password:document.querySelector('#auth-password').value,returnTo:authReturn};
     const result=await fetch(authToken?'/auth/redeem':emailMode?'/auth/request':'/auth/password/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const data=await result.json();if(!result.ok){if(data.pinRequired)requirePin();throw Error(data.error);}
     if(data.returnTo)location.replace(data.returnTo);else authMessage.textContent=data.message;

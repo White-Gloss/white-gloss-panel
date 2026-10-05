@@ -96,6 +96,7 @@ export default {
     await init(env);
     if(u.pathname.startsWith('/api/offer/')){need(env.CUSTOMER_ACCESS_APPROVED==='true','Externe Kundenannahme ist noch gesperrt. Sichere Freigabe erforderlich.',503);return json(await offer(env,request,u.pathname.split('/').pop()));}
     await owner(request,env);
+    if(request.method==='GET'&&u.pathname==='/api/order')return json(await getOrder(env,u.searchParams.get('id')));
     if(request.method==='GET'&&u.pathname==='/api/calendar.ics'){const rows=await env.DB.prepare('SELECT * FROM orders ORDER BY updated_at DESC').all();const synthetic=u.searchParams.get('test')==='true';return new Response(calendarExport(rows.results.map(parse).filter(o=>o.synthetic===synthetic)),{headers:{...security,'Content-Type':'text/calendar; charset=utf-8','Content-Disposition':'attachment; filename=white-gloss-termine.ics'}});}
     if(request.method==='GET'&&u.pathname==='/api/bookingphotos'&&env.operations)return json(await env.operations.endpoint(env,u));if(request.method==='GET'&&u.pathname==='/api/qonto/clients'&&env.operations)return json(await env.operations.endpoint(env,u));if(request.method==='GET'&&u.pathname==='/api/state')return json(await state(env));
     if(request.method==='GET'&&u.pathname==='/api/audit'){return json((await env.DB.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT 500').all()).results);}
@@ -124,7 +125,7 @@ export default {
       if(b.action==='cancel')extra.push(env.DB.prepare("UPDATE jobs SET state='cancelled',detail='Auftrag vor Versand storniert; keine Bestätigungsmail',updated_at=? WHERE order_id=? AND kind='appointment-confirmation' AND state IN ('queued','failed') AND EXISTS(SELECT 1 FROM orders WHERE id=? AND version=? AND json_extract(data,'$.operationId')=?)").bind(new Date().toISOString(),o.id,o.id,o.version+1,operationId));
       if(b.action==='confirm'){const token=Array.from(crypto.getRandomValues(new Uint8Array(32))).map(x=>x.toString(16).padStart(2,'0')).join('');updated.offerToken=token;extra.push(env.DB.prepare("INSERT INTO offer_tokens(hash,order_id,expires_at) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM orders WHERE id=? AND version=? AND json_extract(data,'$.operationId')=?)").bind(await hash(token),o.id,updated.offer.expiresAt,o.id,o.version+1,operationId));}
       if(['intake','return'].includes(b.action)&&env.operations?.protocolQueue)extra.push(...env.operations.protocolQueue(env,updated,b.action,operationId,o.version+1));
-      const saved=await saveOrder(env,updated,o.version,b.action,'owner',extra);
+      const saved=await saveOrder(env,updated,o.version,b.action,env.CONTROL_AGENT_ACTOR??'owner',extra);
       if(['intake','return'].includes(b.action)&&env.operations?.protocolDelivery){try{saved.protocolDelivery=await env.operations.protocolDelivery(env,saved.id,b.action);}catch{saved.protocolDelivery={state:'queued',message:'Protokoll und Unterschriften sind gespeichert. Der PDF-Versand steht zur Prüfung aus.'};}}
       return json(saved);}
     throw new AppError('Funktion nicht gefunden.',404);

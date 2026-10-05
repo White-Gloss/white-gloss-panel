@@ -1,6 +1,7 @@
 import {mkdirSync,readFileSync,writeFileSync,copyFileSync,rmSync} from 'node:fs';
 rmSync('dist',{recursive:true,force:true});mkdirSync('dist/server',{recursive:true});mkdirSync('dist/client',{recursive:true});mkdirSync('dist/.openai',{recursive:true});
 await import('./build-pdf.mjs');
+await import('./build-agent.mjs');
 const company=readFileSync('src/company.mjs','utf8').replace(/export /g,'');
 const qonto=readFileSync('src/qonto.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');
 const calendar=readFileSync('src/calendar.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');
