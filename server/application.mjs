@@ -55,7 +55,11 @@ export async function createApplication(env){
       return worker.fetch(trusted,env);
     }catch(error){return errorResponse(error instanceof AppError?error.message:'Verbindung oder Speicherung fehlgeschlagen. Kein Erfolg wurde bestätigt.',error instanceof AppError?error.status:500);}
   };
-  return {env,async fetch(request){const result=await handle(request);const secured=new Response(result.body,{status:result.status,headers:result.headers});for(const [key,value] of Object.entries(lockedHeaders))secured.headers.set(key,value);return secured;}};
+  return {env,async fetch(request){const result=await handle(request);const secured=new Response(result.body,{status:result.status,headers:result.headers});for(const [key,value] of Object.entries(lockedHeaders))secured.headers.set(key,value);
+    // Native consent/revoke forms need their real same-origin Origin header.
+    // Keep referrers private across origins, including the OAuth callback.
+    if(request.method==='GET'&&new URL(request.url).pathname==='/agent/connect'&&result.status===200&&result.headers.get('content-type')?.startsWith('text/html'))secured.headers.set('Referrer-Policy','same-origin');
+    return secured;}};
 }
 export async function configureFromEnvironment(env){await init(env);const old=await settings(env);const secrets={HUB_SYNC_TOKEN:'hubKey',RESEND_API_KEY:'resendKey',QONTO_API_KEY:'qontoKey'};for(const [key,settingKey] of Object.entries(secrets))if(env[key]&&!old[settingKey])await setting(env,settingKey,await protect(env,env[key]));for(const [key,settingKey] of Object.entries({EMAIL_SENDER:'sender',QONTO_LOGIN:'qontoLogin',CALENDAR_ID:'calendarId',REVIEW_URL:'reviewUrl'}))if(env[key]&&old[settingKey]===undefined)await setting(env,settingKey,env[key]);await setting(env,'standaloneAuth',true);}
 /** @returns {Promise<any>} */
