@@ -36,12 +36,16 @@ test('MCP discovery is public but cookie, forged identity and absent bearer cann
 test('native agent forms retain same-origin Origin without exposing cross-origin referrers or accepting opaque origins',async t=>{
  const {e,app,cookie,csrf}=await oauth(t,'panel:read');
  const page=await app.fetch(new Request(origin+'/agent/connect',{headers:{cookie}}));assert.equal(page.status,200);assert.equal(page.headers.get('referrer-policy'),'same-origin');
- for(const path of ['/healthz','/auth/login','/.well-known/oauth-authorization-server'])assert.equal((await app.fetch(new Request(origin+path))).headers.get('referrer-policy'),'no-referrer');
- assert.equal((await app.fetch(new Request(origin+'/agent/connect'))).headers.get('referrer-policy'),'no-referrer');
+ const csp=page.headers.get('content-security-policy');
+ assert.equal(csp.split('; ').at(-1),"form-action 'self' https://chatgpt.com/connector_platform_oauth_redirect https://chatgpt.com/connector/oauth/");
+ for(const path of ['/healthz','/auth/login','/.well-known/oauth-authorization-server','/agent/connect']){
+  const restricted=await app.fetch(new Request(origin+path));assert.equal(restricted.headers.get('referrer-policy'),'no-referrer');
+  assert.equal(restricted.headers.get('content-security-policy'),csp.replace("form-action 'self' https://chatgpt.com/connector_platform_oauth_redirect https://chatgpt.com/connector/oauth/","form-action 'self' https://accounts.google.com"));
+ }
  const grant=(await e.DB.prepare('SELECT id FROM agent_grants').first()).id;
  for(const claimedOrigin of [null,'null','https://evil.example.invalid'])for(const path of ['/agent/oauth/consent','/agent/oauth/revoke-grant']){
   const request=form(path,{csrf,decision:'approve',id:grant},cookie);if(claimedOrigin===null)request.headers.delete('origin');else request.headers.set('origin',claimedOrigin);
-  const r=await app.fetch(request);assert.equal(r.status,403);assert.equal(r.headers.get('referrer-policy'),'no-referrer');
+  const r=await app.fetch(request);assert.equal(r.status,403);assert.equal(r.headers.get('referrer-policy'),'no-referrer');assert.ok(!r.headers.get('content-security-policy').includes('chatgpt.com'));
  }
  assert.equal((await e.DB.prepare('SELECT COUNT(*) n FROM agent_grants').first()).n,1);assert.equal((await e.DB.prepare('SELECT revoked FROM agent_grants WHERE id=?').bind(grant).first()).revoked,0);
 });
