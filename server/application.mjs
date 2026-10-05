@@ -5,17 +5,22 @@ import {passwordLogin,savePassword,passwordPage} from './password-auth.mjs';
 import {calendarOAuthSchema,calendarAuthorize,calendarCallback,calendarAccessToken} from './calendar-oauth.mjs';
 import {createStorage} from './storage.mjs';
 import {providerOperations,providerSchema} from './providers.mjs';
+import {agentAuthSchema,agentAuthEndpoint,pruneAgentAuth} from './agent-auth.mjs';
+import {agentActionSchema,agentMcpEndpoint} from './agent-tools.mjs';
 const lockedHeaders={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Strict-Transport-Security':'max-age=31536000','Permissions-Policy':'camera=(), microphone=(), geolocation=()','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com"};
 function errorResponse(message,status=500){return new Response(JSON.stringify({error:message}),{status,headers:{'Content-Type':'application/json'}});}
 export async function createApplication(env){
   const origin=new URL(env.PANEL_ORIGIN);if(origin.protocol!=='https:'||origin.origin!==env.PANEL_ORIGIN||origin.username||origin.password)throw Error('PANEL_ORIGIN muss ein eindeutiger HTTPS-Ursprung sein.');
   if(!/^[a-f0-9]{64}$/.test(env.OWNER_EMAIL_SHA256??''))throw Error('Betreiberidentität fehlt.');
-  await init(env);await authSchema(env);await calendarOAuthSchema(env);await providerSchema(env);
+  await init(env);await authSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await agentAuthSchema(env);await agentActionSchema(env);
+  env.passwordResetStatements=newHash=>[env.DB.prepare('UPDATE agent_grants SET revoked=1 WHERE EXISTS(SELECT 1 FROM auth_sessions WHERE hash=?)').bind(newHash)];
   env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=providerOperations;
   const handle=async request=>{
     try{
       const url=new URL(request.url);if(url.origin!==env.PANEL_ORIGIN)return errorResponse('Ungültiger Host.',400);
       if(url.pathname==='/healthz')return new Response('ok',{headers:{'Content-Type':'text/plain'}});
+      if(url.pathname==='/mcp')return await agentMcpEndpoint(env,request);
+      const agent=await agentAuthEndpoint(env,request);if(agent)return agent;
       if(request.method==='GET'&&/^\/[a-zA-Z0-9_-]+\.(css|js|mjs)$/.test(url.pathname))return env.ASSETS.fetch(request);
       if(request.method==='GET'&&['/auth/login','/auth/verify'].includes(url.pathname))return loginPage();
       if(request.method==='POST'&&url.pathname==='/auth/request')return await requestLogin(env,request);
@@ -23,7 +28,7 @@ export async function createApplication(env){
       if(request.method==='POST'&&url.pathname==='/auth/password/login')return await passwordLogin(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/logout')return await logout(env,request);
       const identity=await sessionIdentity(env,request);
-      if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/angebot\/[a-f0-9]{64}$/.test(url.pathname))login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
+      if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/angebot\/[a-f0-9]{64}$/.test(url.pathname))login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/'&&/^[a-f0-9-]{36}$/.test(url.searchParams.get('order')??''))login.searchParams.set('returnTo','/?order='+url.searchParams.get('order'));if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
       const isOwner=digest(identity)===env.OWNER_EMAIL_SHA256;
       if(url.pathname==='/auth/password'){
         if(!isOwner)return errorResponse('Nur für den Betreiber vorgesehen.',403);
@@ -58,7 +63,7 @@ export async function applicationEnvironment(variables=process.env){const env={.
 export async function maintenance(env,now=Date.now()){
   await providerSchema(env);const lease=digest(String(now)+crypto.randomUUID());const claimed=await env.DB.prepare("INSERT INTO runtime_locks(name,owner,expires_at) VALUES('maintenance',?,?) ON CONFLICT(name) DO UPDATE SET owner=excluded.owner,expires_at=excluded.expires_at WHERE runtime_locks.expires_at<?").bind(lease,now+30*60000,now).run();if(!claimed.meta.changes)return {skipped:true,ok:true,deliveryError:null};
   try{
-    await setting(env,'lastScheduledAttempt',new Date(now).toISOString());await pruneAuth(env,now);
+    await setting(env,'lastScheduledAttempt',new Date(now).toISOString());await pruneAuth(env,now);await agentAuthSchema(env);await pruneAgentAuth(env,now);
     await env.DB.prepare('DELETE FROM calendar_oauth_states WHERE expires_at<?').bind(now).run();
     let errors=[];try{errors=(await providerOperations.background(env)).errors;}catch(error){errors.push('Anbieterabgleich: '+error.message);}
     let result;try{result=await background(env);if(result.deliveryError)errors.push(result.deliveryError);}catch(error){errors.push('Fälligkeitsprüfung: '+error.message);result={ok:false};}

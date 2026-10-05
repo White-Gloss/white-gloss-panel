@@ -5,7 +5,7 @@ const token=()=>randomBytes(32).toString('hex');
 const authHeaders={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'};
 export const authResponse=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{...authHeaders,'Content-Type':'application/json'}});
 const response=authResponse;
-const safeReturn=value=>value==='/auth/password'||/^\/angebot\/[a-f0-9]{64}$/.test(value??'')?value:'/';
+export const safeReturn=value=>['/auth/password','/agent/connect'].includes(value)||/^\/angebot\/[a-f0-9]{64}$/.test(value??'')||/^\/\?order=[a-f0-9-]{36}$/.test(value??'')?value:'/';
 function cookie(request,name){const entry=(request.headers.get('cookie')??'').split(';').map(x=>x.trim()).find(x=>x.startsWith(name+'='));return entry?.slice(name.length+1)??'';}
 export async function authSchema(env){await init(env);await env.DB.batch([
   'CREATE TABLE IF NOT EXISTS auth_tokens(hash TEXT PRIMARY KEY,email TEXT NOT NULL,return_to TEXT NOT NULL,expires_at INTEGER NOT NULL,consumed INTEGER NOT NULL DEFAULT 0)',
