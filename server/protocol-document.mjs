@@ -33,6 +33,7 @@ export async function protocolDocument(env,order,kind){
     paragraph(p.business.name+' · '+p.business.owner);paragraph(p.business.street+' · '+p.business.city);paragraph(p.business.phone+' · '+p.business.email,9,grey);
     heading('Fahrzeug und Übergabe');
     for(const [label,value] of [['Kunde',p.customerName],['Betriebsvertreter',p.operatorName],['Fahrzeug',p.vehicle],['Kennzeichen',p.plate],['Datum und Uhrzeit (Europe/Berlin)',berlin(p.at)],['Übergabeort',p.location],['Übergabeart',p.delivery],['Kilometerstand',p.mileage+' km'],['Übergebene Schlüssel',p.keys]])field(label,value);
+    if(p.direct){heading('Direkte Übergabe');paragraph(p.directReason);paragraph('Dieses Fahrzeugprotokoll bestätigt keine gesonderte Angebotsannahme oder Terminvereinbarung.',9,grey);}
     heading('Dokumentierter Zustand');paragraph(p.condition);if(p.notes){heading('Hinweise');paragraph(p.notes);}
     if(kind==='return'){heading('Ausgeführte Leistungen');paragraph(p.services);field('Arbeitsabschluss',p.workComplete?'Arbeiten ausdrücklich als abgeschlossen bestätigt':'Nicht bestätigt');field('Offene Punkte',p.openPoints||'Keine angegeben');}
     heading('Persönliche Bestätigung');paragraph('Beide Personen haben das angezeigte Protokoll persönlich geprüft und unterschrieben.');

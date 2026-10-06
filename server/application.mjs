@@ -1,4 +1,6 @@
 import worker,{init,setting,protect,settings,configuration,background} from '../src/worker.mjs';
+import {customerFilesSchema,customerFiles,updateCustomerFile} from './customer-files.mjs';
+import {pushSchema,pushStatus,pushDevice,pushMaintenance,collectPush} from './push.mjs';
 import {AppError} from '../src/domain.mjs';
 import {authSchema,sessionIdentity,requestLogin,redeemLogin,logout,loginPage,pruneAuth,digest} from './auth.mjs';
 import {passwordLogin,savePassword,passwordPage} from './password-auth.mjs';
@@ -12,7 +14,7 @@ function errorResponse(message,status=500){return new Response(JSON.stringify({e
 export async function createApplication(env){
   const origin=new URL(env.PANEL_ORIGIN);if(origin.protocol!=='https:'||origin.origin!==env.PANEL_ORIGIN||origin.username||origin.password)throw Error('PANEL_ORIGIN muss ein eindeutiger HTTPS-Ursprung sein.');
   if(!/^[a-f0-9]{64}$/.test(env.OWNER_EMAIL_SHA256??''))throw Error('Betreiberidentität fehlt.');
-  await init(env);await authSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await agentAuthSchema(env);await agentActionSchema(env);
+  await init(env);await authSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await agentAuthSchema(env);await agentActionSchema(env);await customerFilesSchema(env);await pushSchema(env);
   env.passwordResetStatements=newHash=>[env.DB.prepare('UPDATE agent_grants SET revoked=1 WHERE EXISTS(SELECT 1 FROM auth_sessions WHERE hash=?)').bind(newHash)];
   env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=providerOperations;
   const handle=async request=>{
@@ -21,7 +23,7 @@ export async function createApplication(env){
       if(url.pathname==='/healthz')return new Response('ok',{headers:{'Content-Type':'text/plain'}});
       if(url.pathname==='/mcp')return await agentMcpEndpoint(env,request);
       const agent=await agentAuthEndpoint(env,request);if(agent)return agent;
-      if(request.method==='GET'&&/^\/[a-zA-Z0-9_-]+\.(css|js|mjs)$/.test(url.pathname))return env.ASSETS.fetch(request);
+      if(request.method==='GET'&&(/^\/[a-zA-Z0-9_-]+\.(css|js|mjs)$/.test(url.pathname)||['/manifest.webmanifest','/panel-icon.svg'].includes(url.pathname)))return env.ASSETS.fetch(request);
       if(request.method==='GET'&&['/auth/login','/auth/verify'].includes(url.pathname))return loginPage();
       if(request.method==='POST'&&url.pathname==='/auth/request')return await requestLogin(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/redeem')return await redeemLogin(env,request);
@@ -46,13 +48,20 @@ export async function createApplication(env){
       }
       if(url.pathname==='/auth/calendar/callback'&&request.method==='GET')return calendarCallback(env,request,identity);
       if(!isOwner&&!url.pathname.startsWith('/angebot/')&&!url.pathname.startsWith('/api/offer/'))return errorResponse('Dieser Zugang ist für das persönliche Angebot vorgesehen.',403);
+      if(isOwner&&['/api/customer-files','/api/push'].includes(url.pathname)){
+        if(request.method==='GET')return Response.json(url.pathname==='/api/push'?await pushStatus(env):await customerFiles(env,url.searchParams.get('test')==='true'));
+        if(request.method!=='POST')return errorResponse('Methode nicht erlaubt.',405);
+        if(request.headers.get('origin')!==env.PANEL_ORIGIN||!request.headers.get('content-type')?.startsWith('application/json'))return errorResponse('Ungültiger Ursprung oder Inhalt.',403);
+        const raw=await request.text();if(raw.length>20000)return errorResponse('Eingabe zu groß.',413);
+        const input=JSON.parse(raw);return Response.json(url.pathname==='/api/push'?await pushDevice(env,input):await updateCustomerFile(env,input));
+      }
       if(isOwner&&url.pathname==='/api/protocol/pdf'&&request.method==='GET')return await providerOperations.protocolDownload(env,url.searchParams.get('id'),url.searchParams.get('kind'));
       if(isOwner&&url.pathname==='/api/check'&&request.method==='POST'){
         const input=await request.clone().json().catch(()=>({}));if(input.kind==='calendar'&&(await settings(env)).calendarOAuth)await calendarAccessToken(env);
       }
       const headers=new Headers(request.headers);headers.delete('oai-authenticated-user-email');headers.set('oai-authenticated-user-email',identity);
       const trusted=new Request(request,{headers});
-      return worker.fetch(trusted,env);
+      const result=await worker.fetch(trusted,env);if(request.method==='POST'&&url.pathname.startsWith('/api/')&&result.ok){try{await collectPush(env);}catch{await setting(env,'pushError','Benachrichtigungen konnten noch nicht vorgemerkt werden.');}}return result;
     }catch(error){return errorResponse(error instanceof AppError?error.message:'Verbindung oder Speicherung fehlgeschlagen. Kein Erfolg wurde bestätigt.',error instanceof AppError?error.status:500);}
   };
   return {env,async fetch(request){const result=await handle(request);const secured=new Response(result.body,{status:result.status,headers:result.headers});for(const [key,value] of Object.entries(lockedHeaders))secured.headers.set(key,value);
@@ -75,6 +84,7 @@ export async function maintenance(env,now=Date.now()){
     await setting(env,'lastScheduledAttempt',new Date(now).toISOString());await pruneAuth(env,now);await agentAuthSchema(env);await pruneAgentAuth(env,now);
     await env.DB.prepare('DELETE FROM calendar_oauth_states WHERE expires_at<?').bind(now).run();
     let errors=[];try{errors=(await providerOperations.background(env)).errors;}catch(error){errors.push('Anbieterabgleich: '+error.message);}
+    try{await pushMaintenance(env);await setting(env,'pushError',null);}catch{errors.push('Handy-Benachrichtigungen konnten nicht verarbeitet werden.');}
     let result;try{result=await background(env);if(result.deliveryError)errors.push(result.deliveryError);}catch(error){errors.push('Fälligkeitsprüfung: '+error.message);result={ok:false};}
     const deliveryError=errors.length?errors.join(' · '):null;await setting(env,'lastScheduledError',deliveryError);
     if(!deliveryError)await setting(env,'lastScheduledAt',new Date().toISOString());
