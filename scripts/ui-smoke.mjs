@@ -32,6 +32,7 @@ try{
     await form.locator('[name=location]').fill('TEST · Betrieb');await form.locator('[name=mileage]').fill('12000');await form.locator('[name=keys]').fill('1');await form.locator('[name=condition]').fill('TEST · Zustand mit Foto festgehalten');
     if(kind==='return'){await form.locator('[name=services]').fill('TEST · Reinigung abgeschlossen');await form.locator('[name=workComplete]').check();}
     await form.locator('#protocolphotos').setInputFiles({name:'synthetic.png',mimeType:'image/png',buffer:signatureBytes()});await form.getByRole('button',{name:'Protokoll anzeigen & persönlich unterschreiben'}).click();
+    await page.locator('#modal').waitFor({state:'visible'});
     for(const id of ['customerSign','operatorSign']){const canvas=page.locator('#'+id);await canvas.scrollIntoViewIfNeeded();const box=await canvas.boundingBox();await page.mouse.move(box.x+20,box.y+50);await page.mouse.down();await page.mouse.move(box.x+120,box.y+75,{steps:12});await page.mouse.move(box.x+180,box.y+25,{steps:10});await page.mouse.up();}
     await page.locator('#signatureform [name=confirmed]').check();await page.getByRole('button',{name:'Protokoll verbindlich speichern',exact:true}).click();await page.locator('#modal').waitFor({state:'hidden'});await page.getByText('Bestätigtes '+(kind==='intake'?'Annahmeprotokoll':'Rückgabeprotokoll'),{exact:true}).waitFor();
   }
