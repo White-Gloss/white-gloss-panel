@@ -76,3 +76,5 @@
 .offer-selected-appointment>.sectiontitle{margin:0 0 4px;font-size:11px;color:#71849a}
 .offer-selected-appointment strong{font-weight:600}
 @media(max-width:480px){.appointment-option-row{padding:14px}.appointment-stored{padding:15px}.offer-appointment-option{padding:14px;gap:10px}.offer-appointment-option strong{font-size:12px}.offer-selected-appointment{padding:13px 15px}}
+
+.daily-task{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 0;border-bottom:1px solid #e6ebf0}.daily-task p{margin:5px 0;color:#607080}.daily-task button{flex-shrink:0}#customer-files details{margin:16px 0}#customer-files summary{cursor:pointer;font-weight:600;padding:12px 0}#customer-files form{padding:16px;background:#f8f9fb;border-radius:12px}#customer-files .signature{max-width:100%}.protocolreview small{overflow-wrap:anywhere}@media(max-width:640px){.daily-task{align-items:flex-start;flex-wrap:wrap}.daily-task>div{flex:1 1 200px}}

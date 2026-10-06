@@ -1,3 +1,4 @@
+import {showCustomerAmendment} from './amendments.js';
 import {offerLinesHTML} from './pricing.js';
 import {appointmentHTML,offerSnapshotHash,createOfferAppointmentSelection,offerAcceptancePresentation,offerNeedsAppointmentOptions} from './appointment-options.js';
 
@@ -21,6 +22,7 @@ export async function showOffer(){
     root.innerHTML='<main class="appoff card"><span class="brandmark">WG</span><h1>Ihr persönliches Angebot</h1><p>'+escaped(offer.error)+'</p></main>';
     return;
   }
+  if(offer.variant==='amendment'){showCustomerAmendment(root,offer,token);return;}
   const amount=new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(offer.offer.totalCents/100);
   const options=offer.appointmentOptions??[];
   const combined=options.length>0;
