@@ -2,7 +2,9 @@ import worker,{init,setting,protect,settings,configuration,background} from '../
 import {customerFilesSchema,customerFiles,updateCustomerFile} from './customer-files.mjs';
 import {pushSchema,pushStatus,pushDevice,pushMaintenance,collectPush} from './push.mjs';
 import {AppError} from '../src/domain.mjs';
-import {authSchema,sessionIdentity,requestLogin,redeemLogin,logout,loginPage,pruneAuth,digest} from './auth.mjs';
+import {authSchema,sessionIdentity,requestLogin,redeemLogin,customerPinLogin,customerResetRequest,logout,loginPage,pruneAuth,digest} from './auth.mjs';
+import {customerPortalSchema,customerPortalData,customerPortalPage,customerPortalDocument,customerPaymentPDF,customerAgreement,customerReviewConsent,customerChat,ownerChatSummary} from './customer-portal.mjs';
+import {documentEndpoint} from './document-template.mjs';
 import {passwordLogin,savePassword,passwordPage} from './password-auth.mjs';
 import {calendarOAuthSchema,calendarAuthorize,calendarCallback,calendarAccessToken} from './calendar-oauth.mjs';
 import {createStorage} from './storage.mjs';
@@ -14,7 +16,7 @@ function errorResponse(message,status=500){return new Response(JSON.stringify({e
 export async function createApplication(env){
   const origin=new URL(env.PANEL_ORIGIN);if(origin.protocol!=='https:'||origin.origin!==env.PANEL_ORIGIN||origin.username||origin.password)throw Error('PANEL_ORIGIN muss ein eindeutiger HTTPS-Ursprung sein.');
   if(!/^[a-f0-9]{64}$/.test(env.OWNER_EMAIL_SHA256??''))throw Error('Betreiberidentität fehlt.');
-  await init(env);await authSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await agentAuthSchema(env);await agentActionSchema(env);await customerFilesSchema(env);await pushSchema(env);
+  await init(env);await authSchema(env);await customerPortalSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await agentAuthSchema(env);await agentActionSchema(env);await customerFilesSchema(env);await pushSchema(env);
   env.passwordResetStatements=newHash=>[env.DB.prepare('UPDATE agent_grants SET revoked=1 WHERE EXISTS(SELECT 1 FROM auth_sessions WHERE hash=?)').bind(newHash)];
   env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=providerOperations;
   const handle=async request=>{
@@ -25,13 +27,28 @@ export async function createApplication(env){
       const agent=await agentAuthEndpoint(env,request);if(agent)return agent;
       if(request.method==='GET'&&(/^\/[a-zA-Z0-9_-]+\.(css|js|mjs)$/.test(url.pathname)||['/manifest.webmanifest','/panel-icon.svg'].includes(url.pathname)))return env.ASSETS.fetch(request);
       if(request.method==='GET'&&['/auth/login','/auth/verify'].includes(url.pathname))return loginPage();
+      if(request.method==='GET'&&url.pathname==='/api/calendar/availability')return await worker.fetch(request,env);
       if(request.method==='POST'&&url.pathname==='/auth/request')return await requestLogin(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/redeem')return await redeemLogin(env,request);
+      if(request.method==='POST'&&url.pathname==='/auth/customer/login')return await customerPinLogin(env,request);
+      if(request.method==='POST'&&url.pathname==='/auth/customer/reset/request')return await customerResetRequest(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/password/login')return await passwordLogin(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/logout')return await logout(env,request);
       const identity=await sessionIdentity(env,request);
-      if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/angebot\/[a-f0-9]{64}$/.test(url.pathname))login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/'&&/^[a-f0-9-]{36}$/.test(url.searchParams.get('order')??''))login.searchParams.set('returnTo','/?order='+url.searchParams.get('order'));if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
+      if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/angebot\/[a-f0-9]{64}$/.test(url.pathname))login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/kundenportal')login.searchParams.set('customer','1');if(url.pathname==='/'&&/^[a-f0-9-]{36}$/.test(url.searchParams.get('order')??''))login.searchParams.set('returnTo','/?order='+url.searchParams.get('order'));if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
       const isOwner=digest(identity)===env.OWNER_EMAIL_SHA256;
+      if(!isOwner&&url.pathname==='/'&&request.method==='GET')return Response.redirect(new URL('/kundenportal',env.PANEL_ORIGIN),303);
+      if(!isOwner&&url.pathname==='/kundenportal'&&request.method==='GET')return customerPortalPage();
+      if(!isOwner&&url.pathname==='/api/customer-portal'&&request.method==='GET')return Response.json(await customerPortalData(env,identity));
+      if(!isOwner&&url.pathname==='/api/customer-portal/document'&&request.method==='GET')return await customerPortalDocument(env,request,identity);
+      if(!isOwner&&url.pathname==='/api/customer-portal/agreement'&&request.method==='GET')return await customerAgreement(env,request,identity);
+      if(!isOwner&&url.pathname==='/api/customer/payment/pdf'&&request.method==='GET')return await customerPaymentPDF(env,request,identity);
+      if(isOwner&&url.pathname==='/api/customer-portal/review-consent')return errorResponse('Diese Einwilligung kann nur der persönlich angemeldete Kunde erteilen oder widerrufen.',403);
+      if(!isOwner&&url.pathname==='/api/customer-portal/review-consent')return await customerReviewConsent(env,request,identity);
+      if(!isOwner&&url.pathname==='/api/customer-portal/chat')return await customerChat(env,request,identity,false);
+      if(isOwner&&url.pathname==='/api/customer-chat')return await customerChat(env,request,identity,true);
+      if(isOwner&&url.pathname==='/api/customer-chat/summary'&&request.method==='GET')return Response.json(await ownerChatSummary(env));
+      if(isOwner){const documentResponse=await documentEndpoint(env,request);if(documentResponse)return documentResponse;}
       if(url.pathname==='/auth/password'){
         if(!isOwner)return errorResponse('Nur für den Betreiber vorgesehen.',403);
         if(request.method==='GET')return passwordPage(env,request);
@@ -47,7 +64,7 @@ export async function createApplication(env){
         return authorization;
       }
       if(url.pathname==='/auth/calendar/callback'&&request.method==='GET')return calendarCallback(env,request,identity);
-      if(!isOwner&&!url.pathname.startsWith('/angebot/')&&!url.pathname.startsWith('/api/offer/'))return errorResponse('Dieser Zugang ist für das persönliche Angebot vorgesehen.',403);
+      if(!isOwner&&!url.pathname.startsWith('/angebot/')&&!url.pathname.startsWith('/api/offer/')&&!(url.pathname==='/api/calendar/availability'&&request.method==='GET'))return errorResponse('Dieser Zugang ist für eigene Angebote und das persönliche Kundenpanel vorgesehen.',403);
       if(isOwner&&['/api/customer-files','/api/push'].includes(url.pathname)){
         if(request.method==='GET')return Response.json(url.pathname==='/api/push'?await pushStatus(env):await customerFiles(env,url.searchParams.get('test')==='true'));
         if(request.method!=='POST')return errorResponse('Methode nicht erlaubt.',405);

@@ -53,7 +53,7 @@ export function appointmentHTML(appointment){
 export function clearAppointmentOptionsDraft(orderId){drafts.delete(orderId);}
 
 function optionRow(option,index){
-  return `<fieldset class="appointment-option-row"><legend>Terminvorschlag ${index+1}</legend><div class="grid2"><label>Datum und Uhrzeit · Europe/Berlin<input data-appointment-field="start" type="datetime-local" value="${escape(option.start)}" required></label><label>Dauer in Minuten<input data-appointment-field="duration" type="number" min="15" max="1440" step="1" value="${escape(option.duration)}" required></label></div><div class="grid2"><label>Übergabeart<select data-appointment-field="delivery" required><option value="" ${!option.delivery?'selected':''}>Bitte prüfen und auswählen</option><option ${option.delivery==='Kunde bringt'?'selected':''}>Kunde bringt</option><option ${option.delivery==='Abholung'?'selected':''}>Abholung</option></select></label><label>Ort / Adresse<input data-appointment-field="location" type="text" maxlength="600" value="${escape(option.location)}" required></label></div><button type="button" class="smallbtn danger" data-appointment-remove aria-label="Terminvorschlag ${index+1} entfernen">Vorschlag entfernen</button></fieldset>`;
+  return `<fieldset class="appointment-option-row"><legend>Terminvorschlag ${index+1}</legend><div class="grid2"><label>Datum und Uhrzeit · Europe/Berlin<input data-appointment-field="start" type="datetime-local" value="${escape(option.start)}" required></label><label>Dauer in Minuten<input data-appointment-field="duration" type="number" min="15" max="570" step="1" value="${escape(option.duration)}" required></label></div><div class="grid2"><label>Übergabeart<select data-appointment-field="delivery" required><option value="" ${!option.delivery?'selected':''}>Bitte prüfen und auswählen</option><option ${option.delivery==='Kunde bringt'?'selected':''}>Kunde bringt</option><option ${option.delivery==='Abholung'?'selected':''}>Abholung</option></select></label><label>Ort / Adresse<input data-appointment-field="location" type="text" maxlength="600" value="${escape(option.location)}" required></label></div><button type="button" class="smallbtn danger" data-appointment-remove aria-label="Terminvorschlag ${index+1} entfernen">Vorschlag entfernen</button></fieldset>`;
 }
 
 export function appointmentOptionsInitialValues(order,company={}){
@@ -84,7 +84,7 @@ export function readAppointmentOptions(form){
   const options=values(form).map((option,index)=>{
     const duration=Number(option.duration);
     if(!option.start)throw Error(`Terminvorschlag ${index+1}: Bitte Datum und Uhrzeit angeben.`);
-    if(!Number.isInteger(duration)||duration<15||duration>1440)throw Error(`Terminvorschlag ${index+1}: Bitte eine Dauer zwischen 15 und 1440 Minuten angeben.`);
+    if(!Number.isInteger(duration)||duration<15||duration>570)throw Error(`Terminvorschlag ${index+1}: Bitte eine Dauer zwischen 15 und 1440 Minuten angeben.`);
     if(!['Abholung','Kunde bringt'].includes(option.delivery))throw Error(`Terminvorschlag ${index+1}: Bitte die Übergabeart prüfen und auswählen.`);
     if(!option.location.trim())throw Error(`Terminvorschlag ${index+1}: Bitte den Übergabeort angeben.`);
     return {...option,start:option.start.trim(),duration,location:option.location.trim()};

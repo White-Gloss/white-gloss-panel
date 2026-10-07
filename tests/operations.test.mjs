@@ -11,6 +11,7 @@ import {customerFiles,updateCustomerFile} from '../server/customer-files.mjs';
 import {validPushSubscription,pushDevice,collectPush,deliverPush,pushStatus} from '../server/push.mjs';
 import {COMPANY} from '../src/company.mjs';
 import {signatureBytes,syntheticSignature} from './fixtures/signature.mjs';
+import {createTestLetterhead} from './fixtures/letterhead.mjs';
 
 const origin='https://panel.example.invalid',customer='operations-test@example.invalid';
 async function fixture(t){
@@ -49,6 +50,7 @@ test('a stale competing amendment creates one token and one audited amendment',a
 });
 test('direct intake then return works without offer or appointment, sends both PDFs with owner copies',async t=>{
   const f=await fixture(t),o=await f.add({status:'Preise prüfen',synthetic:false,offer:undefined,acceptance:undefined}),sent=[];
+  await createTestLetterhead(f.env);
   for(const [k,v] of Object.entries({emailVerified:true,sendApproved:true,sender:'test@example.invalid'}))await setting(f.env,k,v);await setting(f.env,'resendKey',await protect(f.env,'fake-test-key'));
   t.mock.method(globalThis,'fetch',async(url,init)=>{assert.equal(url,'https://api.resend.com/emails');sent.push(JSON.parse(init.body));return Response.json({id:'test-'+sent.length});});
   for(const kind of ['intake','return']){const response=await f.signProtocol(o,kind,true);assert.equal(response.status,200);const saved=await response.json();assert.equal(saved.protocolDelivery.state,'sent');assert.equal(saved.offer,undefined);assert.equal(saved.appointment,undefined);assert.equal(saved.acceptance,undefined);assert.equal(saved[kind].direct,true);assert.match(Buffer.from(sent.at(-1).attachments[0].content,'base64').subarray(0,5).toString(),/%PDF-/);assert.deepEqual(sent.at(-1).cc,[COMPANY.email]);}
