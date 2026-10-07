@@ -1,6 +1,6 @@
 import {need,transition} from '../src/domain.mjs';
 import {agreedOffer} from '../src/operations.mjs';
-import {getOrder,saveOrder,settings} from '../src/worker.mjs';
+import {getOrder,saveOrder} from '../src/worker.mjs';
 import {digest} from './auth.mjs';
 
 export async function paymentSchema(env){
@@ -12,11 +12,12 @@ export function paymentInput(input,now=new Date().toISOString()){
   need(/^[a-f0-9-]{36}$/.test(input.idempotencyKey??''),'Eindeutiger Zahlungsschlüssel fehlt.');
   need(Number.isSafeInteger(input.amountCents)&&input.amountCents>0,'Zahlungsbetrag ungültig.');
   need(['Überweisung','Karte','Bar'].includes(input.method),'Zahlungsart fehlt.');
-  need(typeof input.reference==='string'&&input.reference.trim().length>0&&input.reference.trim().length<=180,'Bitte die eindeutige Bank-, Terminal- oder Kassenbelegreferenz angeben.');
+  const reference=input.method==='Bar'&&(input.reference===undefined||input.reference===null||typeof input.reference==='string'&&!input.reference.trim())?'BARGELD-'+input.idempotencyKey:input.reference;
+  need(typeof reference==='string'&&reference.trim().length>0&&reference.trim().length<=180,input.method==='Bar'?'Interne Zahlungsreferenz ungültig.':'Bitte die eindeutige Bank- oder Terminalbelegreferenz angeben.');
   need(typeof input.at==='string'&&Number.isFinite(Date.parse(input.at))&&Date.parse(input.at)<=Date.parse(now),'Zahlungszeitpunkt ungültig.');
   if(input.method==='Bar')need(input.cashConfirmed===true,'Tatsächlichen Bargeldeingang ausdrücklich bestätigen.');
   else need(/^[a-f0-9-]{36}$/.test(input.receipt??''),'Vorhandener Zahlungsbeleg fehlt.');
-  return {id:input.idempotencyKey,amountCents:input.amountCents,method:input.method,reference:input.reference.trim(),at:new Date(input.at).toISOString(),receipt:input.receipt??null,cashConfirmed:input.method==='Bar'&&input.cashConfirmed===true,receivedConfirmed:true};
+  return {id:input.idempotencyKey,amountCents:input.amountCents,method:input.method,reference:reference.trim(),at:new Date(input.at).toISOString(),receipt:input.receipt??null,cashConfirmed:input.method==='Bar'&&input.cashConfirmed===true,receivedConfirmed:true};
 }
 export async function recordPayment(env,order,input,actor='owner',expectedVersion=order.version){
   need(actor==='owner','Den Zahlungseingang darf ausschließlich der persönlich angemeldete Betreiber bestätigen.',403);
@@ -25,8 +26,6 @@ export async function recordPayment(env,order,input,actor='owner',expectedVersio
   const existing=await env.DB.prepare('SELECT * FROM payment_records WHERE id=? OR (order_id=? AND reference=?)').bind(payment.id,order.id,payment.reference).first();
   if(existing){need(existing.order_id===order.id&&existing.payload_hash===fingerprint,'Diese Zahlungsschlüssel oder Belegreferenz wurden bereits mit anderen Angaben verwendet.',409);return getOrder(env,order.id);}
   need(order.version===expectedVersion,'Diese Ansicht ist veraltet. Bitte Auftrag neu öffnen.',409);
-  const config=await settings(env);
-  if(payment.method==='Bar'&&!order.synthetic)need(config.cashRecordingApproved===true&&typeof config.cashSystemEvidence==='string'&&config.cashSystemEvidence.trim(),'Barzahlung ist bis zur Prüfung von Kassensystem, TSE und Belegweg gesperrt.',409);
   if(payment.method!=='Bar'){
     const asset=await env.DB.prepare('SELECT id,hash FROM assets WHERE id=? AND order_id=?').bind(payment.receipt,order.id).first();
     need(asset,'Zahlungsbeleg fehlt oder gehört zu einem anderen Auftrag.',409);

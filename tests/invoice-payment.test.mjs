@@ -23,9 +23,15 @@ async function fixture(t,order=completed()){
   const original=await PDFDocument.create();original.addPage([595.28,841.89]).drawText('ORIGINAL TEST-INVOICE 119 EUR',{x:42,y:730,size:12});const originalBytes=await original.save();
   return {env,order,files,originalBytes,remote:{id:invoiceId,number:order.wg,currency:'EUR',total_amount_cents:11900,status:'unpaid',attachment_id:attachmentId}};
 }
-function mockProvider(t,f,{unknown=false,unknownOutcomePaid=true,host='qonto-pdf.example.invalid'}={}){
-  const writes=[];let paid=false,createdHeader=null;t.mock.method(globalThis,'fetch',async(url,options={})=>{
+function mockProvider(t,f,{unknown=false,unknownOutcomePaid=true,host='qonto-pdf.example.invalid',mailUnknown=false}={}){
+  const writes=[],mails=[];let paid=false,createdHeader=null;t.mock.method(globalThis,'fetch',async(url,options={})=>{
     const u=new URL(url);assert.equal(options.redirect,'manual');
+    if(u.origin==='https://api.resend.com'){
+      assert.equal(u.pathname,'/emails');assert.equal(options.method,'POST');
+      mails.push({body:JSON.parse(options.body),key:options.headers['Idempotency-Key']});
+      if(mailUnknown)throw Error('SYNTHETIC missing mail response');
+      return Response.json({id:'SYNTHETIC-INVOICE-MAIL'});
+    }
     if(u.hostname===host){assert.equal(options.headers,undefined);return new Response(f.originalBytes,{headers:{'Content-Type':'application/pdf'}});}
     assert.equal(u.origin,'https://thirdparty.qonto.com');
     if(u.pathname==='/v2/organization')return Response.json({organization:{id:'synthetic-org',bank_accounts:[{iban}]}});
@@ -35,8 +41,17 @@ function mockProvider(t,f,{unknown=false,unknownOutcomePaid=true,host='qonto-pdf
     if(options.method){writes.push({path:u.pathname,body:JSON.parse(options.body)});if(u.pathname.endsWith('/mark_as_paid')){paid=!unknown||unknownOutcomePaid;if(unknown)throw Error('SYNTHETIC missing response');}else if(u.pathname==='/v2/client_invoices'){createdHeader=JSON.parse(options.body).header??null;return Response.json({client_invoice:{...f.remote,status:'draft',header:createdHeader}});}}
     return Response.json({client_invoice:{...f.remote,status:paid?'paid':'unpaid',paid_at:paid?'2026-10-01':null,header:createdHeader}});
   });
-  const providerJSON=async(url,options={})=>(await fetch(url,{...options,redirect:'manual'})).json();return {writes,providerJSON,headers:{Authorization:'synthetic-secret','Content-Type':'application/json'}};
+  const providerJSON=async(url,options={})=>(await fetch(url,{...options,redirect:'manual'})).json();return {writes,mails,providerJSON,headers:{Authorization:'synthetic-secret','Content-Type':'application/json'}};
 }
+async function configureMail(env,approved=true){
+  for(const [key,value] of Object.entries({emailVerified:true,sendApproved:approved,sender:'SYNTHETIC <sender@example.invalid>'}))await setting(env,key,value);
+  await setting(env,'resendKey',await protect(env,'SYNTHETIC-RESEND-KEY'));
+}
+async function assertNoReceipt(f,saved){
+  assert.equal(saved.receiptRequests,undefined);
+  assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM payment_documents').first()).n,0);
+}
+const cashMailJob=env=>env.DB.prepare("SELECT * FROM jobs WHERE kind='invoice-cash-mail'").first();
 async function pageStream(bytes,index=0){const doc=await PDFDocument.load(bytes),contents=doc.getPage(index).node.Contents();const streams=contents instanceof PDFArray?contents.asArray().map(ref=>doc.context.lookup(ref)):[doc.context.lookup(contents)];return streams.map(stream=>Buffer.from(decodePDFRawStream(stream).decode()).toString('latin1')).join('\n');}
 
 test('only the personally confirmed canonical ledger can make a full cash invoice header',()=>{
@@ -50,8 +65,48 @@ test('partial and mixed payments never say the invoice is fully cash paid',()=>{
   assert.throws(()=>invoicePaymentSummary(order,[partial,partial]),/doppelt/);assert.throws(()=>invoicePaymentSummary(order,[{...partial,orderId:'foreign'}]),/gehört nicht/);assert.throws(()=>invoicePaymentSummary(order,[snapshot(order,11901)]),/überschreiten/);
 });
 test('real invoice creation derives its visible header from payment_records, not UI status',async t=>{
-  const order=completed();delete order.invoice;const f=await fixture(t,order);const paid=await recordPayment(f.env,order,cash(11900)),mock=mockProvider(t,f);const saved=await providerOperations.action(f.env,paid,'invoice',invoiceInput);
-  assert.equal(mock.writes[0].body.header,'Bar bezahlt');assert.equal(saved.invoice.header,'Bar bezahlt');assert.equal(saved.invoice.status,'paid');assert.ok(saved.invoice.paymentCopyVersion);assert.equal(mock.writes.filter(item=>item.path.endsWith('/mark_as_paid')).length,1);assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM payment_documents').first()).n,0);assert.equal(saved.receiptRequests,undefined);
+  const order=completed();delete order.invoice;const f=await fixture(t,order);await configureMail(f.env);const mock=mockProvider(t,f),paid=await providerOperations.recordPayment(f.env,order,cash(11900));
+  assert.equal(paid.invoice,undefined);assert.equal(paid.invoiceMail.state,'failed');assert.match(paid.invoiceMail.message,/Rechnung fehlt/);assert.equal(mock.mails.length,0);assert.equal(await cashMailJob(f.env),null);
+  await assert.rejects(providerOperations.action(f.env,paid,'invoice',{...invoiceInput,reviewed:false}),/prüfen/);assert.equal(mock.writes.length,0);assert.equal(mock.mails.length,0);
+  const saved=await providerOperations.action(f.env,paid,'invoice',invoiceInput);
+  assert.equal(mock.writes[0].body.header,'Bar bezahlt');assert.equal(saved.invoice.header,'Bar bezahlt');assert.equal(saved.invoice.status,'paid');assert.ok(saved.invoice.paymentCopyVersion);assert.equal(mock.writes.filter(item=>item.path.endsWith('/mark_as_paid')).length,1);
+  assert.equal(saved.invoiceMail.state,'sent');assert.equal(mock.mails.length,1);assert.match(mock.mails[0].body.subject,/Bar bezahlt/);
+  const copy=await invoicePaymentDocument(f.env,saved.id,saved.invoice.paymentCopyVersion);assert.deepEqual(Buffer.from(mock.mails[0].body.attachments[0].content,'base64'),Buffer.from(copy.bytes));
+  await assert.rejects(providerOperations.action(f.env,saved,'invoice',invoiceInput),/bereits zugeordnet/);assert.equal(mock.mails.length,1);await assertNoReceipt(f,saved);
+});
+test('personally receiving full cash syncs the existing invoice and sends its archived copy once across repeated clicks',async t=>{
+  const f=await fixture(t);await configureMail(f.env);const mock=mockProvider(t,f),input=cash(11900),saved=await providerOperations.recordPayment(f.env,f.order,input,'owner');
+  assert.equal(saved.status,'Bezahlt');assert.equal(saved.invoice.status,'paid');assert.equal(saved.invoice.paymentCopy.header,'Bar bezahlt');assert.equal(saved.invoiceMail.state,'sent');
+  assert.equal(mock.writes.filter(item=>item.path.endsWith('/mark_as_paid')).length,1);assert.equal(mock.mails.length,1);
+  const copy=await invoicePaymentDocument(f.env,saved.id,saved.invoice.paymentCopyVersion),before=await f.env.DB.prepare('SELECT * FROM payment_records').first();
+  assert.deepEqual(Buffer.from(mock.mails[0].body.attachments[0].content,'base64'),Buffer.from(copy.bytes));assert.deepEqual(mock.mails[0].body.to,['test@example.invalid']);assert.ok(!JSON.stringify(mock.mails[0].body).includes('Quittung'));
+  const retried=await providerOperations.recordPayment(f.env,f.order,input,'owner',f.order.version),explicit=await providerOperations.action(f.env,retried,'sendCashInvoice',{});
+  assert.equal(explicit.invoiceMail.state,'sent');assert.equal(mock.mails.length,1);assert.equal(mock.writes.filter(item=>item.path.endsWith('/mark_as_paid')).length,1);
+  assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM payment_records').first()).n,1);assert.deepEqual(await f.env.DB.prepare('SELECT * FROM payment_records').first(),before);assert.deepEqual((await invoicePaymentDocument(f.env,saved.id,copy.version)).bytes,copy.bytes);
+  assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM invoice_payment_documents').first()).n,1);await assertNoReceipt(f,explicit);
+});
+test('partial cash and a personally confirmed mixed final payment never send a Bar bezahlt invoice mail',async t=>{
+  const f=await fixture(t);await configureMail(f.env);const mock=mockProvider(t,f),partial=await providerOperations.recordPayment(f.env,f.order,cash(5000));
+  assert.equal(partial.status,'Erledigt');assert.equal(partial.invoiceMail,undefined);assert.equal(mock.mails.length,0);assert.equal(mock.writes.length,0);assert.equal(await cashMailJob(f.env),null);
+  const receipt=crypto.randomUUID(),bytes=new Uint8Array([137,80,78,71,1,2,3]),at='2026-10-01T12:00:00Z';
+  await f.env.DB.prepare('INSERT INTO assets VALUES(?,?,?,?,?,?,?)').bind(receipt,f.order.id,'photo','image/png',digest(bytes),bytes.length,at).run();f.files.set(receipt,{body:bytes});
+  const mixed=await providerOperations.recordPayment(f.env,partial,{...cash(6900),method:'Karte',cashConfirmed:false,receipt});
+  assert.equal(mixed.status,'Bezahlt');assert.match(mixed.invoice.paymentCopy.header,/Bezahlt.*davon bar.*50,00/);assert.equal(mixed.invoiceMail,undefined);assert.equal(mock.mails.length,0);
+  const requested=await providerOperations.action(f.env,mixed,'sendCashInvoice',{});assert.equal(requested.invoiceMail,undefined);assert.equal(mock.mails.length,0);assert.equal(await cashMailJob(f.env),null);
+  assert.deepEqual(f.files.get(receipt).body,bytes);assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM payment_records').first()).n,2);await assertNoReceipt(f,requested);
+});
+test('a safe pre-send failure keeps received cash and uses one explicit retry after sender approval',async t=>{
+  const f=await fixture(t);await configureMail(f.env,false);const mock=mockProvider(t,f),input=cash(11900),saved=await providerOperations.recordPayment(f.env,f.order,input);
+  assert.equal(saved.status,'Bezahlt');assert.equal(saved.invoiceMail.state,'failed');assert.match(saved.invoiceMail.message,/Absender.*prüfen.*freigeben/);assert.equal(mock.mails.length,0);const job=await cashMailJob(f.env);assert.equal(job.state,'failed');
+  await setting(f.env,'sendApproved',true);assert.equal(mock.mails.length,0);
+  const retried=await providerOperations.action(f.env,saved,'sendCashInvoice',{});assert.equal(retried.invoiceMail.state,'sent');assert.equal(mock.mails.length,1);assert.equal((await cashMailJob(f.env)).id,job.id);
+  await providerOperations.action(f.env,retried,'sendCashInvoice',{});assert.equal(mock.mails.length,1);assert.equal(mock.writes.filter(item=>item.path.endsWith('/mark_as_paid')).length,1);assert.equal((await getOrder(f.env,saved.id)).payments.length,1);await assertNoReceipt(f,retried);
+});
+test('an unknown invoice-mail response locks every later payment or send click without duplicating cash or mail',async t=>{
+  const f=await fixture(t);await configureMail(f.env);const mock=mockProvider(t,f,{mailUnknown:true}),input=cash(11900),saved=await providerOperations.recordPayment(f.env,f.order,input);
+  assert.equal(saved.status,'Bezahlt');assert.equal(saved.invoiceMail.state,'unknown');assert.match(saved.invoiceMail.message,/Keine Wiederholung/);assert.equal(mock.mails.length,1);
+  const retry=await providerOperations.recordPayment(f.env,f.order,input),requested=await providerOperations.action(f.env,retry,'sendCashInvoice',{});
+  assert.equal(requested.invoiceMail.state,'unknown');assert.equal(mock.mails.length,1);assert.equal((await cashMailJob(f.env)).state,'unknown');assert.equal(mock.writes.filter(item=>item.path.endsWith('/mark_as_paid')).length,1);assert.equal((await getOrder(f.env,saved.id)).payments.length,1);await assertNoReceipt(f,requested);
 });
 test('invoice status paid alone and an unconfirmed legacy cash record cannot issue a paid copy or mutate Qonto',async t=>{
   const f=await fixture(t);f.order.invoice.status='paid';const legacy={...snapshot(f.order,11900),receivedConfirmed:false};await f.env.DB.prepare('INSERT INTO payment_records VALUES(?,?,?,?,?,?)').bind(legacy.id,f.order.id,legacy.reference,'SYNTHETIC LEGACY',JSON.stringify(legacy),legacy.at).run();const mock=mockProvider(t,f);

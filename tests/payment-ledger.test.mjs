@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {PanelDatabase} from '../server/storage.mjs';
-import {init,getOrder,setting} from '../src/worker.mjs';
+import {init,getOrder} from '../src/worker.mjs';
 import {recordPayment,paymentSchema,paymentRecord} from '../server/payment-ledger.mjs';
 import {registerTemplate,paymentDocument,requestPaymentDocument} from '../server/document-template.mjs';
 import {digest} from '../server/auth.mjs';
@@ -62,11 +62,17 @@ test('receipt issuance is a separate audited owner request; received payment alo
   const [one,two]=await Promise.all([requestPaymentDocument(env,request),requestPaymentDocument(env,request)]);assert.equal(one.version,3);assert.equal(two.version,3);assert.equal(one.receiptRequests[input.idempotencyKey].requestedBy,'owner');assert.equal((await requestPaymentDocument(env,request)).version,3);
   assert.equal((await env.DB.prepare('SELECT COUNT(*) n FROM audit WHERE order_id=? AND action=?').bind(order.id,'Separate Quittung auf ausdrücklichen Betreiberauftrag freigegeben').first()).n,1);assert.equal(files.size,0);
 });
-test('real cash recording requires verified cash-system path and actual confirmation',async t=>{
-  const {env,order}=await fixture(t,{synthetic:false});await assert.rejects(recordPayment(env,order,cash()),/Kassensystem/);
-  await setting(env,'cashRecordingApproved',true);await setting(env,'cashSystemEvidence','Synthetischer freigegebener Kassensystem-Nachweis');
-  await assert.rejects(recordPayment(env,order,{...cash(),cashConfirmed:false}),/ausdrücklich/);
-  assert.equal((await recordPayment(env,order,cash())).status,'Bezahlt');
+test('personally confirmed real cash needs no generic cash-system flag or uploaded paper receipt',async t=>{
+  const {env,order,files}=await fixture(t,{synthetic:false}),input={...cash(),reference:undefined};
+  for(const cashConfirmed of [undefined,false,1,'true'])await assert.rejects(recordPayment(env,order,{...input,cashConfirmed}),/ausdrücklich/);
+  const saved=await recordPayment(env,order,input);assert.equal(saved.status,'Bezahlt');assert.equal(saved.payments[0].reference,'BARGELD-'+input.idempotencyKey);assert.equal(saved.payments[0].receipt,null);assert.equal(files.size,0);assert.equal(saved.receiptRequests,undefined);await assert.rejects(paymentDocument(env,order.id,input.idempotencyKey),/ausdrücklichen Auftrag/);assert.equal((await env.DB.prepare('SELECT COUNT(*) n FROM payment_documents').first()).n,0);
+  assert.equal((await recordPayment(env,saved,{...input,reference:saved.payments[0].reference})).payments.length,1);
+  await assert.rejects(recordPayment(env,saved,{...input,idempotencyKey:randomUUID()}),/überschreitet/);assert.equal((await getOrder(env,order.id)).payments.length,1);
+});
+test('automatic internal cash references keep partial-payment retries stable and block stale or premature recording',async t=>{
+  const {env,order}=await fixture(t,{synthetic:false}),input={...cash(),amountCents:5000,reference:'  '};await assert.rejects(recordPayment(env,{...order,status:'In Arbeit'},input),/nach Abschluss/);
+  const partial=await recordPayment(env,order,input);assert.equal(partial.status,'Erledigt');assert.equal(partial.payments[0].reference,'BARGELD-'+input.idempotencyKey);assert.equal((await recordPayment(env,partial,{...input,reference:null})).version,partial.version);
+  await assert.rejects(recordPayment(env,partial,{...cash(),reference:undefined,amountCents:6900},'owner',1),/veraltet/);await assert.rejects(recordPayment(env,partial,{...input,amountCents:5001}),/anderen Angaben/);assert.equal((await getOrder(env,order.id)).payments.length,1);
 });
 test('card payment needs an own existing terminal receipt and a reference; generated approval is never invented',async t=>{
   const {env,order,files}=await fixture(t),id=randomUUID(),input={...cash(),method:'Karte',reference:'TEST-TERMINAL-0001',receipt:id},original=new Uint8Array(Buffer.from(syntheticSignature.split(',')[1],'base64'));

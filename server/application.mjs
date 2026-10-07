@@ -5,6 +5,7 @@ import {AppError} from '../src/domain.mjs';
 import {authSchema,sessionIdentity,requestLogin,redeemLogin,customerPinLogin,customerResetRequest,logout,loginPage,pruneAuth,digest} from './auth.mjs';
 import {customerPortalSchema,customerPortalData,customerPortalPage,customerPortalDocument,customerPaymentPDF,customerInvoicePaymentPDF,customerAgreement,customerReviewConsent,customerChat,ownerChatSummary} from './customer-portal.mjs';
 import {invoicePaymentDocument} from './invoice-payment.mjs';
+import {invoiceMailStatuses} from './invoice-mail.mjs';
 import {documentEndpoint} from './document-template.mjs';
 import {passwordLogin,savePassword,passwordPage} from './password-auth.mjs';
 import {calendarOAuthSchema,calendarAuthorize,calendarCallback,calendarAccessToken} from './calendar-oauth.mjs';
@@ -81,7 +82,15 @@ export async function createApplication(env){
       }
       const headers=new Headers(request.headers);headers.delete('oai-authenticated-user-email');headers.set('oai-authenticated-user-email',identity);
       const trusted=new Request(request,{headers});
-      const result=await worker.fetch(trusted,env);if(request.method==='POST'&&url.pathname.startsWith('/api/')&&result.ok){try{await collectPush(env);}catch{await setting(env,'pushError','Benachrichtigungen konnten noch nicht vorgemerkt werden.');}}return result;
+      const result=await worker.fetch(trusted,env);
+      if(isOwner&&request.method==='GET'&&result.ok&&['/api/state','/api/order'].includes(url.pathname)){
+        const data=await result.json(),orders=url.pathname==='/api/state'?data.orders:[data],statuses=await invoiceMailStatuses(env,orders.map(order=>order.id));
+        // Canonical delivery state overrides an older cached outcome without rewriting signed orders.
+        // No delivery record means the existing pre-queue error or absent legacy status is preserved.
+        for(const order of orders){const status=statuses.get(order.id);if(status)order.invoiceMail=status;}
+        return new Response(JSON.stringify(data),{status:result.status,headers:result.headers});
+      }
+      if(request.method==='POST'&&url.pathname.startsWith('/api/')&&result.ok){try{await collectPush(env);}catch{await setting(env,'pushError','Benachrichtigungen konnten noch nicht vorgemerkt werden.');}}return result;
     }catch(error){return errorResponse(error instanceof AppError?error.message:'Verbindung oder Speicherung fehlgeschlagen. Kein Erfolg wurde bestätigt.',error instanceof AppError?error.status:500);}
   };
   return {env,async fetch(request){const result=await handle(request);const secured=new Response(result.body,{status:result.status,headers:result.headers});for(const [key,value] of Object.entries(lockedHeaders))secured.headers.set(key,value);
