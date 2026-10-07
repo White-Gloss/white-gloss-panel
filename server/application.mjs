@@ -6,6 +6,7 @@ import {authSchema,sessionIdentity,requestLogin,redeemLogin,customerPinLogin,cus
 import {customerPortalSchema,customerPortalData,customerPortalPage,customerPortalDocument,customerPaymentPDF,customerInvoicePaymentPDF,customerAgreement,customerReviewConsent,customerChat,ownerChatSummary} from './customer-portal.mjs';
 import {invoicePaymentDocument} from './invoice-payment.mjs';
 import {invoiceMailStatuses} from './invoice-mail.mjs';
+import {validatePaymentPDF} from './payment-receipt-upload.mjs';
 import {documentEndpoint} from './document-template.mjs';
 import {passwordLogin,savePassword,passwordPage} from './password-auth.mjs';
 import {calendarOAuthSchema,calendarAuthorize,calendarCallback,calendarAccessToken} from './calendar-oauth.mjs';
@@ -21,6 +22,7 @@ export async function createApplication(env){
   await init(env);await authSchema(env);await customerPortalSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await agentAuthSchema(env);await agentActionSchema(env);await customerFilesSchema(env);await pushSchema(env);
   env.passwordResetStatements=newHash=>[env.DB.prepare('UPDATE agent_grants SET revoked=1 WHERE EXISTS(SELECT 1 FROM auth_sessions WHERE hash=?)').bind(newHash)];
   env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=providerOperations;
+  env.validatePaymentPDF=validatePaymentPDF;
   const handle=async request=>{
     try{
       const url=new URL(request.url);if(url.origin!==env.PANEL_ORIGIN)return errorResponse('Ungültiger Host.',400);

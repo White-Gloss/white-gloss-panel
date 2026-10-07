@@ -55,7 +55,7 @@ Vor dem ersten echten Auftrag ist der bisherige WG-Nummernstand einschließlich 
 
 Schlussrechnungen sind erst nach vollständigem Arbeitsabschluss und Rückgabe möglich. Der Betreiber prüft Rechnungskunde, vollständige Rechnungsadresse, Steuersatz, Zahlungskonto, Fälligkeit und Leistungen. Zuerst entsteht ein Entwurf. Nur bei exakter Übereinstimmung der Bruttosumme mit dem unveränderlichen Festpreis wird finalisiert. Qonto verwendet Nettopreise je Position; die Umrechnung erfolgt ohne Fließkommafehler. Rechnungserstellung setzt einen Auftrag nicht auf Bezahlt.
 
-Unklare Antworten bleiben gegen erneute Erstellung gesperrt. Ein lesender Anbieterabgleich kann eine passende vorhandene Schlussrechnung zuordnen. Ein abweichender Entwurf bleibt zur Prüfung erhalten. Es werden keine Zahlungen, Überweisungen oder automatischen Rechnungsmails ausgelöst.
+Unklare Antworten bleiben gegen erneute Erstellung gesperrt. Ein lesender Anbieterabgleich kann eine passende vorhandene Schlussrechnung zuordnen. Ein abweichender Entwurf bleibt zur Prüfung erhalten. Die Rechnungserstellung allein erzeugt keine Zahlung oder Überweisung. Nach persönlicher Übernahme eines vorhandenen Original-Kassenbelegs wird bei vollständiger Barzahlung die gespeicherte Rechnungskopie mit „Bar bezahlt“ versendet. Details: [Belegübernahme und Rechnungsversand](Barzahlung-und-Rechnungsversand.md).
 
 Grundlage: [Qonto Authentifizierung](https://docs.qonto.com/get-started/business-api/authentication/introduction) und [Qonto Rechnung erstellen](https://docs.qonto.com/api-reference/business-api/expense-management/client-quotes-notes/client-invoices/create-a-client-invoice).
 
