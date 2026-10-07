@@ -1,5 +1,6 @@
 import {agreedOffer,protocolAllowed} from './operations.mjs';
 import {normalizeAssessment} from './assessment.mjs';
+import {bookingWindowError,bookingCalendarMetadata} from './booking-calendar.mjs';
 export const STATES = ['Preise prüfen','Angebot offen','Angenommen','Termin verbindlich','In Arbeit','Erledigt','Bezahlt','Abgelehnt','Storniert','Abgelaufen'];
 export class AppError extends Error { constructor(message, status=400) { super(message); this.status=status; } }
 export function need(value, message, status=400) { if (!value) throw new AppError(message,status); }
@@ -40,12 +41,14 @@ export function normalizeAppointmentOptions(options,now=new Date().toISOString()
   const starts=new Set();
   return options.map(input=>{
     need(input&&typeof input==='object'&&!Array.isArray(input),'Terminvorschlag ist ungültig.');
-    need(Number.isInteger(input.duration)&&input.duration>=15&&input.duration<=1440,'Dauer: 15 bis 1440 Minuten.');
+    need(Number.isInteger(input.duration)&&input.duration>=15&&input.duration<=570,'Dauer: 15 bis 570 Minuten.');
     need(['Abholung','Kunde bringt'].includes(input.delivery),'Übergabeart fehlt.');
     need(typeof input.location==='string'&&input.location.trim().length>0&&input.location.trim().length<=600,'Bitte einen Übergabeort mit höchstens 600 Zeichen angeben.');
     const start=berlinISO(input.start);need(Date.parse(start)>Date.parse(now),'Terminvorschläge müssen in der Zukunft liegen.');
     need(!starts.has(start),'Jeder Terminvorschlag braucht eine andere Startzeit.');starts.add(start);
-    return {id:crypto.randomUUID(),start,end:new Date(Date.parse(start)+input.duration*60000).toISOString(),duration:input.duration,delivery:input.delivery,location:input.location.trim()};
+    const appointment={id:crypto.randomUUID(),start,end:new Date(Date.parse(start)+input.duration*60000).toISOString(),duration:input.duration,delivery:input.delivery,location:input.location.trim()};
+    need(!bookingWindowError(appointment),bookingWindowError(appointment));
+    return {...appointment,...bookingCalendarMetadata(appointment)};
   });
 }
 export function validateAppointmentDelivery(offer,options){
@@ -89,15 +92,16 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     if(options.length){
       validateAppointmentDelivery(o.offer,options);
       const option=options.find(item=>item.id===input.appointmentOptionId);need(option,'Bitte einen der angezeigten Terminvorschläge auswählen.',409);need(Date.parse(option.start)>Date.parse(now),'Dieser Terminvorschlag liegt nicht mehr in der Zukunft. Bitte neue Termine anfragen.',409);
-      o.appointment=structuredClone(option);
-      o.acceptance={signature:input.signature,snapshotHash:input.snapshotHash,paymentObligation:true,at:now,appointmentOptionId:option.id,appointmentOptionsVersion:o.appointmentOptionsVersion,snapshot:{offer:structuredClone(o.offer),appointment:structuredClone(option),appointmentOptionsVersion:o.appointmentOptionsVersion}};
+      need(!bookingWindowError(option),bookingWindowError(option));
+      o.appointment={...structuredClone(option),...bookingCalendarMetadata(option)};
+      o.acceptance={signature:input.signature,snapshotHash:input.snapshotHash,paymentObligation:true,at:now,appointmentOptionId:option.id,appointmentOptionsVersion:o.appointmentOptionsVersion,snapshot:{offer:structuredClone(o.offer),appointment:structuredClone(option),appointmentOptionsVersion:o.appointmentOptionsVersion,customer:o.source?.name,vehicle:o.source?.vehicle}};
       o.status='Termin verbindlich';
-    }else{o.acceptance={signature:input.signature,snapshotHash:input.snapshotHash,at:now};o.status='Angenommen';}
+    }else{o.acceptance={signature:input.signature,snapshotHash:input.snapshotHash,paymentObligation:true,at:now,snapshot:{offer:structuredClone(o.offer),customer:o.source?.name,vehicle:o.source?.vehicle}};o.status='Angenommen';}
   }
-  else if(action==='appointment') { need(!o.acceptance?.appointmentOptionId,'Der gemeinsam unterschriebene Termin bleibt verbindlich. Änderungen müssen erneut mit dem Kunden vereinbart werden.',409);need(['Angenommen','Termin verbindlich'].includes(status),'Ein verbindlicher Termin setzt die Kundenannahme voraus.',409); need(['Abholung','Kunde bringt'].includes(input.delivery),'Übergabeart fehlt.'); need(Number.isInteger(input.duration)&&input.duration>=15&&input.duration<=1440,'Dauer: 15 bis 1440 Minuten.'); const start=berlinISO(input.start); need(Date.parse(start)>Date.parse(now),'Termin muss in der Zukunft liegen.'); o.appointment={start,end:new Date(Date.parse(start)+input.duration*60000).toISOString(),duration:input.duration,delivery:input.delivery,location:text(input.location,600)}; o.status='Termin verbindlich'; }
+  else if(action==='appointment') { need(!o.acceptance?.appointmentOptionId,'Der gemeinsam unterschriebene Termin bleibt verbindlich. Änderungen müssen erneut mit dem Kunden vereinbart werden.',409);need(['Angenommen','Termin verbindlich'].includes(status),'Ein verbindlicher Termin setzt die Kundenannahme voraus.',409); need(['Abholung','Kunde bringt'].includes(input.delivery),'Übergabeart fehlt.'); need(Number.isInteger(input.duration)&&input.duration>=15&&input.duration<=570,'Dauer: 15 bis 570 Minuten.'); const start=berlinISO(input.start); need(Date.parse(start)>Date.parse(now),'Termin muss in der Zukunft liegen.'); o.appointment={start,end:new Date(Date.parse(start)+input.duration*60000).toISOString(),duration:input.duration,delivery:input.delivery,location:text(input.location,600)}; need(!bookingWindowError(o.appointment),bookingWindowError(o.appointment)); Object.assign(o.appointment,bookingCalendarMetadata(o.appointment)); o.status='Termin verbindlich'; }
   else if(action==='intake') { need(protocolAllowed(o,'intake',input.direct===true),'Annahme in diesem Status nicht möglich.',409); need(!o.intake,'Bestätigtes Annahmeprotokoll bleibt erhalten.',409); o.intake=input; o.status='In Arbeit'; }
   else if(action==='return') { need(protocolAllowed(o,'return',input.direct===true),'Rückgabe in diesem Status nicht möglich oder Nachtrag noch offen.',409); need(!o.return,'Bestätigtes Rückgabeprotokoll bleibt erhalten.',409); o.return=input; o.completedAt=now; o.status='Erledigt'; }
-  else if(action==='payment') { need(['Erledigt','Bezahlt'].includes(status),'Zahlungserfassung erst nach Abschluss.',409); need(agreedOffer(o)&&o.acceptance,'Für reine Fahrzeugprotokolle fehlt eine bestätigte Preisvereinbarung.',409); const amount=cents(input.amountCents); need(amount>0,'Zahlungsbetrag muss positiv sein.'); need(text(input.at)&&!Number.isNaN(Date.parse(input.at))&&Date.parse(input.at)<=Date.parse(now),'Zahlungszeitpunkt ungültig.'); need(['Überweisung','Karte','Bar'].includes(input.method),'Zahlungsart fehlt.'); need(input.method==='Bar'?input.cashConfirmed===true:input.receipt,'Zahlungsbeleg oder ausdrückliche Bargeldbestätigung fehlt.'); o.payments=[...(o.payments??[]),{...input,amountCents:amount}]; const paid=o.payments.reduce((n,p)=>n+p.amountCents,0); need(paid<=agreedOffer(o).totalCents,'Zahlung überschreitet den vereinbarten Festpreis.'); if(paid===agreedOffer(o).totalCents)o.status='Bezahlt'; }
+  else if(action==='payment') { need(role==='owner','Zahlungseingang ausschließlich durch den Betreiber bestätigen.',403); need(input.receivedConfirmed===true,'Bitte persönlich bestätigen: Ich habe die Zahlung erhalten.',409); need(['Erledigt','Bezahlt'].includes(status),'Zahlungserfassung erst nach Abschluss.',409); need(agreedOffer(o)&&o.acceptance,'Für reine Fahrzeugprotokolle fehlt eine bestätigte Preisvereinbarung.',409); const amount=cents(input.amountCents); need(amount>0,'Zahlungsbetrag muss positiv sein.'); need(text(input.at)&&!Number.isNaN(Date.parse(input.at))&&Date.parse(input.at)<=Date.parse(now),'Zahlungszeitpunkt ungültig.'); need(['Überweisung','Karte','Bar'].includes(input.method),'Zahlungsart fehlt.'); need(input.method==='Bar'?input.cashConfirmed===true:input.receipt,'Zahlungsbeleg oder ausdrückliche Bargeldbestätigung fehlt.'); o.payments=[...(o.payments??[]),{...input,amountCents:amount}]; const paid=o.payments.reduce((n,p)=>n+p.amountCents,0); need(paid<=agreedOffer(o).totalCents,'Zahlung überschreitet den vereinbarten Festpreis.'); if(paid===agreedOffer(o).totalCents)o.status='Bezahlt'; }
   else if(action==='reject') { need(status==='Preise prüfen','Ablehnung nur vor Preisfreigabe.',409); need(text(input.reason),'Grund fehlt.'); o.status='Abgelehnt'; o.closeReason=text(input.reason); }
   else if(action==='cancel') { need(['Preise prüfen','Angebot offen','Angenommen','Termin verbindlich'].includes(status),'Auftrag kann in diesem Status nicht storniert werden.',409); need(text(input.reason),'Grund fehlt.'); o.status='Storniert';o.closeReason=text(input.reason); }
   else if(action==='expire') { need(status==='Angebot offen'&&Date.parse(o.offer.expiresAt)<=Date.parse(now),'Angebot ist noch nicht abgelaufen.',409); o.status='Abgelaufen'; }

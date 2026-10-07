@@ -88,8 +88,8 @@ test('offer email includes the personal link and its distinct PIN in one email a
   await env.DB.prepare("UPDATE orders SET data=?,version=version+1,action='Synthetic proposal fixture' WHERE id=?").bind(JSON.stringify(order),order.id).run();order.version++;
   await setting(env,'resendKey',await protect(env,'synthetic-api-key'));await setting(env,'emailVerified',true);await setting(env,'sendApproved',true);await setting(env,'sender','test@example.invalid');
   t.mock.method(globalThis,'fetch',async(url,options)=>{assert.equal(url,'https://api.resend.com/emails');messages.push(JSON.parse(options.body));return new Response(JSON.stringify({id:'synthetic-message'}));});
-  await providerOperations.action(env,order,'sendOffer',{});assert.equal(messages.length,1);assert.deepEqual(messages[0].to,[customer]);assert.match(messages[0].text,/PIN: \d{6}/);
-  const url=new URL(/https:\/\/\S+/.exec(messages[0].text)[0]),pin=/PIN: (\d{6})/.exec(messages[0].text)[1];assert.equal(url.origin,origin);assert.equal(url.searchParams.get('pin'),'required');
+  await providerOperations.action(env,order,'sendOffer',{});assert.equal(messages.length,1);assert.deepEqual(messages[0].to,[customer]);assert.match(messages[0].text,/PIN für diesen Angebotslink: \d{6}/);assert.ok(messages[0].text.includes(origin+'/kundenportal'));assert.match(messages[0].text,/wiederholt/);assert.match(messages[0].text,/Falls Sie bereits eine persönliche PIN haben, bleibt sie erhalten/);assert.ok(!messages[0].text.includes('/auth/customer/login'));
+  const url=new URL(/https:\/\/\S+/.exec(messages[0].text)[0]),pin=/PIN für diesen Angebotslink: (\d{6})/.exec(messages[0].text)[1];assert.equal(url.origin,origin);assert.equal(url.searchParams.get('pin'),'required');
   assert.equal((await redeemLogin(env,post('/auth/redeem',{token:url.searchParams.get('token'),pin}))).status,200);
   await assert.rejects(providerOperations.action(env,order,'sendOffer',{}));assert.equal(messages.length,1);
 });

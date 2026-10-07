@@ -63,7 +63,7 @@ test('competing signatures for different options of one offer cannot silently re
 test('a signature made for another selection, stale proposal list or foreign ID cannot accept',async t=>{
   const f=await fixture(t),input=await f.inputFor();assert.equal((await f.request(f.route,{...input,appointmentOptionId:f.order.appointmentOptions[1].id})).status,409);
   const unknown=await f.inputFor(f.route,'foreign-option');assert.equal((await f.request(f.route,unknown)).status,409);
-  const changed=await f.request('/api/action',{id:f.order.id,version:f.order.version,action:'appointmentOptions',input:{options:[{...options()[0],start:'2099-12-05T10:00'}]}},'owner');assert.equal(changed.status,200);assert.equal((await f.request(f.route,input)).status,409);assert.equal(await f.count('appointments'),0);assert.equal(await f.count('appointment_confirmations'),0);assert.equal(f.sent.length,0);
+  const changed=await f.request('/api/action',{id:f.order.id,version:f.order.version,action:'appointmentOptions',input:{options:[{...options()[0],start:'2099-12-04T10:00'}]}},'owner');assert.equal(changed.status,200);assert.equal((await f.request(f.route,input)).status,409);assert.equal(await f.count('appointments'),0);assert.equal(await f.count('appointment_confirmations'),0);assert.equal(f.sent.length,0);
   const fresh=await f.inputFor();assert.equal((await f.request(f.route,fresh)).status,200);
 });
 

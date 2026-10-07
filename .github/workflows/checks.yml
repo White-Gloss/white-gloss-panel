@@ -34,6 +34,7 @@ jobs:
       - run: bash -n deploy/install-panel.sh
       - run: npx playwright install --with-deps chromium
       - run: node scripts/ui-smoke.mjs
+      - run: node scripts/ui-feature-smoke.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

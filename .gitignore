@@ -17,3 +17,7 @@ uploads/
 *verschluesselt.json
 client_secret*.json
 migration-public.json
+
+verification-*.log
+ui-evidence/
+outputs/
