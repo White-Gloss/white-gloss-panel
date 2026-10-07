@@ -23,6 +23,6 @@ test('unknown review delivery remains locked instead of issuing a second request
 test('legacy seven-day processing remains possible without the new policy and with unrevoked consent',async t=>{
   const {env,sent}=await fixture(t,{hours:200});await env.DB.prepare("DELETE FROM settings WHERE key='reviewPolicy'").run();await setting(env,'reviewUrl','https://g.page/r/SYNTHETIC/review');await background(env);assert.equal(sent.length,1);
 });
-for(const consent of [{granted:false},{granted:true,revokedAt:'2020-01-01T12:00:00Z'}])test('explicit customer withdrawal blocks legacy source consent without an activated new policy '+JSON.stringify(consent),async t=>{
+for(const consent of [{granted:false},{granted:true,revokedAt:'2020-01-01T12:00:00Z'},{granted:true,revoked:true}])test('explicit customer withdrawal blocks legacy source consent without an activated new policy '+JSON.stringify(consent),async t=>{
   const {env,id,sent}=await fixture(t,{hours:200});await env.DB.prepare("DELETE FROM settings WHERE key='reviewPolicy'").run();await setting(env,'reviewUrl','https://g.page/r/SYNTHETIC/review');const order=await getOrder(env,id);assert.equal(order.source.reviewConsent,true);order.reviewConsent={...order.reviewConsent,...consent};await env.DB.prepare('UPDATE orders SET data=?,version=version+1 WHERE id=?').bind(JSON.stringify(order),id).run();await Promise.all([background(env),background(env)]);await background(env);assert.equal(sent.length,0);assert.equal((await env.DB.prepare("SELECT COUNT(*) n FROM jobs WHERE kind='review'").first()).n,0);
 });

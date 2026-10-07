@@ -46,7 +46,7 @@ export async function paymentDocument(env,orderId,paymentId){
   paragraph('Zahlungsart: '+snapshot.method);paragraph('Zahlungszeitpunkt (Europe/Berlin): '+berlin(snapshot.at));paragraph('Originalbeleg / Zahlungsreferenz: '+snapshot.reference);if(snapshot.invoiceNumber)paragraph('Zugehörige Rechnung: '+snapshot.invoiceNumber);
   y-=12;paragraph('Leistungen:');paragraph(snapshot.services);y-=12;
   paragraph(snapshot.method==='Bar'?'Der Betreiber hat den tatsächlichen Bargeldeingang dokumentiert. Der gesetzlich erforderliche Kassenbeleg und gegebenenfalls eine erforderliche Unterschrift bleiben gesondert nachzuweisen.':'Dokumentation des vom Betreiber erfassten Zahlungseingangs. Der originale Bank- oder Terminalbeleg bleibt der Zahlungsreferenz zugeordnet.');
-  paragraph('Dieses Dokument löst keine Zahlung aus und ersetzt keine Rechnung.');
+  paragraph('Dieses Dokument löst keine Zahlung aus und ersetzt keine Rechnung.');if(snapshot.method==='Bar'){y-=12;paragraph('Empfang schriftlich bestätigt:');paragraph('Datum: ____________________  Unterschrift Betrieb: ____________________');}
   const pages=doc.getPages();pages.forEach((p,i)=>p.drawText(snapshot.wg+' · '+snapshot.documentType+' · '+(i+1)+'/'+pages.length,{x:box.left,y:box.bottom+2,font,size:8,color:grey}));
   doc.setTitle(snapshot.documentType+' '+snapshot.wg);doc.setAuthor(configuration.company.name);doc.setCreationDate(new Date(snapshot.recordedAt));
   const bytes=await doc.save(),id=crypto.randomUUID(),hash=digest(bytes);await env.BUCKET.put(id,bytes,{httpMetadata:{contentType:'application/pdf'}});
