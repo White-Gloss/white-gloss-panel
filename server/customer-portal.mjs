@@ -3,8 +3,9 @@ import {getOrder,saveOrder,settings} from '../src/worker.mjs';
 import {reviewPolicyErrors} from '../src/customer-policy.mjs';
 import {digest,limited} from './auth.mjs';
 import {protocolDownload} from './protocol-mail.mjs';
-import {paymentDocument} from './document-template.mjs';
+import {paymentDocument,templateSchema} from './document-template.mjs';
 import {agreementDocument} from './agreement-document.mjs';
+import {invoicePaymentDocument} from './invoice-payment.mjs';
 
 export async function customerPortalSchema(env){
   await env.DB.batch([
@@ -16,19 +17,20 @@ export async function customerPortalSchema(env){
 }
 const normalized=value=>String(value??'').trim().toLowerCase();
 export async function customerOrder(env,identity,id){const order=await getOrder(env,id);need(normalized(order.source.email)===normalized(identity),'Vorgang nicht gefunden.',404);return order;}
-function ownOrderDTO(order){
+function ownOrderDTO(order,issuedPayments=new Set()){
   const documents=['intake','return'].filter(kind=>order[kind]?.signaturesConfirmed&&order[kind]?.snapshotHash).map(kind=>({kind,label:kind==='intake'?'Unterschriebenes Annahmeprotokoll':'Unterschriebenes Rückgabeprotokoll',at:order[kind].at,url:'/api/customer-portal/document?id='+encodeURIComponent(order.id)+'&kind='+kind}));
   if(order.acceptance)documents.push({kind:'agreement',label:'Unterschriebene Vereinbarung ansehen',at:order.acceptance.at,url:'/api/customer-portal/agreement?id='+encodeURIComponent(order.id)});
   for(const item of order.amendments??[])if(item.state==='accepted'&&item.acceptance)documents.push({kind:'amendment',label:'Unterschriebener Nachtrag ansehen',at:item.acceptance.at,url:'/api/customer-portal/agreement?id='+encodeURIComponent(order.id)+'&amendment='+encodeURIComponent(item.id)});
-  for(const payment of order.payments??[])if(payment.id)documents.push({kind:'payment',label:payment.method==='Bar'?'Quittung herunterladen':'Zahlungsnachweis herunterladen',at:payment.at,url:'/api/customer/payment/pdf?id='+encodeURIComponent(order.id)+'&payment='+encodeURIComponent(payment.id)});
+  for(const payment of order.payments??[])if(payment.id&&(order.receiptRequests?.[payment.id]?.requestedBy==='owner'||issuedPayments.has(payment.id)))documents.push({kind:'payment',label:payment.method==='Bar'?'Quittung herunterladen':'Zahlungsnachweis herunterladen',at:payment.at,url:'/api/customer/payment/pdf?id='+encodeURIComponent(order.id)+'&payment='+encodeURIComponent(payment.id)});
   if(typeof order.invoice?.url==='string'&&/^https:\/\/pay\.qonto\.com\/invoices\//.test(order.invoice.url))documents.push({kind:'invoice',label:'Rechnung '+order.invoice.number+' bei Qonto ansehen',at:order.invoice.at,url:order.invoice.url});
+  if(/^[a-f0-9]{64}$/.test(order.invoice?.paymentCopyVersion??''))documents.push({kind:'invoice-payment',label:'Rechnung '+order.invoice.number+' · '+order.invoice.paymentCopy.header,at:order.invoice.paymentCopy.at,url:'/api/customer/invoice/payment/pdf?id='+encodeURIComponent(order.id)+'&version='+order.invoice.paymentCopyVersion});
   const safeAppointment=order.appointment?{start:order.appointment.start,end:order.appointment.end,duration:order.appointment.duration,delivery:order.appointment.delivery,location:order.appointment.location}:null;
   return {id:order.id,wg:order.wg,status:order.status,customer:order.source.name,vehicle:order.source.vehicle,createdAt:order.createdAt,appointment:safeAppointment,offer:order.offer?{services:order.offer.services,totalCents:order.offer.totalCents,expiresAt:order.offer.expiresAt}:null,acceptedAt:order.acceptance?.at??null,completedAt:order.completedAt??null,documents};
 }
-export async function customerPortalData(env,identity){
+export async function customerPortalData(env,identity){await templateSchema(env);
   const rows=await env.DB.prepare("SELECT * FROM orders WHERE lower(trim(json_extract(data,'$.source.email')))=? ORDER BY updated_at DESC").bind(normalized(identity)).all();
   const orders=[],policy=(await settings(env)).reviewPolicy,validPolicy=reviewPolicyErrors(policy).length===0;
-  for(const row of rows.results){const order={...JSON.parse(row.data),id:row.id,wg:row.wg,status:row.status,version:row.version},dto=ownOrderDTO(order);const unread=await unreadCount(env,order.id,'customer');dto.unreadMessages=unread;dto.version=order.version;dto.reviewConsent={granted:order.reviewConsent?.granted===true&&!order.reviewConsent?.revokedAt,revokedAt:order.reviewConsent?.revokedAt??null};dto.reviewPolicy=validPolicy&&['Erledigt','Bezahlt'].includes(order.status)?{version:policy.version,schedule:policy.schedule,optOutText:policy.optOutText}:null;
+  for(const row of rows.results){const order={...JSON.parse(row.data),id:row.id,wg:row.wg,status:row.status,version:row.version};const issued=await env.DB.prepare('SELECT payment_id FROM payment_documents WHERE order_id=?').bind(order.id).all(),dto=ownOrderDTO(order,new Set(issued.results.map(item=>item.payment_id)));const unread=await unreadCount(env,order.id,'customer');dto.unreadMessages=unread;dto.version=order.version;dto.reviewConsent={granted:order.reviewConsent?.granted===true&&!order.reviewConsent?.revokedAt,revokedAt:order.reviewConsent?.revokedAt??null};dto.reviewPolicy=validPolicy&&['Erledigt','Bezahlt'].includes(order.status)?{version:policy.version,schedule:policy.schedule,optOutText:policy.optOutText}:null;
     const links=await env.DB.prepare('SELECT hash,expires_at FROM offer_tokens WHERE order_id=? AND revoked=0 AND expires_at>?').bind(order.id,new Date().toISOString()).all();
     const eligible=new Set(links.results.map(item=>item.hash));dto.offerUrl=order.offerToken&&eligible.has(digest(order.offerToken))?'/angebot/'+order.offerToken:null;
     dto.amendments=(order.amendments??[]).filter(item=>item.state==='open'&&eligible.has(digest(item.token))).map(item=>({id:item.id,services:item.services,amountCents:item.amountCents,url:'/angebot/'+item.token}));orders.push(dto);
@@ -67,6 +69,7 @@ export async function customerChat(env,request,identity,isOwner){
 }
 export async function customerPortalDocument(env,request,identity){const url=new URL(request.url),id=url.searchParams.get('id'),kind=url.searchParams.get('kind');const order=await customerOrder(env,identity,id);need(['intake','return'].includes(kind)&&order[kind]?.signaturesConfirmed&&order[kind]?.snapshotHash,'Dokument nicht gefunden.',404);return protocolDownload(env,id,kind);}
 export async function customerPaymentPDF(env,request,identity){const url=new URL(request.url),id=url.searchParams.get('id');await customerOrder(env,identity,id);const pdf=await paymentDocument(env,id,url.searchParams.get('payment'));return new Response(pdf.bytes,{headers:{'Content-Type':'application/pdf','Content-Disposition':'attachment; filename="'+pdf.filename+'"','Cache-Control':'no-store'}});}
+export async function customerInvoicePaymentPDF(env,request,identity){const url=new URL(request.url),id=url.searchParams.get('id'),version=url.searchParams.get('version');await customerOrder(env,identity,id);need(/^[a-f0-9]{64}$/.test(version??''),'Gespeicherte Rechnungskopienversion fehlt.');const pdf=await invoicePaymentDocument(env,id,version);return new Response(pdf.bytes,{headers:{'Content-Type':'application/pdf','Content-Disposition':'attachment; filename="'+pdf.filename+'"','Cache-Control':'no-store'}});}
 export async function customerReviewConsent(env,request,identity){
   need(request.method==='POST','Methode nicht erlaubt.',405);need(request.headers.get('origin')===env.PANEL_ORIGIN&&request.headers.get('content-type')?.startsWith('application/json'),'Ungültiger Ursprung oder Inhalt.',403);
   const input=await chatInput(request);need(typeof input.granted==='boolean'&&typeof input.requestId==='string'&&/^[a-f0-9-]{36}$/.test(input.requestId),'Einwilligung und eindeutige Anfrage-ID fehlen.');

@@ -8,6 +8,7 @@ export async function paymentSchema(env){
 }
 export function paymentInput(input,now=new Date().toISOString()){
   need(input&&typeof input==='object','Zahlungsangaben fehlen.');
+  need(input.receivedConfirmed===true,'Bitte persönlich bestätigen: Ich habe die Zahlung erhalten.',409);
   need(/^[a-f0-9-]{36}$/.test(input.idempotencyKey??''),'Eindeutiger Zahlungsschlüssel fehlt.');
   need(Number.isSafeInteger(input.amountCents)&&input.amountCents>0,'Zahlungsbetrag ungültig.');
   need(['Überweisung','Karte','Bar'].includes(input.method),'Zahlungsart fehlt.');
@@ -15,9 +16,10 @@ export function paymentInput(input,now=new Date().toISOString()){
   need(typeof input.at==='string'&&Number.isFinite(Date.parse(input.at))&&Date.parse(input.at)<=Date.parse(now),'Zahlungszeitpunkt ungültig.');
   if(input.method==='Bar')need(input.cashConfirmed===true,'Tatsächlichen Bargeldeingang ausdrücklich bestätigen.');
   else need(/^[a-f0-9-]{36}$/.test(input.receipt??''),'Vorhandener Zahlungsbeleg fehlt.');
-  return {id:input.idempotencyKey,amountCents:input.amountCents,method:input.method,reference:input.reference.trim(),at:new Date(input.at).toISOString(),receipt:input.receipt??null,cashConfirmed:input.method==='Bar'&&input.cashConfirmed===true};
+  return {id:input.idempotencyKey,amountCents:input.amountCents,method:input.method,reference:input.reference.trim(),at:new Date(input.at).toISOString(),receipt:input.receipt??null,cashConfirmed:input.method==='Bar'&&input.cashConfirmed===true,receivedConfirmed:true};
 }
 export async function recordPayment(env,order,input,actor='owner',expectedVersion=order.version){
+  need(actor==='owner','Den Zahlungseingang darf ausschließlich der persönlich angemeldete Betreiber bestätigen.',403);
   need(['Erledigt','Bezahlt'].includes(order.status)&&agreedOffer(order)&&order.acceptance,'Zahlungserfassung erst nach Abschluss und bestätigter Preisvereinbarung.',409);
   await paymentSchema(env);const payment=paymentInput(input),fingerprint=digest(JSON.stringify(payment));
   const existing=await env.DB.prepare('SELECT * FROM payment_records WHERE id=? OR (order_id=? AND reference=?)').bind(payment.id,order.id,payment.reference).first();
@@ -34,7 +36,7 @@ export async function recordPayment(env,order,input,actor='owner',expectedVersio
   // The existing domain transition controls completion, fixed price and overpayment.
   const updated=transition(order,'payment',payment),operationId=crypto.randomUUID();updated.operationId=operationId;
   const agreedTotalCents=agreedOffer(order).totalCents,paidTotalCents=updated.payments.reduce((sum,item)=>sum+item.amountCents,0);
-  const snapshot={...payment,orderId:order.id,wg:order.wg,customer:order.source.name,services:agreedOffer(order).services,agreedTotalCents,paidTotalCents,remainingCents:agreedTotalCents-paidTotalCents,recordedAt:new Date().toISOString(),documentType:payment.method==='Bar'?'Quittung':'Zahlungsnachweis',invoiceNumber:order.invoice?.number??null};
+  const recordedAt=new Date().toISOString(),snapshot={...payment,orderId:order.id,wg:order.wg,customer:order.source.name,services:agreedOffer(order).services,agreedTotalCents,paidTotalCents,remainingCents:agreedTotalCents-paidTotalCents,recordedAt,receivedConfirmedBy:actor,receivedConfirmedAt:recordedAt,documentType:payment.method==='Bar'?'Quittung':'Zahlungsnachweis',invoiceNumber:order.invoice?.number??null};
   const statements=[env.DB.prepare(`INSERT INTO payment_records(id,order_id,reference,payload_hash,data,created_at) SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM orders WHERE id=? AND version=? AND json_extract(data,'$.operationId')=?)`).bind(payment.id,order.id,payment.reference,fingerprint,JSON.stringify(snapshot),snapshot.recordedAt,order.id,order.version+1,operationId)];
   try{return await saveOrder(env,updated,order.version,'Tatsächlichen Zahlungseingang dokumentiert',actor,statements);}
   catch(error){const retry=await env.DB.prepare('SELECT * FROM payment_records WHERE id=? OR (order_id=? AND reference=?)').bind(payment.id,order.id,payment.reference).first();if(retry&&retry.order_id===order.id&&retry.payload_hash===fingerprint)return getOrder(env,order.id);throw error;}

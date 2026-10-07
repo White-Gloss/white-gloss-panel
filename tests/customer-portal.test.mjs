@@ -7,7 +7,18 @@ import {digest,issueCustomerAccess} from '../server/auth.mjs';
 import {getOrder,protect,setting} from '../src/worker.mjs';
 import {reviewEligibility} from '../src/customer-policy.mjs';
 import {syntheticSignature} from './fixtures/signature.mjs';
+import {recordPayment} from '../server/payment-ledger.mjs';
+import {registerTemplate} from '../server/document-template.mjs';
 const owner='owner@example.invalid',customer='customer@example.invalid',foreign='foreign@example.invalid',origin='https://panel.example.invalid';
+test('customers see a receipt only after a separate personal owner issuance request',async t=>{
+  const f=await fixture(t),at='2026-10-01T12:00:00Z',o=await f.order(customer,{status:'Erledigt',synthetic:true,acceptance:{at},completedAt:at,payments:[]}),input={idempotencyKey:crypto.randomUUID(),amountCents:10000,method:'Bar',reference:'TEST-MANUAL-RECEIPT',at,cashConfirmed:true,receivedConfirmed:true};
+  const paid=await recordPayment(f.env,o,input),path='/api/customer/payment/pdf?id='+o.id+'&payment='+input.idempotencyKey,request={id:o.id,version:paid.version,payment:input.idempotencyKey,confirmed:true};
+  assert.ok(!(await(await f.req('/api/customer-portal')).json()).orders[0].documents.some(doc=>doc.kind==='payment'));assert.equal((await f.req(path)).status,409);
+  assert.equal((await f.req('/api/payment/receipt',request,'customer')).status,403);assert.equal((await f.req('/api/payment/receipt',request,'foreign',{'oai-authenticated-user-email':owner})).status,403);assert.equal((await f.req('/api/payment/receipt',request,'')).status,401);assert.equal((await f.req('/api/payment/receipt',request,'owner',{origin:'https://foreign.invalid'})).status,403);
+  const pending=await f.req('/api/payment/receipt',request,'owner');assert.equal(pending.status,202);assert.equal((await pending.json()).documentReady,false);
+  const {PDFDocument}=await import('../dist/pdf/library.mjs'),template=await PDFDocument.create();template.addPage([595.28,841.89]).drawText('SYNTHETIC TEST LETTERHEAD');await registerTemplate(f.env,{pdfBase64:Buffer.from(await template.save()).toString('base64'),approved:true,blankLetterheadConfirmed:true,evidence:'SYNTHETIC TEST ONLY',contentBox:{left:42,right:42,top:150,bottom:100},company:{name:'TEST',street:'Test 1',city:'Test city',email:'test@example.invalid'}});
+  const issued=await f.req('/api/payment/receipt',request,'owner');assert.equal(issued.status,200);assert.equal((await issued.json()).documentReady,true);assert.equal((await f.req(path)).status,200);assert.equal((await f.req(path,undefined,'foreign')).status,404);assert.ok((await(await f.req('/api/customer-portal')).json()).orders[0].documents.some(doc=>doc.kind==='payment'));
+});
 async function fixture(t){
   const files=new Map(),env={PANEL_ORIGIN:origin,OWNER_EMAIL_SHA256:digest(owner),CONFIG_KEY:Buffer.alloc(32,11).toString('base64'),DB:new PanelDatabase(':memory:'),BUCKET:{async get(id){return files.has(id)?{body:files.get(id)}:null;},async put(id,bytes){files.set(id,bytes);},async delete(id){files.delete(id);}},ASSETS:{fetch:async()=>new Response('shell')}};
   t.after(()=>env.DB.close());const app=await createApplication(env),cookies={};

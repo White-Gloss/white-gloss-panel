@@ -15,7 +15,7 @@ async function fixture(t,method) {
   await env.DB.prepare('INSERT INTO orders(id,wg,version,status,data,updated_at,actor,action,synthetic) VALUES(?,?,?,?,?,?,?,?,1)').bind(id,order.wg,1,order.status,JSON.stringify(order),now,'test','Isolierter Belegtest').run();
   const receipt = randomUUID(),original = new Uint8Array(Buffer.from(syntheticSignature.split(',')[1],'base64'));
   await env.DB.prepare('INSERT INTO assets VALUES(?,?,?,?,?,?,?)').bind(receipt,id,'photo','image/png',digest(original),original.length,now).run();
-  const input = {idempotencyKey:randomUUID(),amountCents:10000,method,reference:'TEST-ORIGINAL-RECEIPT',at:now,receipt};
+  const input = {idempotencyKey:randomUUID(),amountCents:10000,method,reference:'TEST-ORIGINAL-RECEIPT',at:now,receipt,receivedConfirmed:true};
   return {env,files,order,input,original};
 }
 

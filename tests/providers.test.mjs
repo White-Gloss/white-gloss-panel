@@ -47,6 +47,10 @@ test('unknown finalization stays locked until a matching provider invoice is rea
 test('existing WG number prevents another provider invoice',async t=>{
   const env=await fixture(t),writes=mockQonto(t,{existing:[{id:invoiceId,number:'WG-000100'}]});await assert.rejects(providerOperations.action(env,completed(),'invoice',input),/bereits vorhanden/);assert.equal(writes.length,0);
 });
+test('reconciliation without an invoice preserves unrelated orders with no price agreement',async t=>{
+  const order={...completed(),status:'Preise prüfen'};delete order.offer;const env=await fixture(t,order);let calls=0;t.mock.method(globalThis,'fetch',async()=>{calls++;throw Error('No provider operation needed');});
+  const saved=await providerOperations.action(env,order,'reconcile',{});assert.equal(saved.status,'Preise prüfen');assert.equal(saved.version,1);assert.equal(saved.offer,undefined);assert.equal(saved.invoice,undefined);assert.equal(calls,0);
+});
 test('synthetic invoices stop before any external read or write',async t=>{
   const env=await fixture(t);let calls=0;t.mock.method(globalThis,'fetch',()=>{calls++;throw Error('No external test');});await assert.rejects(providerOperations.action(env,{...completed(),synthetic:true},'invoice',input),/Schlussrechnung/);assert.equal(calls,0);
 });

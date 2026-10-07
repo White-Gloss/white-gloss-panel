@@ -80,7 +80,7 @@ test('customer files preserve all orders, isolate test data, avoid model-only me
 });
 test('approved amendments participate in payment totals while unapproved extras never do',()=>{
   const o={status:'Erledigt',offer:{totalCents:10000,services:'TEST'},acceptance:{at:'today'},payments:[],amendments:[{state:'accepted',amountCents:2000,services:'TEST approved'},{state:'open',amountCents:9000}]};
-  const paid=transition(o,'payment',{amountCents:12000,at:new Date().toISOString(),method:'Bar',cashConfirmed:true});assert.equal(paid.status,'Bezahlt');assert.equal(paid.offer.totalCents,10000);
+  const paid=transition(o,'payment',{amountCents:12000,at:new Date().toISOString(),method:'Bar',cashConfirmed:true,receivedConfirmed:true});assert.equal(paid.status,'Bezahlt');assert.equal(paid.offer.totalCents,10000);
 });
 test('push endpoints prevent local network abuse and owner-only subscription secrets are encrypted',async t=>{
   const f=await fixture(t),sub={endpoint:'https://fcm.googleapis.com/fcm/send/synthetic-test',keys:{p256dh:'A'.repeat(87),auth:'B'.repeat(22)}};

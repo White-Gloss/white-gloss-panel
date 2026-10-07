@@ -1,6 +1,6 @@
 import {readFile} from 'node:fs/promises';
 import {need,berlin} from '../src/domain.mjs';
-import {setting,settings} from '../src/worker.mjs';
+import {setting,settings,getOrder,saveOrder} from '../src/worker.mjs';
 import {digest} from './auth.mjs';
 import {paymentRecord} from './payment-ledger.mjs';
 import {wrapPDFText} from './pdf-layout.mjs';
@@ -36,6 +36,8 @@ export async function paymentDocument(env,orderId,paymentId){
   await templateSchema(env);const previous=await env.DB.prepare('SELECT * FROM payment_documents WHERE payment_id=? AND order_id=?').bind(paymentId,orderId).first();
   const snapshot=await paymentRecord(env,orderId,paymentId),filename=snapshot.wg.replace(/[^A-Za-z0-9_-]/g,'_')+'-'+snapshot.documentType+'-'+paymentId.slice(0,8)+'.pdf';
   if(previous){const stored=await env.BUCKET.get(previous.asset_id);need(stored&&digest(stored.body)===previous.hash,'Gespeicherter Zahlungsnachweis ist nicht vollständig.',409);return {bytes:stored.body,filename};}
+  need(snapshot.receivedConfirmed===true&&snapshot.receivedConfirmedBy==='owner','Neue Quittung oder Zahlungsbestätigung erst nach persönlicher Betreiberbestätigung: Ich habe die Zahlung erhalten.',409);
+  const order=await getOrder(env,orderId);need(order.receiptRequests?.[paymentId]?.requestedBy==='owner','Eine separate Quittung wird nur auf deinen ausdrücklichen Auftrag erstellt.',409);
   const configuration=(await settings(env)).documentTemplate;need(configuration,'Zahlung gespeichert. Dokument wartet auf freigegebenes echtes Briefpapier.',409);
   const {PDFDocument,rgb,fontkit}=await import(libraryURL.href),doc=await PDFDocument.create();doc.registerFontkit(fontkit);
   const font=await doc.embedFont(await readFile(new URL('../dist/pdf/NotoSans.ttf',import.meta.url)),{subset:true}),background=await letterhead(env,doc,configuration),box=configuration.contentBox;
@@ -58,8 +60,24 @@ export async function paymentDocument(env,orderId,paymentId){
   catch(error){await env.BUCKET.delete(id);const winner=await env.DB.prepare('SELECT payment_id FROM payment_documents WHERE payment_id=? AND order_id=?').bind(paymentId,orderId).first();if(winner)return paymentDocument(env,orderId,paymentId);throw error;}
   return {bytes,filename};
 }
+export async function requestPaymentDocument(env,input,actor='owner'){
+  need(actor==='owner','Eine separate Quittung darf ausschließlich der Betreiber beauftragen.',403);
+  need(input?.confirmed===true,'Bitte die Erstellung der separaten Quittung ausdrücklich beauftragen.',409);
+  const snapshot=await paymentRecord(env,input.id,input.payment);need(snapshot.receivedConfirmed===true&&snapshot.receivedConfirmedBy==='owner','Zahlungseingang zuerst persönlich bestätigen.',409);
+  const order=await getOrder(env,input.id);if(order.receiptRequests?.[input.payment]?.requestedBy==='owner')return order;
+  need(Number.isInteger(input.version)&&order.version===input.version,'Diese Ansicht ist veraltet. Bitte Auftrag neu öffnen.',409);
+  const updated={...order,receiptRequests:{...order.receiptRequests,[input.payment]:{requestedBy:'owner',requestedAt:new Date().toISOString()}}};
+  try{return await saveOrder(env,updated,order.version,'Separate Quittung auf ausdrücklichen Betreiberauftrag freigegeben','owner');}
+  catch(error){const current=await getOrder(env,order.id);if(current.receiptRequests?.[input.payment]?.requestedBy==='owner')return current;throw error;}
+}
 export async function documentEndpoint(env,request){
   const url=new URL(request.url);
+  if(url.pathname==='/api/payment/receipt'){
+    need(request.method==='POST','Methode nicht erlaubt.',405);need(request.headers.get('origin')===env.PANEL_ORIGIN&&request.headers.get('content-type')?.startsWith('application/json'),'Ungültiger Ursprung oder Inhalt.',403);
+    const raw=await request.text();need(raw.length<20000,'Eingabe zu groß.',413);const input=JSON.parse(raw),order=await requestPaymentDocument(env,input);
+    try{const pdf=await paymentDocument(env,input.id,input.payment);return Response.json({order,documentReady:true,filename:pdf.filename});}
+    catch(error){if(error.status===409)return Response.json({order,documentReady:false,message:error.message},{status:202});throw error;}
+  }
   if(url.pathname==='/api/payment/pdf'&&request.method==='GET'){const pdf=await paymentDocument(env,url.searchParams.get('id'),url.searchParams.get('payment'));return new Response(pdf.bytes,{headers:{'Content-Type':'application/pdf','Content-Disposition':'attachment; filename="'+pdf.filename+'"'}});}
   if(url.pathname!=='/api/document-template')return null;
   if(request.method==='GET')return Response.json({template:(await settings(env)).documentTemplate??null});

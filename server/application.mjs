@@ -3,7 +3,8 @@ import {customerFilesSchema,customerFiles,updateCustomerFile} from './customer-f
 import {pushSchema,pushStatus,pushDevice,pushMaintenance,collectPush} from './push.mjs';
 import {AppError} from '../src/domain.mjs';
 import {authSchema,sessionIdentity,requestLogin,redeemLogin,customerPinLogin,customerResetRequest,logout,loginPage,pruneAuth,digest} from './auth.mjs';
-import {customerPortalSchema,customerPortalData,customerPortalPage,customerPortalDocument,customerPaymentPDF,customerAgreement,customerReviewConsent,customerChat,ownerChatSummary} from './customer-portal.mjs';
+import {customerPortalSchema,customerPortalData,customerPortalPage,customerPortalDocument,customerPaymentPDF,customerInvoicePaymentPDF,customerAgreement,customerReviewConsent,customerChat,ownerChatSummary} from './customer-portal.mjs';
+import {invoicePaymentDocument} from './invoice-payment.mjs';
 import {documentEndpoint} from './document-template.mjs';
 import {passwordLogin,savePassword,passwordPage} from './password-auth.mjs';
 import {calendarOAuthSchema,calendarAuthorize,calendarCallback,calendarAccessToken} from './calendar-oauth.mjs';
@@ -43,6 +44,8 @@ export async function createApplication(env){
       if(!isOwner&&url.pathname==='/api/customer-portal/document'&&request.method==='GET')return await customerPortalDocument(env,request,identity);
       if(!isOwner&&url.pathname==='/api/customer-portal/agreement'&&request.method==='GET')return await customerAgreement(env,request,identity);
       if(!isOwner&&url.pathname==='/api/customer/payment/pdf'&&request.method==='GET')return await customerPaymentPDF(env,request,identity);
+      if(!isOwner&&url.pathname==='/api/customer/invoice/payment/pdf'&&request.method==='GET')return await customerInvoicePaymentPDF(env,request,identity);
+      if(isOwner&&url.pathname==='/api/invoice/payment/pdf'&&request.method==='GET'){const version=url.searchParams.get('version');if(!/^[a-f0-9]{64}$/.test(version??''))return errorResponse('Gespeicherte Rechnungskopienversion fehlt.',400);const pdf=await invoicePaymentDocument(env,url.searchParams.get('id'),version);return new Response(pdf.bytes,{headers:{'Content-Type':'application/pdf','Content-Disposition':'attachment; filename="'+pdf.filename+'"'}});}
       if(isOwner&&url.pathname==='/api/customer-portal/review-consent')return errorResponse('Diese Einwilligung kann nur der persönlich angemeldete Kunde erteilen oder widerrufen.',403);
       if(!isOwner&&url.pathname==='/api/customer-portal/review-consent')return await customerReviewConsent(env,request,identity);
       if(!isOwner&&url.pathname==='/api/customer-portal/chat')return await customerChat(env,request,identity,false);
