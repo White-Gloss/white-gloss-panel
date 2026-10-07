@@ -27,9 +27,17 @@ test('same payment reference cannot be booked twice under another key and altere
 });
 test('partial payment remains unpaid; overpayment and stale view roll back',async t=>{
   const {env,order}=await fixture(t),input={...cash(),amountCents:5000};const saved=await recordPayment(env,order,input);assert.equal(saved.status,'Erledigt');
+  const original=await paymentRecord(env,order.id,input.idempotencyKey);assert.equal(original.amountCents,5000);assert.equal(original.agreedTotalCents,11900);assert.equal(original.paidTotalCents,5000);assert.equal(original.remainingCents,6900);
   await assert.rejects(recordPayment(env,saved,{...cash(),reference:'TEST-OTHER',amountCents:10000}),/überschreitet/);
   await assert.rejects(recordPayment(env,saved,{...cash(),reference:'TEST-OTHER',amountCents:6900},'owner',1),/veraltet/);
   assert.equal((await env.DB.prepare('SELECT COUNT(*) n FROM payment_records').first()).n,1);
+  const finalPayment={...cash(),reference:'TEST-FINAL',amountCents:6900,at:'2026-10-01T11:30:00Z'},paid=await recordPayment(env,saved,finalPayment);assert.equal(paid.status,'Bezahlt');const final=await paymentRecord(env,order.id,finalPayment.idempotencyKey);assert.equal(final.amountCents,6900);assert.equal(final.at,'2026-10-01T11:30:00.000Z');assert.equal(final.paidTotalCents,11900);assert.equal(final.remainingCents,0);assert.deepEqual(await paymentRecord(env,order.id,input.idempotencyKey),original);
+});
+
+test('an invoice or completed order without a recorded incoming payment cannot create a receipt',async t=>{
+  const {env,order,files}=await fixture(t);order.invoice={number:'TEST-INVOICE',status:'paid'};
+  await env.DB.prepare('UPDATE orders SET data=?,version=version+1 WHERE id=?').bind(JSON.stringify(order),order.id).run();
+  await assert.rejects(paymentDocument(env,order.id,randomUUID()),/nicht gefunden/);assert.equal(files.size,0);assert.equal((await env.DB.prepare('SELECT COUNT(*) n FROM payment_documents').first()).n,0);assert.equal((await getOrder(env,order.id)).status,'Erledigt');
 });
 test('real cash recording requires verified cash-system path and actual confirmation',async t=>{
   const {env,order}=await fixture(t,{synthetic:false});await assert.rejects(recordPayment(env,order,cash()),/Kassensystem/);

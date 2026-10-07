@@ -43,11 +43,14 @@ export async function paymentDocument(env,orderId,paymentId){
   const newPage=()=>{page=doc.addPage([595.28,841.89]);background.draw(page);y=841.89-box.top-20;};
   const paragraph=(value,size=10)=>{for(const line of wrapPDFText(value,font,size,width)){if(y-size<box.bottom+20)newPage();page.drawText(line,{x:box.left,y,font,size,color:ink});y-=size+6;}};
   newPage();paragraph(snapshot.documentType,20);y-=12;paragraph('Auftrag '+snapshot.wg);paragraph('Kunde: '+snapshot.customer);paragraph('Aussteller: '+configuration.company.name);paragraph(configuration.company.street+' · '+configuration.company.city);y-=12;
-  paragraph('Empfangener Betrag: '+new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(snapshot.amountCents/100),14);
+  const money=value=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(value/100);
+  paragraph('Eingegangener Betrag: '+money(snapshot.amountCents),14);
   paragraph('Zahlungsart: '+snapshot.method);paragraph('Zahlungszeitpunkt (Europe/Berlin): '+berlin(snapshot.at));paragraph('Originalbeleg / Zahlungsreferenz: '+snapshot.reference);if(snapshot.invoiceNumber)paragraph('Zugehörige Rechnung: '+snapshot.invoiceNumber);
   y-=12;paragraph('Leistungen:');paragraph(snapshot.services);y-=12;
-  paragraph(snapshot.method==='Bar'?'Der Betreiber hat den tatsächlichen Bargeldeingang dokumentiert. Der gesetzlich erforderliche Kassenbeleg und gegebenenfalls eine erforderliche Unterschrift bleiben gesondert nachzuweisen.':'Dokumentation des vom Betreiber erfassten Zahlungseingangs. Der originale Bank- oder Terminalbeleg bleibt der Zahlungsreferenz zugeordnet.');
-  paragraph('Dieses Dokument löst keine Zahlung aus und ersetzt keine Rechnung.');if(snapshot.method==='Bar'){y-=12;paragraph('Empfang schriftlich bestätigt:');paragraph('Datum: ____________________  Unterschrift Betrieb: ____________________');}
+  paragraph('Hiermit bestätigen wir den Eingang des oben genannten Betrags für die aufgeführten Leistungen.');
+  if(Number.isSafeInteger(snapshot.remainingCents)){paragraph('Zahlung erfasst (Europe/Berlin): '+berlin(snapshot.recordedAt));paragraph('Offener Auftragsbetrag bei dieser Zahlungserfassung: '+money(snapshot.remainingCents));if(snapshot.amountCents<snapshot.agreedTotalCents)paragraph(snapshot.documentType==='Quittung'?'Diese Quittung bestätigt eine Teilzahlung.':'Dieser Zahlungsnachweis bestätigt eine Teilzahlung. Die Zahlung ist durch den zugeordneten Originalbeleg dokumentiert.');}
+  if(snapshot.method!=='Bar')paragraph('Der originale Bank- oder Terminalbeleg bleibt der Zahlungsreferenz zugeordnet.');
+  paragraph('Dieser Beleg bestätigt den Zahlungseingang und ersetzt keine Rechnung.');if(snapshot.method==='Bar'){y-=12;paragraph('Empfang schriftlich bestätigt:');paragraph('Datum: ____________________  Unterschrift Betrieb: ____________________');}
   const pages=doc.getPages();pages.forEach((p,i)=>p.drawText(snapshot.wg+' · '+snapshot.documentType+' · '+(i+1)+'/'+pages.length,{x:box.left,y:box.bottom+2,font,size:8,color:grey}));
   doc.setTitle(snapshot.documentType+' '+snapshot.wg);doc.setAuthor(configuration.company.name);doc.setCreationDate(new Date(snapshot.recordedAt));
   const bytes=await doc.save(),id=crypto.randomUUID(),hash=digest(bytes);await env.BUCKET.put(id,bytes,{httpMetadata:{contentType:'application/pdf'}});

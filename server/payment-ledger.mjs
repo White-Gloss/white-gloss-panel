@@ -33,7 +33,8 @@ export async function recordPayment(env,order,input,actor='owner',expectedVersio
   }
   // The existing domain transition controls completion, fixed price and overpayment.
   const updated=transition(order,'payment',payment),operationId=crypto.randomUUID();updated.operationId=operationId;
-  const snapshot={...payment,orderId:order.id,wg:order.wg,customer:order.source.name,services:agreedOffer(order).services,agreedTotalCents:agreedOffer(order).totalCents,recordedAt:new Date().toISOString(),documentType:payment.method==='Bar'?'Quittung':'Zahlungsnachweis',invoiceNumber:order.invoice?.number??null};
+  const agreedTotalCents=agreedOffer(order).totalCents,paidTotalCents=updated.payments.reduce((sum,item)=>sum+item.amountCents,0);
+  const snapshot={...payment,orderId:order.id,wg:order.wg,customer:order.source.name,services:agreedOffer(order).services,agreedTotalCents,paidTotalCents,remainingCents:agreedTotalCents-paidTotalCents,recordedAt:new Date().toISOString(),documentType:payment.method==='Bar'?'Quittung':'Zahlungsnachweis',invoiceNumber:order.invoice?.number??null};
   const statements=[env.DB.prepare(`INSERT INTO payment_records(id,order_id,reference,payload_hash,data,created_at) SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM orders WHERE id=? AND version=? AND json_extract(data,'$.operationId')=?)`).bind(payment.id,order.id,payment.reference,fingerprint,JSON.stringify(snapshot),snapshot.recordedAt,order.id,order.version+1,operationId)];
   try{return await saveOrder(env,updated,order.version,'Tatsächlichen Zahlungseingang dokumentiert',actor,statements);}
   catch(error){const retry=await env.DB.prepare('SELECT * FROM payment_records WHERE id=? OR (order_id=? AND reference=?)').bind(payment.id,order.id,payment.reference).first();if(retry&&retry.order_id===order.id&&retry.payload_hash===fingerprint)return getOrder(env,order.id);throw error;}
