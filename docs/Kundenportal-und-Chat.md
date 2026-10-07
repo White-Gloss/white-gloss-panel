@@ -1,5 +1,15 @@
 # Kundenpanel, wiederholbare PIN und gespeicherte Nachrichten
 
+Unterschriebene Vereinbarungen und angenommene Nachträge bleiben in ihrer
+Originalansicht zugänglich. Zusätzlich bietet diese Ansicht einen PDF-Download
+auf dem freigegebenen Briefpapier. Die Ausgabe verwendet den gespeicherten
+angenommenen Inhalt, die persönliche Unterschrift und die damals angenommenen
+Stornobedingungen. Ein aktueller Preis oder eine neue Bedingungsversion ersetzt
+den Originalstand nicht. Erste PDF-Ausgaben werden mit eigener Prüfsumme und
+Vorlagen-ID unveränderlich gespeichert; parallele Downloads erzeugen einen Beleg.
+Ohne echtes freigegebenes Briefpapier oder ursprünglichen historischen Snapshot
+bleibt der PDF-Download gesperrt, die Originalansicht bleibt erhalten.
+
 Das IONOS-Kundenpanel liegt unter `/kundenportal`. Kunden melden sich mit ihrer
 E-Mail-Adresse und ihrer persönlichen sechsstelligen PIN an. Der Login hängt
 nicht vom Angebotsende, einer bereits erfolgten Unterschrift oder dem Abschluss

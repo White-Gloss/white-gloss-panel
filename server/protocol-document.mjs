@@ -3,6 +3,7 @@ import {digest} from './auth.mjs';
 import {need,berlin} from '../src/domain.mjs';
 import {letterhead} from './document-template.mjs';
 import {settings} from '../src/worker.mjs';
+import {wrapPDFText} from './pdf-layout.mjs';
 let rendering=false,fontBytes;
 const libraryURL=new URL('../dist/pdf/library.mjs',import.meta.url);
 const filename=(order,kind)=>order.wg.replace(/[^A-Za-z0-9_-]/g,'_')+'-'+(kind==='intake'?'Annahmeprotokoll':'Rueckgabeprotokoll')+'.pdf';
@@ -27,10 +28,7 @@ export async function protocolDocument(env,order,kind){
     const newPage=()=>{page=doc.addPage([595.28,841.89]);if(approvedLetterhead)approvedLetterhead.draw(page);else{page.drawRectangle({x:0,y:786,width:595.28,height:56,color:navy});page.drawText('WHITE GLOSS',{x:42,y:808,font,size:18,color:rgb(1,1,1)});page.drawText(order.wg,{x:390,y:808,font,size:11,color:rgb(1,1,1)});}y=841.89-box.top-20;};
     const ensure=height=>{if(y-height<box.bottom+20)newPage();};
     const paragraph=(value,size=10,color=navy)=>{
-      for(const block of String(value??'—').replace(/\r/g,'').split('\n')){
-        let line='';for(const char of block){if(font.widthOfTextAtSize(line+char,size)>contentWidth&&line){const split=line.lastIndexOf(' '),draw=split>0?line.slice(0,split):line;ensure(size+6);page.drawText(draw,{x:box.left,y,font,size,color});y-=size+6;line=split>0?line.slice(split+1):'';}line+=char;}
-        ensure(size+6);page.drawText(line,{x:box.left,y,font,size,color});y-=size+6;
-      }
+      for(const line of wrapPDFText(value??'—',font,size,contentWidth)){ensure(size+6);page.drawText(line,{x:box.left,y,font,size,color});y-=size+6;}
     };
     const heading=value=>{ensure(38);y-=12;paragraph(value,13);y-=5;};
     const field=(label,value)=>{ensure(34);paragraph(label,9,grey);paragraph(value,10);y-=5;};

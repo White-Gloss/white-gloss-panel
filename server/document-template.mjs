@@ -3,6 +3,7 @@ import {need,berlin} from '../src/domain.mjs';
 import {setting,settings} from '../src/worker.mjs';
 import {digest} from './auth.mjs';
 import {paymentRecord} from './payment-ledger.mjs';
+import {wrapPDFText} from './pdf-layout.mjs';
 
 const libraryURL=new URL('../dist/pdf/library.mjs',import.meta.url);
 export async function templateSchema(env){
@@ -40,7 +41,7 @@ export async function paymentDocument(env,orderId,paymentId){
   const font=await doc.embedFont(await readFile(new URL('../dist/pdf/NotoSans.ttf',import.meta.url)),{subset:true}),background=await letterhead(env,doc,configuration),box=configuration.contentBox;
   const ink=rgb(.08,.12,.19),grey=rgb(.35,.4,.46);let page,y=0;const width=595.28-box.left-box.right;
   const newPage=()=>{page=doc.addPage([595.28,841.89]);background.draw(page);y=841.89-box.top-20;};
-  const paragraph=(value,size=10)=>{for(const block of String(value??'').split('\n')){let line='';for(const char of block){if(font.widthOfTextAtSize(line+char,size)>width&&line){if(y-size<box.bottom+20)newPage();page.drawText(line,{x:box.left,y,font,size,color:ink});y-=size+6;line='';}line+=char;}if(y-size<box.bottom+20)newPage();page.drawText(line,{x:box.left,y,font,size,color:ink});y-=size+6;}};
+  const paragraph=(value,size=10)=>{for(const line of wrapPDFText(value,font,size,width)){if(y-size<box.bottom+20)newPage();page.drawText(line,{x:box.left,y,font,size,color:ink});y-=size+6;}};
   newPage();paragraph(snapshot.documentType,20);y-=12;paragraph('Auftrag '+snapshot.wg);paragraph('Kunde: '+snapshot.customer);paragraph('Aussteller: '+configuration.company.name);paragraph(configuration.company.street+' · '+configuration.company.city);y-=12;
   paragraph('Empfangener Betrag: '+new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(snapshot.amountCents/100),14);
   paragraph('Zahlungsart: '+snapshot.method);paragraph('Zahlungszeitpunkt (Europe/Berlin): '+berlin(snapshot.at));paragraph('Originalbeleg / Zahlungsreferenz: '+snapshot.reference);if(snapshot.invoiceNumber)paragraph('Zugehörige Rechnung: '+snapshot.invoiceNumber);
