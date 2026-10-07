@@ -84,3 +84,5 @@
 @media(max-width:760px){.booking-day-cell{min-height:90px;padding:8px;font-size:11px}.booking-day-cell span{overflow-wrap:anywhere}.appoff{margin:25px 12px;padding:22px}.booking-calendar-legend{gap:10px}.chat-message{padding:12px}}
 
 #document-settings .fieldpair span:last-child{overflow-wrap:anywhere;min-width:0}
+.booking-mobile-status{display:none}
+@media(max-width:760px){.booking-month-grid{grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}.booking-month-grid>.eyebrow{text-align:center;letter-spacing:0}.booking-month-grid>.calendar-cell:empty{display:block}.booking-month-grid>.calendar-cell{min-height:74px;min-width:0}.booking-month-grid>.booking-day-cell{width:100%;padding:6px 3px;gap:7px}.booking-day-cell>.booking-free,.booking-day-cell>.booking-occupied{display:none}.booking-day-cell>.booking-mobile-status{display:block;font-size:9px;line-height:1.2;letter-spacing:-.15px;overflow-wrap:normal}.booking-mobile-status.available{color:var(--good)}.booking-mobile-status.booked{color:var(--warn)}}
