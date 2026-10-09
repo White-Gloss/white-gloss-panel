@@ -1,6 +1,6 @@
 import {cancellationPolicyErrors,cancellationSnapshot,cancellationPreview,proposedCancellationPolicy,reviewPolicyErrors,reviewDue,reviewRequestText} from './customer-policy.mjs';
 import {readBookingCalendar,changeBookingCalendar,validateBookingCalendar} from '../server/booking-calendar.mjs';
-import { AppError,need,cents,text,berlin,STATES,normalizeSource,protocolValid,transition,dueJobs,nextStep,customerSignaturePNG } from './domain.mjs';
+import { AppError,need,cents,text,berlin,STATES,normalizeSource,protocolValid,handoverValid,transition,dueJobs,nextStep,customerSignaturePNG } from './domain.mjs';
 import {protocolAllowed} from './operations.mjs';
 import {COMPANY} from './company.mjs';
 import { SCHEMA } from './schema.mjs';
@@ -70,8 +70,103 @@ async function upload(request,env,id){
   const aid=crypto.randomUUID();await env.BUCKET.put(aid,bytes,{httpMetadata:{contentType:mime}});
   try{const statements=[env.DB.prepare('INSERT INTO assets VALUES(?,?,?,?,?,?,?)').bind(aid,id,kind,mime,await hash(bytes),bytes.byteLength,new Date().toISOString())];if(draft)statements.push(env.DB.prepare('INSERT INTO signature_bindings VALUES(?,?,?)').bind(aid,draft.id,draft.hash));await env.DB.batch(statements);}catch(e){await env.BUCKET.delete(aid);throw e;}return {id:aid};
 }
-async function prepareProtocol(env,o,kind,input){need(protocolAllowed(o,kind,input.direct===true),'Protokoll in diesem Status nicht möglich oder Nachtrag noch offen.',409);if(input.direct===true)need(text(input.directReason),'Bitte den Anlass für die direkte Übergabe dokumentieren.');const template=(await settings(env)).documentTemplate;const p={...input,kind,business:{...COMPANY},wg:o.wg,customer:o.source.name,vehicle:o.source.vehicle,...(template?{documentTemplate:template}:{})};if(!template){delete p.documentTemplate;p.documentTemplatePending=true;}else delete p.documentTemplatePending;for(const k of ['plate','at','location','condition','customerName','operatorName'])need(text(p[k]),'Pflichtangabe fehlt: '+k);for(const [key,limit] of Object.entries({plate:80,location:600,condition:4000,notes:4000,customerName:180,operatorName:180,services:6000,openPoints:4000}))if(p[key]!==undefined)need(typeof p[key]==='string'&&p[key].length<=limit,'Protokollangabe ist zu lang oder ungültig: '+key);need(Number.isSafeInteger(p.mileage)&&p.mileage>=0,'Kilometerstand ungültig.');need(Number.isSafeInteger(p.keys)&&p.keys>=0,'Schlüsselanzahl ungültig.');need(Array.isArray(p.photos)&&p.photos.length>0,'Zustandsfotos fehlen.');const photos=await env.DB.prepare("SELECT id FROM assets WHERE order_id=? AND kind='photo'").bind(o.id).all();const assets=new Set(photos.results.map(x=>x.id));for(const id of p.photos)need(assets.has(id),'Zustandsfoto fehlt oder gehört nicht zu diesem Auftrag.');need(p.photos.length<=20,'Höchstens 20 Zustandsfotos pro Protokoll.');if(p.photoPreviews!==undefined){need(p.photoPreviews&&typeof p.photoPreviews==='object'&&!Array.isArray(p.photoPreviews),'Foto-Vorschauen sind ungültig.');for(const [original,preview] of Object.entries(p.photoPreviews))need(p.photos.includes(original)&&assets.has(preview),'PDF-Vorschau gehört nicht zu diesem Protokoll.');}protocolValid({...p,customerSignature:'validation-customer',operatorSignature:'validation-owner',signaturesConfirmed:true},kind,new Set([...assets,'validation-customer','validation-owner']));const id=crypto.randomUUID();const data=JSON.stringify(p);const digest=await hash(data);await env.DB.prepare('INSERT INTO protocol_drafts VALUES(?,?,?,?,?,?)').bind(id,o.id,kind,o.version,data,digest).run();return {id,hash:digest,protocol:p};}
-async function finishProtocol(env,o,kind,input){need(!o[kind],'Bestätigtes Protokoll bleibt erhalten.',409);need(input?.draftId&&input?.snapshotHash,'Protokollentwurf fehlt.',400);const draft=await env.DB.prepare('SELECT * FROM protocol_drafts WHERE id=? AND order_id=?').bind(input.draftId,o.id).first();need(draft&&draft.version===o.version&&draft.kind===kind,'Protokollentwurf veraltet. Neu anzeigen und unterschreiben.',409);need(input.snapshotHash===draft.hash,'Unterschriften gehören nicht zum angezeigten Protokoll.',409);const p={...JSON.parse(draft.data),snapshotHash:draft.hash,customerSignature:input.customerSignature,operatorSignature:input.operatorSignature,signaturesConfirmed:input.signaturesConfirmed};const assetRows=await env.DB.prepare('SELECT id,kind FROM assets WHERE order_id=?').bind(o.id).all();const assets=new Set(assetRows.results.map(a=>a.id));need(assetRows.results.filter(a=>[p.customerSignature,p.operatorSignature].includes(a.id)&&a.kind==='signature').length===2,'Unterschriften fehlen.');const bindings=await env.DB.prepare('SELECT asset_id FROM signature_bindings WHERE draft_id=? AND snapshot_hash=?').bind(draft.id,draft.hash).all();const signed=new Set(bindings.results.map(a=>a.asset_id));need(signed.has(p.customerSignature)&&signed.has(p.operatorSignature),'Beide Unterschriften müssen genau diesem angezeigten Protokoll zugeordnet sein.');protocolValid(p,kind,assets);return transition(o,kind,p);}
+async function prepareProtocol(env,o,kind,input,remote=false){need(!Object.values(o.handovers??{}).some(item=>item.status==='pending'),'Der Kunde muss zuerst das offene Fahrzeugübergabeprotokoll bestätigen.',409);need(input&&typeof input==='object'&&!Array.isArray(input),'Protokoll fehlt.');if(remote)handoverAvailable(o,kind,input.direct===true);need(protocolAllowed(o,kind,input.direct===true),'Protokoll in diesem Status nicht möglich oder Nachtrag noch offen.',409);if(input.direct===true)need(text(input.directReason),'Bitte den Anlass für die direkte Übergabe dokumentieren.');const template=(await settings(env)).documentTemplate;const p={...input,kind,...(remote?{workflow:'remote',customerEmail:(o.source.email??'').trim().toLowerCase()}:{}),business:{...COMPANY},wg:o.wg,customer:o.source.name,vehicle:o.source.vehicle,...(template?{documentTemplate:template}:{})};if(!remote)delete p.workflow;if(remote)for(const key of ['customerSignature','operatorSignature','signaturesConfirmed','operatorConfirmed','operatorSignedAt','customerSignedAt','snapshotHash'])delete p[key];if(!template){delete p.documentTemplate;p.documentTemplatePending=true;}else delete p.documentTemplatePending;for(const k of ['plate','at','location','condition','customerName','operatorName'])need(text(p[k]),'Pflichtangabe fehlt: '+k);for(const [key,limit] of Object.entries({plate:80,location:600,condition:4000,notes:4000,customerName:180,operatorName:180,services:6000,openPoints:4000}))if(p[key]!==undefined)need(typeof p[key]==='string'&&p[key].length<=limit,'Protokollangabe ist zu lang oder ungültig: '+key);need(Number.isSafeInteger(p.mileage)&&p.mileage>=0,'Kilometerstand ungültig.');need(Number.isSafeInteger(p.keys)&&p.keys>=0,'Schlüsselanzahl ungültig.');need(Array.isArray(p.photos)&&p.photos.length>0,'Zustandsfotos fehlen.');const photos=await env.DB.prepare("SELECT id FROM assets WHERE order_id=? AND kind='photo'").bind(o.id).all();const assets=new Set(photos.results.map(x=>x.id));for(const id of p.photos)need(assets.has(id),'Zustandsfoto fehlt oder gehört nicht zu diesem Auftrag.');need(p.photos.length<=20,'Höchstens 20 Zustandsfotos pro Protokoll.');if(p.photoPreviews!==undefined){need(p.photoPreviews&&typeof p.photoPreviews==='object'&&!Array.isArray(p.photoPreviews),'Foto-Vorschauen sind ungültig.');for(const [original,preview] of Object.entries(p.photoPreviews))need((p.photos.includes(original)||remote&&original===p.keyPhoto)&&assets.has(preview),'PDF-Vorschau gehört nicht zu diesem Protokoll.');}const validated=protocolValid({...p,customerSignature:'validation-customer',operatorSignature:'validation-owner',signaturesConfirmed:true},kind,new Set([...assets,'validation-customer','validation-owner']));if(remote){handoverValid(p,kind,assets);p.at=validated.at;}const id=crypto.randomUUID();const data=JSON.stringify(p);const digest=await hash(data);await env.DB.prepare('INSERT INTO protocol_drafts VALUES(?,?,?,?,?,?)').bind(id,o.id,kind,o.version,data,digest).run();return {id,hash:digest,protocol:p};}
+async function finishProtocol(env,o,kind,input){need(!Object.values(o.handovers??{}).some(item=>item.status==='pending'),'Der Kunde muss zuerst das offene Fahrzeugübergabeprotokoll bestätigen.',409);need(!o[kind],'Bestätigtes Protokoll bleibt erhalten.',409);need(input?.draftId&&input?.snapshotHash,'Protokollentwurf fehlt.',400);const draft=await env.DB.prepare('SELECT * FROM protocol_drafts WHERE id=? AND order_id=?').bind(input.draftId,o.id).first();need(draft&&draft.version===o.version&&draft.kind===kind,'Protokollentwurf veraltet. Neu anzeigen und unterschreiben.',409);need(input.snapshotHash===draft.hash,'Unterschriften gehören nicht zum angezeigten Protokoll.',409);need(JSON.parse(draft.data).workflow!=='remote','Dieses Protokoll benötigt die persönliche Kundenbestätigung über den Kundenzugang.',409);const p={...JSON.parse(draft.data),snapshotHash:draft.hash,customerSignature:input.customerSignature,operatorSignature:input.operatorSignature,signaturesConfirmed:input.signaturesConfirmed};const assetRows=await env.DB.prepare('SELECT id,kind FROM assets WHERE order_id=?').bind(o.id).all();const assets=new Set(assetRows.results.map(a=>a.id));need(assetRows.results.filter(a=>[p.customerSignature,p.operatorSignature].includes(a.id)&&a.kind==='signature').length===2,'Unterschriften fehlen.');const bindings=await env.DB.prepare('SELECT asset_id FROM signature_bindings WHERE draft_id=? AND snapshot_hash=?').bind(draft.id,draft.hash).all();const signed=new Set(bindings.results.map(a=>a.asset_id));need(signed.has(p.customerSignature)&&signed.has(p.operatorSignature),'Beide Unterschriften müssen genau diesem angezeigten Protokoll zugeordnet sein.');protocolValid(p,kind,assets);return transition(o,kind,p);}
+function handoverAvailable(o,kind,direct=false){
+  need(['intake','return'].includes(kind),'Unbekannte Protokollart.');
+  need(!o[kind]&&!o.handovers?.[kind],'Ein veröffentlichtes oder bestätigtes Protokoll bleibt erhalten.',409);
+  need(!Object.values(o.handovers??{}).some(item=>item.status==='pending'),'Der Kunde muss zuerst das offene Fahrzeugübergabeprotokoll bestätigen.',409);
+  need(protocolAllowed(o,kind,direct),'Protokoll in diesem Status nicht möglich oder Nachtrag noch offen.',409);
+}
+async function prepareHandover(env,o,kind,input){return prepareProtocol(env,o,kind,input,true);}
+async function publishHandover(env,o,input){
+  need(text(input.draftId),'Protokollentwurf fehlt.',409);
+  const draft=await env.DB.prepare('SELECT * FROM protocol_drafts WHERE id=? AND order_id=?').bind(input.draftId,o.id).first();
+  need(draft&&draft.version===o.version&&draft.hash===input.snapshotHash,'Protokollentwurf veraltet. Neu anzeigen und unterschreiben.',409);
+  const prepared=JSON.parse(draft.data);need(prepared.workflow==='remote','Dieser Entwurf ist kein Fahrzeugübergabeprotokoll.',409);
+  handoverAvailable(o,draft.kind,prepared.direct===true);
+  need(prepared.customerEmail===(o.source.email??'').trim().toLowerCase(),'Die Kundenadresse wurde geändert. Das Protokoll muss erneut vorbereitet werden.',409);
+  need(input.operatorConfirmed===true,'Der Betriebsvertreter muss das angezeigte Protokoll persönlich bestätigen.');
+  need(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(o.source.email??''),'Für die persönliche Kundenbestätigung wird eine gültige Kunden-E-Mail benötigt.');
+  need(text(input.operatorSignature),'Die Betriebsunterschrift fehlt.');
+  const signature=await env.DB.prepare("SELECT a.id FROM assets a JOIN signature_bindings b ON b.asset_id=a.id WHERE a.id=? AND a.order_id=? AND a.kind='signature' AND b.draft_id=? AND b.snapshot_hash=?").bind(input.operatorSignature,o.id,draft.id,draft.hash).first();
+  need(signature,'Die Betriebsunterschrift muss genau diesem angezeigten Protokoll zugeordnet sein.');
+  const at=new Date().toISOString(),protocol={...prepared,operatorSignature:signature.id,operatorConfirmed:true,operatorSignedAt:at};
+  const digest=await hash(JSON.stringify(protocol)),token=Array.from(crypto.getRandomValues(new Uint8Array(32))).map(x=>x.toString(16).padStart(2,'0')).join('');
+  const updated=structuredClone(o),operationId=crypto.randomUUID();
+  updated.handovers={...(o.handovers??{}),[draft.kind]:{workflow:'remote',kind:draft.kind,status:'pending',token,draftId:draft.id,protocol,hash:digest,operatorSignedAt:at,customerSignedAt:null}};
+  updated.operationId=operationId;updated.updatedAt=at;
+  const extra=[env.DB.prepare("INSERT INTO handover_tokens(hash,order_id,kind) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM orders WHERE id=? AND version=? AND json_extract(data,'$.operationId')=?)").bind(await hash(token),o.id,draft.kind,o.id,o.version+1,operationId)];
+  return saveOrder(env,updated,o.version,'Fahrzeugübergabeprotokoll '+(draft.kind==='intake'?'Annahme':'Abgabe')+' zur Kundenbestätigung bereitgestellt',env.CONTROL_AGENT_ACTOR??'owner',extra);
+}
+async function resolveHandover(env,request,token){
+  const row=await env.DB.prepare('SELECT order_id,kind FROM handover_tokens WHERE hash=? AND revoked=0').bind(await hash(token)).first();
+  need(row,'Protokollzugang nicht gefunden.',404);
+  const o=await getOrder(env,row.order_id),handover=o.handovers?.[row.kind];
+  need(handover&&handover.token===token,'Protokollzugang nicht gefunden.',404);
+  const email=request.headers.get('oai-authenticated-user-email')?.trim().toLowerCase();
+  const isOwner=!!(email&&env.OWNER_EMAIL_SHA256&&(await hash(email))===env.OWNER_EMAIL_SHA256);
+  need(email&&(isOwner||email===handover.protocol.customerEmail&&email===o.source.email?.trim().toLowerCase()),'Dieses Protokoll gehört zu einem anderen Kundenkonto.',403);
+  return {o,kind:row.kind,handover,isOwner,email};
+}
+function handoverVisible(o,kind,handover,isOwner){
+  const protocol=handover.customerSignature?{...handover.protocol,customerSignature:handover.customerSignature,customerSignedAt:handover.customerSignedAt}:handover.protocol;
+  return {wg:o.wg,kind,protocol,hash:handover.hash,ownerPreview:isOwner,status:handover.status,operatorSignedAt:handover.operatorSignedAt,customerSignedAt:handover.customerSignedAt??null};
+}
+async function handoverCompletionResponse(env,o,kind){
+  const response={ok:true,status:'completed',orderStatus:o.status};
+  if(env.operations?.protocolDelivery){try{Object.assign(response,{protocolDelivery:await env.operations.protocolDelivery(env,o.id,kind)});}catch{Object.assign(response,{protocolDelivery:{state:'queued',message:'Protokoll und Unterschriften sind gespeichert. Der PDF-Versand steht zur Prüfung aus.'}});}}
+  return response;
+}
+async function completeHandover(env,resolved,input){
+  need(input.confirmed===true,'Das angezeigte Fahrzeugübergabeprotokoll muss ausdrücklich bestätigt werden.');
+  need(input.snapshotHash===resolved.handover.hash,'Protokoll wurde verändert. Bitte neu öffnen.',409);
+  if(resolved.handover.status==='completed')return handoverCompletionResponse(env,resolved.o,resolved.kind);
+  need(env.BUCKET,'Geschützter Unterschriftenspeicher ist nicht gebunden.',503);
+  const signature=customerSignaturePNG(input.signature);if(env.operations?.validateCustomerSignature)env.operations.validateCustomerSignature(signature);
+  const bytes=signature.bytes,id=crypto.randomUUID(),digest=await hash(bytes);
+  await env.BUCKET.put(id,bytes,{httpMetadata:{contentType:'image/png'}});
+  let stored=false;
+  try{
+    // Retry a competing note against the same immutable snapshot without overwriting it.
+    for(let attempt=0;attempt<3;attempt++){
+      const o=await getOrder(env,resolved.o.id),handover=o.handovers?.[resolved.kind];
+      need(handover&&handover.token===resolved.handover.token&&handover.hash===input.snapshotHash,'Protokoll wurde verändert. Bitte neu öffnen.',409);
+      need(resolved.email===handover.protocol.customerEmail&&resolved.email===o.source.email?.trim().toLowerCase(),'Die Kundenzuordnung wurde geändert. Dieses Protokoll kann nicht unter einem anderen Kundenkonto bestätigt werden.',403);
+      if(handover.status==='completed')return await handoverCompletionResponse(env,o,resolved.kind);
+      need(handover.status==='pending','Dieses Protokoll kann nicht bestätigt werden.',409);
+      const at=new Date().toISOString(),operationId=crypto.randomUUID();
+      const protocol={...handover.protocol,snapshotHash:handover.hash,customerSignature:id,customerSignedAt:at,signaturesConfirmed:true};
+      const updated=transition(o,resolved.kind,protocol,at,'customer');
+      updated.handovers[resolved.kind]={...handover,status:'completed',customerSignature:id,customerSignedAt:at};
+      updated.operationId=operationId;
+      const extra=env.operations?.protocolQueue?env.operations.protocolQueue(env,updated,resolved.kind,operationId,o.version+1):[];
+      const result=await env.DB.batch([
+        env.DB.prepare('UPDATE orders SET data=?,status=?,version=version+1,updated_at=?,actor=?,action=? WHERE id=? AND version=?').bind(JSON.stringify(updated),updated.status,at,'customer','Kunde hat Fahrzeug'+(resolved.kind==='intake'?'annahme':'abgabe')+' bestätigt',o.id,o.version),
+        env.DB.prepare("INSERT INTO assets(id,order_id,kind,mime,hash,size,created_at) SELECT ?,?,'signature','image/png',?,?,? WHERE EXISTS(SELECT 1 FROM orders WHERE id=? AND version=? AND json_extract(data,'$.operationId')=?)").bind(id,o.id,digest,bytes.byteLength,at,o.id,o.version+1,operationId),
+        env.DB.prepare('INSERT INTO signature_bindings(asset_id,draft_id,snapshot_hash) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM assets WHERE id=?)').bind(id,handover.draftId,handover.hash,id),
+        ...extra
+      ]);
+      if(result[0].meta.changes>0){stored=true;return await handoverCompletionResponse(env,updated,resolved.kind);}
+    }
+    throw new AppError('Der Auftrag wird gerade geändert. Bitte die Bestätigung erneut speichern.',409);
+  }finally{if(!stored)await env.BUCKET.delete(id);}
+}
+async function handover(env,request,token,assetId){
+  const resolved=await resolveHandover(env,request,token),{o,kind,handover:h,isOwner}=resolved;
+  if(assetId){
+    need(request.method==='GET','Methode nicht erlaubt.',405);
+    const allowed=new Set([...h.protocol.photos,h.protocol.keyPhoto,h.protocol.operatorSignature,h.customerSignature,...Object.values(h.protocol.photoPreviews??{})].filter(Boolean));
+    need(allowed.has(assetId),'Dieses Bild gehört nicht zum angezeigten Protokoll.',404);
+    const asset=await env.DB.prepare('SELECT id,mime FROM assets WHERE id=? AND order_id=?').bind(assetId,o.id).first();
+    need(asset,'Bild nicht gefunden.',404);const obj=await env.BUCKET?.get(assetId);need(obj,'Bild nicht gefunden.',404);
+    return new Response(obj.body,{headers:{...security,'Content-Type':asset.mime}});
+  }
+  if(request.method==='GET')return json(handoverVisible(o,kind,h,isOwner));
+  need(request.method==='POST','Methode nicht erlaubt.',405);
+  need(!isOwner,'Der Betreiber darf keine Kundenbestätigung durchführen.',403);csrf(request);
+  return json(await completeHandover(env,resolved,await body(request)));
+}
 async function acceptanceResponse(env,o){
   if(!o.acceptance?.appointmentOptionId)return {ok:true,status:o.status};
   let confirmationDelivery=o.synthetic?{state:'test',message:'Testannahme gespeichert; keine E-Mail versendet.'}:{state:'queued',message:'Termin und Unterschrift gespeichert. Die Bestätigungsmail steht zum Versand an.'};
@@ -122,9 +217,11 @@ async function background(env){await init(env);let config=await settings(env);co
     }
   }await env.DB.prepare("UPDATE jobs SET state='unknown',detail='Voriger Lauf ohne eindeutiges Ergebnis beendet. Providerabgleich erforderlich; kein Neuversuch.',updated_at=? WHERE state='pending' AND updated_at<?").bind(at,new Date(Date.now()-3600000).toISOString()).run();await setting(env,'lastBackgroundAt',new Date().toISOString());await setting(env,'lastBackgroundError',deliveryError);return {ok:true,at,deliveryError};}
 export default {
-  async fetch(request,env){try{const u=new URL(request.url);if(!u.pathname.startsWith('/api/')){const assetUrl=new URL(request.url);if(u.pathname.startsWith('/angebot/'))assetUrl.pathname='/';const r=await env.ASSETS.fetch(new Request(assetUrl,request));return new Response(r.body,{status:r.status,headers:{...Object.fromEntries(r.headers),...security,'Content-Security-Policy':"default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"}});}
+  async fetch(request,env){try{const u=new URL(request.url);if(!u.pathname.startsWith('/api/')){const assetUrl=new URL(request.url);if(u.pathname.startsWith('/angebot/')||u.pathname.startsWith('/protokoll/'))assetUrl.pathname='/';const r=await env.ASSETS.fetch(new Request(assetUrl,request));return new Response(r.body,{status:r.status,headers:{...Object.fromEntries(r.headers),...security,'Content-Security-Policy':"default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"}});}
     await init(env);
     if(u.pathname.startsWith('/api/offer/')){need(env.CUSTOMER_ACCESS_APPROVED==='true','Externe Kundenannahme ist noch gesperrt. Sichere Freigabe erforderlich.',503);return json(await offer(env,request,u.pathname.split('/').pop()));}
+    const handoverRoute=u.pathname.match(/^\/api\/handover\/([a-f0-9]{64})(?:\/asset\/([a-f0-9-]{36}))?$/);
+    if(handoverRoute){need(env.CUSTOMER_ACCESS_APPROVED==='true','Externe Kundenbestätigung ist noch gesperrt. Sichere Freigabe erforderlich.',503);return await handover(env,request,handoverRoute[1],handoverRoute[2]);}
     if(request.method==='GET'&&u.pathname==='/api/calendar/availability')return json(await readBookingCalendar(env,{from:u.searchParams.get('from'),to:u.searchParams.get('to'),duration:Number(u.searchParams.get('duration')??30),synthetic:false,owner:false}));
     await owner(request,env);
     if(request.method==='GET'&&u.pathname==='/api/calendar/month')return json(await readBookingCalendar(env,{from:u.searchParams.get('from'),to:u.searchParams.get('to'),synthetic:u.searchParams.get('test')==='true',owner:true}));
@@ -145,6 +242,8 @@ export default {
     if(u.pathname==='/api/qonto/numbers'){const result=await qontoNumberCheck(await configuration(env,['qontoKey']));await setting(env,'qontoNumberCheck',result);return json(result);}
     if(u.pathname==='/api/background')return json(await background(env));
     if(u.pathname==='/api/create'){const source={...b.source};if(b.selection){try{Object.assign(source,manualCatalogSource(b.selection));}catch(err){throw new AppError(err.message,400);}}need(text(source.name)&&text(source.vehicle),'Name und Fahrzeug fehlen.');source.amountCents=cents(source.amountCents??0);source.pickupCents=cents(source.pickupCents??0);if(b.synthetic) {source.name='TEST · '+text(source.name,160);source.email='synthetisch@example.invalid';source.reviewConsent=false;}return json(await createOrder(env,source,b.synthetic===true));}
+    if(u.pathname==='/api/handover/prepare'){const o=await getOrder(env,b.id);need(o.version===b.version,'Ansicht veraltet.',409);return json(await prepareHandover(env,o,b.kind,b.protocol));}
+    if(u.pathname==='/api/handover/publish'){const o=await getOrder(env,b.id);need(o.version===b.version,'Ansicht veraltet.',409);return json(await publishHandover(env,o,b));}
     if(u.pathname==='/api/protocol/prepare'){const o=await getOrder(env,b.id);need(o.version===b.version,'Ansicht veraltet.',409);return json(await prepareProtocol(env,o,b.kind,b.protocol));}
     if(u.pathname==='/api/action'){if(b.action==='payment')need(!env.CONTROL_AGENT_ACTOR,'Zahlungseingang ausschließlich durch den Betreiber bestätigen.',403);const o=await getOrder(env,b.id);if(b.action==='payment'&&env.operations?.recordPayment)return json(await env.operations.recordPayment(env,o,b.input??{},env.CONTROL_AGENT_ACTOR??'owner',b.version));need(o.version===b.version,'Diese Ansicht ist veraltet. Bitte Auftrag neu öffnen.',409);need(!['accept','amendmentAccept'].includes(b.action),'Der Betrieb darf keine Kundenannahme durchführen.',403);
       if(['amendmentCreate','amendmentWithdraw','amendmentSend'].includes(b.action)&&env.operations)return json(await env.operations.amendmentAction(env,o,b.action,b.input??{}));
