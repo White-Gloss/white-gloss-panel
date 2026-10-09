@@ -10,6 +10,7 @@ import {bookingWindowError,bookingFreeRanges} from '../src/booking-calendar.mjs'
 import {validateBookingCalendar,changeBookingCalendar,readBookingCalendar} from '../server/booking-calendar.mjs';
 import {syntheticSignature} from './fixtures/signature.mjs';
 import {calendarRange,calendarDayAfter,bookingCalendarHTML} from '../public/booking-calendar.js';
+import {handoverFixture as remoteHandoverFixture,ok as remoteOk,foreign as remoteForeign} from './fixtures/handover.mjs';
 
 const bookingTestOrigin='https://panel.example.invalid';
 const bookingTestCustomer='calendar-customer@example.invalid';
@@ -223,4 +224,28 @@ test('customer can decline only their own proposal with a reason while the origi
   assert.equal((await f.request(route,body,'customer')).status,200);
   const updated=await(await f.request('/api/order?id='+current.id)).json();assert.deepEqual(updated.appointment,current.appointment);
   const history=(await(await f.request(route+'?orderId='+current.id,undefined,'customer')).json()).adjustments;assert.equal(history[0].state,'declined');assert.equal(history[0].closeReason,body.reason);assert.equal(history[0].closedBy,bookingTestCustomer);assert.ok(history[0].closedAt);
+});
+
+test('merged customer portal retains personal handover access and marks revoked cancelled originals without a signing link',async t=>{
+  const f=await remoteHandoverFixture(t),pending=await f.publish(await f.add()),at=new Date().toISOString(),reason='TEST private original cancellation reason';
+  const cancelled=await f.update(pending,{documentCancellations:[{documentKey:'handover:intake',scope:'document-only',reason,at}]});
+  await f.env.DB.prepare('UPDATE handover_tokens SET revoked=1 WHERE order_id=?').bind(cancelled.id).run();
+  const portal=await remoteOk(f.req('/api/customer-portal',undefined,'customer')),visible=portal.orders.find(order=>order.id===cancelled.id);
+  assert.equal(visible.handovers[0].status,'cancelled');assert.equal(visible.handovers[0].url,null);assert.equal(visible.handovers[0].cancellation.reason,reason);assert.ok(!JSON.stringify(visible).includes(pending.handovers.intake.token));assert.deepEqual(visible.appointmentChanges,[]);
+  assert.deepEqual((await f.current(cancelled)).handovers,pending.handovers);
+  assert.equal((await f.req('/api/handover/'+pending.handovers.intake.token,undefined,'customer')).status,404);
+  await f.update(cancelled,{source:{...cancelled.source,email:remoteForeign}});
+  const reassigned=(await remoteOk(f.req('/api/customer-portal',undefined,'foreign'))).orders.find(order=>order.id===cancelled.id);
+  assert.equal(reassigned.handovers.length,0);assert.ok(!reassigned.documents.some(document=>document.kind==='intake'));assert.ok(!JSON.stringify(reassigned).includes(reason));
+});
+
+test('whole-agreement cancellation marks offer amendments and pending handover consistently while preserving originals',async t=>{
+  const f=await remoteHandoverFixture(t),pending=await f.publish(await f.add()),at=new Date().toISOString();
+  const amendment={id:randomUUID(),state:'accepted',acceptance:{at,snapshot:{amendment:{services:'TEST extra',totalCents:12000}}}};
+  const cancelled=await f.update(pending,{status:'Storniert',amendments:[amendment],documentCancellations:[{documentKey:'pickup',scope:'whole-agreement',at,reason:'TEST Vereinbarung vollständig storniert'}]});
+  await f.env.DB.prepare('UPDATE handover_tokens SET revoked=1 WHERE order_id=?').bind(cancelled.id).run();
+  const visible=(await remoteOk(f.req('/api/customer-portal',undefined,'customer'))).orders.find(order=>order.id===cancelled.id);
+  for(const kind of ['agreement','amendment']){const document=visible.documents.find(item=>item.kind===kind);assert.match(document.label,/Originalbeleg.*storniert/);assert.equal(document.cancellation.scope,'whole-agreement');}
+  assert.equal(visible.handovers[0].status,'cancelled');assert.equal(visible.handovers[0].url,null);assert.equal(visible.operationIssue!==null,true);
+  assert.deepEqual((await f.current(cancelled)).handovers,pending.handovers);assert.deepEqual((await f.current(cancelled)).acceptance,pending.acceptance);
 });

@@ -6,7 +6,7 @@ const token=()=>randomBytes(32).toString('hex');
 const authHeaders={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'};
 export const authResponse=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{...authHeaders,'Content-Type':'application/json'}});
 const response=authResponse;
-export const safeReturn=value=>['/auth/password','/agent/connect','/kundenportal'].includes(value)||/^\/angebot\/[a-f0-9]{64}$/.test(value??'')||/^\/\?order=[a-f0-9-]{36}$/.test(value??'')?value:'/';
+export const safeReturn=value=>typeof value==='string'&&(['/auth/password','/agent/connect','/kundenportal'].includes(value)||/^\/(?:angebot|protokoll)\/[a-f0-9]{64}$/.test(value)||/^\/\?order=[a-f0-9-]{36}$/.test(value))?value:'/';
 function cookie(request,name){const entry=(request.headers.get('cookie')??'').split(';').map(x=>x.trim()).find(x=>x.startsWith(name+'='));return entry?.slice(name.length+1)??'';}
 export async function authSchema(env){await init(env);await env.DB.batch([
   'CREATE TABLE IF NOT EXISTS auth_tokens(hash TEXT PRIMARY KEY,email TEXT NOT NULL,return_to TEXT NOT NULL,expires_at INTEGER NOT NULL,consumed INTEGER NOT NULL DEFAULT 0)',
@@ -23,7 +23,15 @@ export const sessionHash=request=>digest(cookie(request,'__Host-wg-session'));
 export function sessionCookie(result,raw){result.headers.set('Set-Cookie','__Host-wg-session='+raw+'; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400');return result;}
 export async function sessionIdentity(env,request,now=Date.now()){const raw=cookie(request,'__Host-wg-session');if(!/^[a-f0-9]{64}$/.test(raw))return null;const row=await env.DB.prepare('SELECT email,expires_at,last_at FROM auth_sessions WHERE hash=?').bind(digest(raw)).first();if(!row||row.expires_at<=now||row.last_at+4*3600000<=now)return null;if(digest(row.email)!==env.OWNER_EMAIL_SHA256){const credential=await env.DB.prepare('SELECT revision FROM auth_customer_credentials WHERE email=?').bind(row.email).first();if(credential){const proof=await env.DB.prepare('SELECT revision FROM auth_customer_sessions WHERE session_hash=?').bind(digest(raw)).first();if(proof?.revision!==credential.revision)return null;}}await env.DB.prepare('UPDATE auth_sessions SET last_at=? WHERE hash=?').bind(now,digest(raw)).run();return row.email;}
 export async function limited(env,subject,now,max){const bucket=Math.floor(now/3600000);await env.DB.prepare('INSERT INTO auth_rates(subject,bucket,count) VALUES(?,?,1) ON CONFLICT(subject,bucket) DO UPDATE SET count=count+1').bind(digest(subject),bucket).run();return (await env.DB.prepare('SELECT count FROM auth_rates WHERE subject=? AND bucket=?').bind(digest(subject),bucket).first()).count>max;}
-async function eligible(env,email,returnTo,now){if(digest(email)===env.OWNER_EMAIL_SHA256)return true;if(returnTo==='/')return false;const offerToken=returnTo.slice('/angebot/'.length);const row=await env.DB.prepare('SELECT o.data FROM offer_tokens t JOIN orders o ON o.id=t.order_id WHERE t.hash=? AND t.revoked=0 AND t.expires_at>?').bind(digest(offerToken),new Date(now).toISOString()).first();if(!row)return false;const order=JSON.parse(row.data);return !order.synthetic&&(order.source.email??'').trim().toLowerCase()===email;}
+async function eligible(env,email,returnTo,now){
+  if(digest(email)===env.OWNER_EMAIL_SHA256)return true;
+  let row,handoverToken;
+  if(/^\/angebot\/[a-f0-9]{64}$/.test(returnTo))row=await env.DB.prepare('SELECT o.data FROM offer_tokens t JOIN orders o ON o.id=t.order_id WHERE t.hash=? AND t.revoked=0 AND t.expires_at>?').bind(digest(returnTo.slice('/angebot/'.length)),new Date(now).toISOString()).first();
+  else if(/^\/protokoll\/[a-f0-9]{64}$/.test(returnTo)){handoverToken=returnTo.slice('/protokoll/'.length);row=await env.DB.prepare('SELECT o.data,t.kind FROM handover_tokens t JOIN orders o ON o.id=t.order_id WHERE t.hash=? AND t.revoked=0').bind(digest(handoverToken)).first();}
+  if(!row)return false;const order=JSON.parse(row.data);
+  if(handoverToken){const handover=order.handovers?.[row.kind];if(handover?.token!==handoverToken||String(handover?.protocol?.customerEmail??'').trim().toLowerCase()!==email)return false;}
+  return !order.synthetic&&String(order.source?.email??'').trim().toLowerCase()===email;
+}
 const pinDigest=(env,hash,pin)=>createHmac('sha256',Buffer.from(env.CONFIG_KEY,'base64')).update('customer-pin:'+hash+':'+pin).digest('hex');
 export async function issueCustomerAccess(env,email,returnTo,now=Date.now(),expiresAt=now+600000){
   email=email.trim().toLowerCase();
@@ -45,7 +53,7 @@ export async function requestLogin(env,request,now=Date.now()){
   const ip=(request.headers.get('x-forwarded-for')??'unknown').slice(0,80);
   if(await limited(env,'ip:'+ip,now,20)||await limited(env,'email:'+email,now,5))return response({error:'Bitte später erneut versuchen.'},429);
   const neutral={message:'Wenn diese E-Mail für den Zugang berechtigt ist, erhältst du einen persönlichen Anmeldelink. Er gilt 10 Minuten.'};
-  if(!await eligible(env,email,returnTo,now))return response(neutral);
+  if(digest(email)!==env.OWNER_EMAIL_SHA256&&!/^\/angebot\/[a-f0-9]{64}$/.test(returnTo)||!await eligible(env,email,returnTo,now))return response(neutral);
   const config=await configuration(env,['resendKey']);if(!config.resendKey||!config.emailVerified||!config.sender)return response({error:'Der E-Mail-Zugang wird gerade eingerichtet. Bitte später erneut versuchen.'},503);
   let login;
   if(digest(email)!==env.OWNER_EMAIL_SHA256)login=await issueCustomerAccess(env,email,returnTo,now);
@@ -126,7 +134,7 @@ export async function customerPinLogin(env,request,now=Date.now()){
     env.DB.prepare('UPDATE auth_rates SET count=0 WHERE subject IN (?,?) AND bucket=? AND EXISTS(SELECT 1 FROM auth_sessions WHERE hash=?)').bind(digest('customer-login-email:'+email),digest('customer-login-ip:'+(request.headers.get('x-forwarded-for')??'unknown').slice(0,80)),Math.floor(now/3600000),hash)
   ]);
   if(!results[0].meta.changes)return response({error:'Die PIN wurde erneuert. Bitte erneut anmelden.'},409);
-  const target=safeReturn(input.returnTo);return sessionCookie(response({returnTo:target.startsWith('/angebot/')?target:'/kundenportal'}),raw);
+  const target=safeReturn(input.returnTo),ownProtocol=target.startsWith('/protokoll/')&&await eligible(env,email,target,now);return sessionCookie(response({returnTo:target.startsWith('/angebot/')||ownProtocol?target:'/kundenportal'}),raw);
 }
 export async function customerResetRequest(env,request,now=Date.now()){
   const input=await customerInput(env,request),email=String(input.email??'').trim().toLowerCase();

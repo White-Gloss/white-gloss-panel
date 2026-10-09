@@ -15,8 +15,8 @@ export async function calendarAdjustmentSchema(env){
   await ready.get(env.DB);
 }
 const parse=row=>row?{...JSON.parse(row.data),id:row.id,orderId:row.order_id,version:row.version,state:row.state,createdAt:row.created_at,updatedAt:row.updated_at}:null;
-function available(order){const issue=recordOperationIssue(order,'appointment');need(!issue,issue,409);need(order.status==='Termin verbindlich'&&order.appointment&&!order.intake&&!order.return,'Terminänderungen sind nur vor der Fahrzeugannahme für einen verbindlichen Termin möglich. Bestehende Protokolle bleiben erhalten.',409);}
-function dto(item,order){return {...item,orderVersion:order.version,wg:order.wg,canRespond:!recordOperationIssue(order,'appointment')&&item.state==='pending'&&order.status==='Termin verbindlich'&&!order.intake&&JSON.stringify(order.appointment)===JSON.stringify(item.before),snapshotHash:digest(JSON.stringify({id:item.id,version:item.version,before:item.before,after:item.after,reason:item.reason}))};}
+function available(order){const issue=recordOperationIssue(order,'appointment');need(!issue,issue,409);need(order.status==='Termin verbindlich'&&order.appointment&&!order.intake&&!order.return&&!order.handovers?.intake&&!order.handovers?.return,'Terminänderungen sind nur vor der Fahrzeugannahme für einen verbindlichen Termin möglich. Bestehende Protokolle bleiben erhalten.',409);}
+function dto(item,order){return {...item,orderVersion:order.version,wg:order.wg,canRespond:!recordOperationIssue(order,'appointment')&&item.state==='pending'&&order.status==='Termin verbindlich'&&!order.intake&&!order.handovers?.intake&&!order.handovers?.return&&JSON.stringify(order.appointment)===JSON.stringify(item.before),snapshotHash:digest(JSON.stringify({id:item.id,version:item.version,before:item.before,after:item.after,reason:item.reason}))};}
 export async function calendarAdjustmentData(env,order){
   await calendarAdjustmentSchema(env);
   const result=await env.DB.prepare('SELECT * FROM calendar_adjustments WHERE order_id=? ORDER BY created_at DESC,id').bind(order.id).all();

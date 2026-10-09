@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {PanelDatabase} from '../server/storage.mjs';
 import {init,getOrder} from '../src/worker.mjs';
 import {digest} from '../server/auth.mjs';
-import {customerFilesSchema,customerFiles,updateCustomerFile,assertCustomerSourceActive} from '../server/customer-files.mjs';
+import {customerFilesSchema,customerFiles,indexCustomerFiles,updateCustomerFile,assertCustomerSourceActive,customerSourceGuardStatements} from '../server/customer-files.mjs';
 import {recordsLifecycleSchema,customerLifecyclePreview,changeCustomerLifecycle,projectRecords,editProject,cancelDocument,replacementProject,recordsLifecycleEndpoint,assertRecordsAction} from '../server/records-lifecycle.mjs';
 
 const identity='owner@example.invalid',origin='https://panel.example.invalid';
@@ -21,6 +21,7 @@ test('customer deletion previews dependencies, blocks linked originals and anony
   const saved=await getOrder(env,order.id);assert.deepEqual(saved.source,order.source);assert.deepEqual(saved.acceptance,order.acceptance);assert.equal(saved.recordsRestriction.status,'anonymized');
   await assert.rejects(updateCustomerFile(env,{kind:'customer',id:c.id,version:c.version,data:{name:'Override'} }),/gesperrt/);
   assert.throws(()=>assertRecordsAction(saved,'payment'),/gesperrt/);assert.doesNotThrow(()=>assertRecordsAction(saved,'note'));
+  const project=await projectRecords(env,order.id,identity);await assert.rejects(editProject(env,{id:order.id,version:saved.version,reason:'TEST · Erneute Datenbefüllung',details:project.details},identity),/gesperrt/);
 });
 test('standalone customers can be deleted only with a fresh exact dependency preview',async t=>{
   const {env}=await fixture(t),id='standalone-test';await env.DB.prepare('INSERT INTO customer_files(id,data,synthetic) VALUES(?,?,1)').bind(id,JSON.stringify({name:'TEST Alone',email:''})).run();
@@ -82,6 +83,33 @@ test('same-count calendar relinking invalidates deletion preview and anonymized 
 });
 test('operator-signed pending handovers retain their exact snapshot while cancellation revokes access',async t=>{
   const {env,add}=await fixture(t),handover={workflow:'remote',kind:'intake',status:'pending',token:'b'.repeat(64),hash:'c'.repeat(64),operatorSignedAt:'2026-10-09T11:00:00Z',protocol:{condition:'TEST',operatorSignature:'TEST-asset'}},o=await add({handovers:{intake:handover}});
-  await env.DB.prepare('CREATE TABLE handover_tokens(hash TEXT PRIMARY KEY,order_id TEXT,kind TEXT,revoked INTEGER DEFAULT 0)').run();await env.DB.prepare('INSERT INTO handover_tokens(hash,order_id,kind) VALUES(?,?,?)').bind(digest(handover.token),o.id,'intake').run();
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS handover_tokens(hash TEXT PRIMARY KEY,order_id TEXT,kind TEXT,revoked INTEGER DEFAULT 0)').run();await env.DB.prepare('INSERT INTO handover_tokens(hash,order_id,kind) VALUES(?,?,?)').bind(digest(handover.token),o.id,'intake').run();
   const d=(await projectRecords(env,o.id,identity)).documents.find(d=>d.key==='handover:intake');assert.ok(d);const result=await cancelDocument(env,{id:o.id,version:o.version,documentKey:d.key,documentHash:d.hash,reason:'TEST · Korrektur',confirmed:true},identity);assert.deepEqual(result.order.handovers.intake,handover);assert.equal((await env.DB.prepare('SELECT revoked FROM handover_tokens').first()).revoked,1);assert.equal(result.order.status,o.status);
+});
+test('concurrent customer block cannot be bypassed by a stale vehicle master edit',async t=>{
+  const {env,add}=await fixture(t);await add();const files=await customerFiles(env,true),c=files.customers[0],v=files.vehicles[0],batch=env.DB.batch.bind(env.DB);let armed=true;
+  env.DB.batch=async statements=>{if(armed){armed=false;await batch([env.DB.prepare("UPDATE customer_files SET data=json_set(data,'$.lifecycle.status','blocked'),version=version+1 WHERE id=?").bind(c.id)]);}return batch(statements);};
+  await assert.rejects(updateCustomerFile(env,{kind:'vehicle',id:v.id,version:v.version,data:{...v,name:'Race overwrite'}}),e=>e.status===409);
+  const saved=await env.DB.prepare('SELECT * FROM vehicle_files WHERE id=?').bind(v.id).first();assert.equal(JSON.parse(saved.data).name,v.name);assert.equal((await env.DB.prepare('SELECT COUNT(*) n FROM file_audit WHERE entity_id=?').bind(v.id).first()).n,0);
+});
+test('concurrent target block makes stale relinking lose without order or audit side effects',async t=>{
+  const {env,add}=await fixture(t),a=await add(),b=await add({source:{name:'TEST Other',email:'other@example.invalid',vehicle:'TEST Other Auto'}});const files=await customerFiles(env,true),source=files.orders.find(o=>o.id===a.id),target=files.orders.find(o=>o.id===b.id),batch=env.DB.batch.bind(env.DB);let armed=true;
+  env.DB.batch=async statements=>{if(armed){armed=false;await batch([env.DB.prepare("UPDATE customer_files SET data=json_set(data,'$.lifecycle.status','blocked'),version=version+1 WHERE id=?").bind(target.customerId)]);}return batch(statements);};
+  await assert.rejects(updateCustomerFile(env,{kind:'link',orderId:a.id,orderVersion:a.version,previousVehicleId:source.vehicleId,vehicleId:target.vehicleId,confirmed:true}),e=>e.status===409);assert.equal((await getOrder(env,a.id)).version,a.version);assert.equal((await env.DB.prepare('SELECT vehicle_id FROM order_files WHERE order_id=?').bind(a.id).first()).vehicle_id,source.vehicleId);assert.equal((await env.DB.prepare('SELECT COUNT(*) n FROM file_audit WHERE entity_id=?').bind(a.id).first()).n,0);
+});
+test('successful relinking increments the order version and rejects an ABA stale link request',async t=>{
+  const {env,add}=await fixture(t),a=await add(),b=await add({source:{name:'TEST Other',email:'other@example.invalid',vehicle:'TEST Other Auto'}}),files=await customerFiles(env,true),source=files.orders.find(o=>o.id===a.id),target=files.orders.find(o=>o.id===b.id);
+  await updateCustomerFile(env,{kind:'link',orderId:a.id,orderVersion:a.version,previousVehicleId:source.vehicleId,vehicleId:target.vehicleId,confirmed:true});assert.equal((await getOrder(env,a.id)).version,2);await updateCustomerFile(env,{kind:'link',orderId:a.id,orderVersion:2,previousVehicleId:target.vehicleId,vehicleId:source.vehicleId,confirmed:true});
+  await assert.rejects(updateCustomerFile(env,{kind:'link',orderId:a.id,orderVersion:a.version,previousVehicleId:source.vehicleId,vehicleId:target.vehicleId,confirmed:true}),e=>e.status===409);assert.equal((await getOrder(env,a.id)).version,3);
+});
+test('source guard runs inside insertion transaction after an earlier active preflight',async t=>{
+  const {env,add}=await fixture(t),o=await add(),c=(await customerFiles(env,true)).customers[0],p=await customerLifecyclePreview(env,c.id,identity);await assertCustomerSourceActive(env,o.source,true);await changeCustomerLifecycle(env,{...p,mode:'block',reason:'TEST',confirmed:true},identity);
+  await assert.rejects(env.DB.batch([...customerSourceGuardStatements(env,o.source,true),env.DB.prepare('INSERT INTO orders(id,wg,status,data,updated_at,actor,action,synthetic) VALUES(?,?,?,?,?,?,?,1)').bind('race-id','TEST-RACE','Preise prüfen',JSON.stringify({source:o.source}),o.createdAt,'test','fixture')]),/CHECK constraint/);assert.equal(await env.DB.prepare("SELECT * FROM orders WHERE id='race-id'").first(),null);
+});
+test('index restriction preserves a concurrent note instead of restoring its stale order snapshot',async t=>{
+  const {env,add}=await fixture(t),first=await add(),c=(await customerFiles(env,true)).customers[0],p=await customerLifecyclePreview(env,c.id,identity);await changeCustomerLifecycle(env,{...p,mode:'block',reason:'TEST',confirmed:true},identity);const next=await add({source:first.source}),batch=env.DB.batch.bind(env.DB);let armed=true;
+  env.DB.batch=async statements=>{if(armed){armed=false;await batch([env.DB.prepare("UPDATE orders SET data=json_set(data,'$.notes',json(?)),version=version+1 WHERE id=?").bind(JSON.stringify([{note:'Concurrent note'}]),next.id)]);}return batch(statements);};await indexCustomerFiles(env);const saved=await getOrder(env,next.id);assert.equal(saved.notes[0].note,'Concurrent note');assert.equal(saved.recordsRestriction.status,'blocked');
+});
+test('calendar agreement evidence is named in the deletion preview and version checked',async t=>{
+  const {env,add}=await fixture(t),o=await add(),c=(await customerFiles(env,true)).customers[0];await env.DB.prepare('CREATE TABLE IF NOT EXISTS calendar_adjustments(id TEXT PRIMARY KEY,order_id TEXT,version INTEGER,state TEXT,data TEXT,created_at TEXT,updated_at TEXT)').run();await env.DB.prepare('INSERT INTO calendar_adjustments VALUES(?,?,1,?,?,?,?)').bind('adjustment-test',o.id,'accepted','{}',o.createdAt,o.createdAt).run();const p=await customerLifecyclePreview(env,c.id,identity);assert.equal(p.counts.calendarAdjustments,1);assert.ok(p.documents.some(d=>d.key==='calendarAdjustment:adjustment-test'&&d.label.includes('angenommen')));await env.DB.prepare("UPDATE calendar_adjustments SET version=2,state='withdrawn' WHERE id='adjustment-test'").run();await assert.rejects(changeCustomerLifecycle(env,{...p,mode:'block',reason:'TEST',confirmed:true},identity),e=>e.status===409);
 });

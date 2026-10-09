@@ -20,6 +20,12 @@ verglichen; gleichbleibende Anzahlen allein gelten nicht als Nachweis. Laufender
 oder ungeklärter Versand wird mit WG-Nummer und Versandart angezeigt und muss vor
 Sperrung, Anonymisierung oder Storno geklärt werden. Noch nicht gestartete
 Versandaufträge werden mit der Sperre atomar abgebrochen.
+Aufbewahrte Terminvorschläge und kundenbestätigte Terminänderungen werden als
+eigene Belege mit ihrem Zustand aufgeführt. Neue Aufträge und Sperrungen prüfen
+einander innerhalb der Schreibtransaktion. Eine parallel neu eingegangene Anfrage
+erzwingt eine neue Vorschau; eine bereits gespeicherte Sperre verhindert die neue
+Anlage. Kunden-/Fahrzeugzuordnungen erhöhen die Auftragsversion; eine veraltete
+Zuordnung oder Stammdatenänderung kann keine parallele Sperre umgehen.
 
 - **Endgültig löschen** ist für eine eigenständige Akte ohne verknüpfte Aufträge,
   Aufgaben oder Kalendereinträge möglich. Ihre Fahrzeugstammdaten werden ebenfalls
@@ -63,6 +69,9 @@ Die Bearbeitung verändert weder Prozessstatus noch Preis, Kundenannahme,
 Zahlung, Termin oder signierten Arbeitsabschluss. Preisprüfung und zusätzliche
 beauftragte Leistungen verwenden weiterhin die bestehenden Preis- und
 Nachtragsabläufe. Die Oberfläche benennt diese Abgrenzung ausdrücklich.
+Die zusätzliche Datenschutzsperre gilt unabhängig von der Projektphase:
+Projektstammdaten einer gesperrten oder anonymisierten Akte werden nicht erneut
+befüllt; begründete interne Aktennotizen bleiben möglich.
 
 ## Unveränderliche Dokumente und Ersatz
 

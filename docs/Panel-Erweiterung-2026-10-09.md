@@ -10,8 +10,8 @@ angemeldete Betreibersitzung. Keine Kundenaktion wurde live ausgeführt.
 
 Die Umsetzung begann in einer isolierten Kopie dieses Releases. Der neuere
 GitHub-Stand `7e08fd7e925721a030432e25555ffd066ea7fc58` enthält zusätzlich
-Fahrzeugübergaben mit späterer Kundenunterschrift. Er wird in dieser Erweiterung
-bewahrt. Das ist kein Nachweis seiner Veröffentlichung.
+Fahrzeugübergaben mit späterer Kundenunterschrift. Er ist in dieser Erweiterung
+integriert und mit den neuen Stornoregeln geprüft. Das ist kein Nachweis seiner Veröffentlichung.
 
 Es wurde kein lokaler Website-Server gestartet. Eine Aktivierung benötigt den
 vorhandenen separaten IONOS-Panel-Installer, eine konkrete Releasefreigabe,

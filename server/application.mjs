@@ -1,5 +1,5 @@
 import worker,{init,setting,protect,settings,configuration,background} from '../src/worker.mjs';
-import {customerFilesSchema,customerFiles,updateCustomerFile,assertCustomerSourceActive} from './customer-files.mjs';
+import {customerFilesSchema,customerFiles,updateCustomerFile,assertCustomerSourceActive,customerSourceGuardStatements} from './customer-files.mjs';
 import {pushSchema,pushStatus,pushDevice,pushMaintenance,collectPush} from './push.mjs';
 import {AppError} from '../src/domain.mjs';
 import {authSchema,sessionIdentity,requestLogin,redeemLogin,customerPinLogin,customerResetRequest,logout,loginPage,pruneAuth,digest} from './auth.mjs';
@@ -28,7 +28,7 @@ export async function createApplication(env){
   await init(env);await authSchema(env);await customerPortalSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await agentAuthSchema(env);await agentActionSchema(env);await customerFilesSchema(env);await pushSchema(env);await recordsLifecycleSchema(env);await calendarAdjustmentSchema(env);await tasksSchema(env);await panelAssistantSchema(env);await assistantProviderSchema(env);
   env.passwordResetStatements=newHash=>[env.DB.prepare('UPDATE agent_grants SET revoked=1 WHERE EXISTS(SELECT 1 FROM auth_sessions WHERE hash=?)').bind(newHash)];
   env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=providerOperations;
-  env.validatePaymentPDF=validatePaymentPDF;env.assertCustomerSourceActive=assertCustomerSourceActive;
+  env.validatePaymentPDF=validatePaymentPDF;env.assertCustomerSourceActive=assertCustomerSourceActive;env.customerSourceGuardStatements=customerSourceGuardStatements;
   const handle=async request=>{
     try{
       const url=new URL(request.url);if(url.origin!==env.PANEL_ORIGIN)return errorResponse('Ungültiger Host.',400);
@@ -45,7 +45,7 @@ export async function createApplication(env){
       if(request.method==='POST'&&url.pathname==='/auth/password/login')return await passwordLogin(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/logout')return await logout(env,request);
       const identity=await sessionIdentity(env,request);
-      if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/angebot\/[a-f0-9]{64}$/.test(url.pathname))login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/kundenportal')login.searchParams.set('customer','1');if(url.pathname==='/'&&/^[a-f0-9-]{36}$/.test(url.searchParams.get('order')??''))login.searchParams.set('returnTo','/?order='+url.searchParams.get('order'));if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
+      if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/(angebot|protokoll)\/[a-f0-9]{64}$/.test(url.pathname))login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/kundenportal'||/^\/protokoll\/[a-f0-9]{64}$/.test(url.pathname))login.searchParams.set('customer','1');if(url.pathname==='/'&&/^[a-f0-9-]{36}$/.test(url.searchParams.get('order')??''))login.searchParams.set('returnTo','/?order='+url.searchParams.get('order'));if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
       const isOwner=digest(identity)===env.OWNER_EMAIL_SHA256;
       const calendarAdjustment=await calendarAdjustmentEndpoint(env,request,identity,isOwner);if(calendarAdjustment)return calendarAdjustment;
       for(const endpoint of [recordsLifecycleEndpoint,tasksEndpoint,panelAssistantEndpoint,customerCreateEndpoint,assistantProviderEndpoint]){const response=await endpoint(env,request,identity);if(response)return response;}
@@ -78,7 +78,8 @@ export async function createApplication(env){
         return authorization;
       }
       if(url.pathname==='/auth/calendar/callback'&&request.method==='GET')return calendarCallback(env,request,identity);
-      if(!isOwner&&!url.pathname.startsWith('/angebot/')&&!url.pathname.startsWith('/api/offer/')&&!(url.pathname==='/api/calendar/availability'&&request.method==='GET'))return errorResponse('Dieser Zugang ist für eigene Angebote und das persönliche Kundenpanel vorgesehen.',403);
+      const customerHandoverRoute=/^\/protokoll\/[a-f0-9]{64}$/.test(url.pathname)||/^\/api\/handover\/[a-f0-9]{64}(?:\/asset\/[a-f0-9-]{36})?$/.test(url.pathname);
+      if(!isOwner&&!url.pathname.startsWith('/angebot/')&&!url.pathname.startsWith('/api/offer/')&&!customerHandoverRoute&&!(url.pathname==='/api/calendar/availability'&&request.method==='GET'))return errorResponse('Dieser Zugang ist für eigene Angebote, Fahrzeugübergabeprotokolle und das persönliche Kundenpanel vorgesehen.',403);
       if(isOwner&&['/api/customer-files','/api/push'].includes(url.pathname)){
         if(request.method==='GET')return Response.json(url.pathname==='/api/push'?await pushStatus(env):await customerFiles(env,url.searchParams.get('test')==='true'));
         if(request.method!=='POST')return errorResponse('Methode nicht erlaubt.',405);
@@ -97,7 +98,7 @@ export async function createApplication(env){
         const data=await result.json(),orders=url.pathname==='/api/state'?data.orders:[data],statuses=await invoiceMailStatuses(env,orders.map(order=>order.id));
         // Canonical delivery state overrides an older cached outcome without rewriting signed orders.
         // No delivery record means the existing pre-queue error or absent legacy status is preserved.
-        for(const order of orders){const status=statuses.get(order.id);if(status)order.invoiceMail=status;}
+        for(const order of orders){const status=statuses.get(order.id);if(status)order.invoiceMail=status;const email=String(order.source.email??'').trim().toLowerCase(),credential=email?await env.DB.prepare('SELECT email FROM auth_customer_credentials WHERE email=?').bind(email).first():null;order.customerPortalAccess={ready:!!credential,url:'/kundenportal',resetUrl:'/auth/login?customer=1&reset=1'};}
         return new Response(JSON.stringify(data),{status:result.status,headers:result.headers});
       }
       if(request.method==='POST'&&url.pathname.startsWith('/api/')&&result.ok){try{await collectPush(env);}catch{await setting(env,'pushError','Benachrichtigungen konnten noch nicht vorgemerkt werden.');}}return result;

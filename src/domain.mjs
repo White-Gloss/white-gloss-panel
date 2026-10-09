@@ -36,6 +36,15 @@ export function protocolValid(p,kind,assetIds) {
   if(kind==='return') { need(p.workComplete===true,'Arbeitsabschluss muss ausdrücklich bestätigt sein.'); need(text(p.services),'Ausgeführte Leistungen fehlen.'); }
   return p;
 }
+export function handoverValid(p,kind,assetIds){
+  need(['intake','return'].includes(kind),'Unbekannte Protokollart.');
+  if(p.direct===true)need(typeof p.directReason==='string'&&p.directReason.trim().length>0&&p.directReason.length<=2000,'Bitte den Anlass für die direkte Übergabe dokumentieren.');
+  if(kind==='return'){
+    need(typeof p.keyLocation==='string'&&p.keyLocation.trim().length>0&&p.keyLocation.length<=600,'Der Ablageort des Schlüssels fehlt oder ist zu lang.');
+    need(assetIds.has(p.keyPhoto),'Ein Foto des Schlüsselablageorts ist erforderlich.');
+  }
+  return p;
+}
 export function normalizeAppointmentOptions(options,now=new Date().toISOString()) {
   need(Array.isArray(options)&&options.length>=1&&options.length<=3,'Bitte einen bis drei Terminvorschläge angeben.');
   const starts=new Set();
@@ -100,8 +109,8 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     }else{o.acceptance={signature:input.signature,snapshotHash:input.snapshotHash,paymentObligation:true,at:now,snapshot:{offer:structuredClone(o.offer),customer:o.source?.name,vehicle:o.source?.vehicle}};o.status='Angenommen';}
   }
   else if(action==='appointment') { need(!o.appointment,'Ein bereits verbindlicher Termin wird ausschließlich über die persönliche Terminänderungsfreigabe im Kalender geändert.',409);need(!o.acceptance?.appointmentOptionId,'Der gemeinsam unterschriebene Termin bleibt verbindlich. Änderungen müssen erneut mit dem Kunden vereinbart werden.',409);need(['Angenommen','Termin verbindlich'].includes(status),'Ein verbindlicher Termin setzt die Kundenannahme voraus.',409); need(['Abholung','Kunde bringt'].includes(input.delivery),'Übergabeart fehlt.'); need(Number.isInteger(input.duration)&&input.duration>=15&&input.duration<=570,'Dauer: 15 bis 570 Minuten.'); const start=berlinISO(input.start); need(Date.parse(start)>Date.parse(now),'Termin muss in der Zukunft liegen.'); o.appointment={start,end:new Date(Date.parse(start)+input.duration*60000).toISOString(),duration:input.duration,delivery:input.delivery,location:text(input.location,600)}; need(!bookingWindowError(o.appointment),bookingWindowError(o.appointment)); Object.assign(o.appointment,bookingCalendarMetadata(o.appointment)); o.status='Termin verbindlich'; }
-  else if(action==='intake') { need(protocolAllowed(o,'intake',input.direct===true),'Annahme in diesem Status nicht möglich.',409); need(!o.intake,'Bestätigtes Annahmeprotokoll bleibt erhalten.',409); o.intake=input; o.status='In Arbeit'; }
-  else if(action==='return') { need(protocolAllowed(o,'return',input.direct===true),'Rückgabe in diesem Status nicht möglich oder Nachtrag noch offen.',409); need(!o.return,'Bestätigtes Rückgabeprotokoll bleibt erhalten.',409); o.return=input; o.completedAt=now; o.status='Erledigt'; }
+  else if(action==='intake') { need(!Object.values(o.handovers??{}).some(item=>item.status==='pending')||role==='customer'&&input.workflow==='remote'&&o.handovers?.intake?.status==='pending'&&input.snapshotHash===o.handovers.intake.hash,'Der Kunde muss zuerst das offene Fahrzeugübergabeprotokoll bestätigen.',409);need(protocolAllowed(o,'intake',input.direct===true),'Annahme in diesem Status nicht möglich.',409); need(!o.intake,'Bestätigtes Annahmeprotokoll bleibt erhalten.',409); o.intake=input; o.status='In Arbeit'; }
+  else if(action==='return') { need(!Object.values(o.handovers??{}).some(item=>item.status==='pending')||role==='customer'&&input.workflow==='remote'&&o.handovers?.return?.status==='pending'&&input.snapshotHash===o.handovers.return.hash,'Der Kunde muss zuerst das offene Fahrzeugübergabeprotokoll bestätigen.',409);need(protocolAllowed(o,'return',input.direct===true),'Rückgabe in diesem Status nicht möglich oder Nachtrag noch offen.',409); need(!o.return,'Bestätigtes Rückgabeprotokoll bleibt erhalten.',409); o.return=input; o.completedAt=now; o.status='Erledigt'; }
   else if(action==='payment') { need(role==='owner','Zahlungseingang ausschließlich durch den Betreiber bestätigen.',403); need(input.receivedConfirmed===true,'Bitte persönlich bestätigen: Ich habe die Zahlung erhalten.',409); need(['Erledigt','Bezahlt'].includes(status),'Zahlungserfassung erst nach Abschluss.',409); need(agreedOffer(o)&&o.acceptance,'Für reine Fahrzeugprotokolle fehlt eine bestätigte Preisvereinbarung.',409); const amount=cents(input.amountCents); need(amount>0,'Zahlungsbetrag muss positiv sein.'); need(text(input.at)&&!Number.isNaN(Date.parse(input.at))&&Date.parse(input.at)<=Date.parse(now),'Zahlungszeitpunkt ungültig.'); need(['Überweisung','Karte','Bar'].includes(input.method),'Zahlungsart fehlt.'); need(input.method==='Bar'?input.cashConfirmed===true:input.receipt,'Zahlungsbeleg oder ausdrückliche Bargeldbestätigung fehlt.'); o.payments=[...(o.payments??[]),{...input,amountCents:amount}]; const paid=o.payments.reduce((n,p)=>n+p.amountCents,0); need(paid<=agreedOffer(o).totalCents,'Zahlung überschreitet den vereinbarten Festpreis.'); if(paid===agreedOffer(o).totalCents)o.status='Bezahlt'; }
   else if(action==='reject') { need(status==='Preise prüfen','Ablehnung nur vor Preisfreigabe.',409); need(text(input.reason),'Grund fehlt.'); o.status='Abgelehnt'; o.closeReason=text(input.reason); }
   else if(action==='cancel') { need(['Preise prüfen','Angebot offen','Angenommen','Termin verbindlich'].includes(status),'Auftrag kann in diesem Status nicht storniert werden.',409); need(text(input.reason),'Grund fehlt.'); o.status='Storniert';o.closeReason=text(input.reason); }
@@ -121,5 +130,7 @@ export function dueJobs(o,now=Date.now()) {
   return out;
 }
 export function nextStep(o) {
+  if(o.handovers?.intake?.status==='pending')return 'Auf Kundenunterschrift zur Fahrzeugannahme warten';
+  if(o.handovers?.return?.status==='pending')return 'Auf Kundenunterschrift zur Fahrzeugabgabe warten';
   return ({'Preise prüfen':'Fahrzeugzustand und Preise prüfen','Angebot offen':'Auf persönliche Kundenannahme warten','Angenommen':'Verbindlichen Termin festlegen','Termin verbindlich':'Fahrzeugannahme vollständig dokumentieren','In Arbeit':'Arbeit abschließen und Rückgabe dokumentieren','Erledigt':'Schlussrechnung erstellen und Zahlung erfassen','Bezahlt':'Auftrag abgeschlossen'})[o.status]??'Auftrag geschlossen';
 }

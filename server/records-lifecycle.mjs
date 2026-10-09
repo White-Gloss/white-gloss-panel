@@ -2,7 +2,7 @@ import {AppError,need,transition} from '../src/domain.mjs';
 import {recordOperationIssue} from '../src/operations.mjs';
 import {getOrder,saveOrder,settings} from '../src/worker.mjs';
 import {digest} from './auth.mjs';
-import {indexCustomerFiles,customerIdentityHashes} from './customer-files.mjs';
+import {indexCustomerFiles,customerIdentityHashes,customerSourceGuardStatements,assertCustomerSourceActive} from './customer-files.mjs';
 
 const owner=(env,identity)=>need(identity&&digest(identity.trim().toLowerCase())===env.OWNER_EMAIL_SHA256,'Nur der angemeldete Betreiber darf Akten ändern.',403);
 const actor=identity=>'owner:'+digest(identity.trim().toLowerCase()).slice(0,16);
@@ -39,12 +39,18 @@ function documents(order){
 async function related(env,id){
   const vehicles=(await env.DB.prepare('SELECT id,version,data FROM vehicle_files WHERE customer_id=? ORDER BY id').bind(id).all()).results;
   const orders=(await env.DB.prepare('SELECT o.*,f.vehicle_id AS linked_vehicle_id FROM orders o JOIN order_files f ON f.order_id=o.id WHERE f.customer_id=? ORDER BY o.id').bind(id).all()).results.map(r=>({...JSON.parse(r.data),id:r.id,wg:r.wg,version:r.version,status:r.status,linkedVehicleId:r.linked_vehicle_id}));
-  const counts={assets:0,archiveFiles:0,messages:0,deliveryRecords:0,tasks:0,calendar:0};
+  const counts={assets:0,archiveFiles:0,messages:0,deliveryRecords:0,tasks:0,calendar:0,calendarAdjustments:0};
   for(const [table,key,column] of [['assets','assets','order_id'],['customer_messages','messages','order_id'],['protocol_deliveries','deliveryRecords','order_id'],['invoice_mail_deliveries','deliveryRecords','order_id']])if(await tableExists(env,table))counts[key]+=(await env.DB.prepare('SELECT COUNT(*) n FROM '+table+' WHERE '+column+' IN (SELECT order_id FROM order_files WHERE customer_id=?)').bind(id).first()).n;
   for(const [table,key] of [['panel_tasks','tasks'],['calendar_entry_links','calendar']])if(await tableExists(env,table))counts[key]=(await env.DB.prepare('SELECT COUNT(*) n FROM '+table+' WHERE customer_id=? OR vehicle_id IN (SELECT id FROM vehicle_files WHERE customer_id=?) OR order_id IN (SELECT order_id FROM order_files WHERE customer_id=?)').bind(id,id,id).first()).n;
   const snapshots=[],addSnapshot=async(sql,bindings)=>{const value=(await env.DB.prepare(sql).bind(...bindings).first()).snapshot;snapshots.push({sql,bindings,value});};
   if(await tableExists(env,'panel_tasks'))await addSnapshot("SELECT json_group_array(json_object('id',id,'version',version,'customer',customer_id,'vehicle',vehicle_id,'order',order_id,'calendar',calendar_id)) snapshot FROM (SELECT * FROM panel_tasks WHERE customer_id=? OR vehicle_id IN (SELECT id FROM vehicle_files WHERE customer_id=?) OR order_id IN (SELECT order_id FROM order_files WHERE customer_id=?) ORDER BY id)",[id,id,id]);
   if(await tableExists(env,'calendar_entry_links'))await addSnapshot("SELECT json_group_array(json_object('id',entry_id,'version',version,'customer',customer_id,'vehicle',vehicle_id,'order',order_id)) snapshot FROM (SELECT l.*,e.version FROM calendar_entry_links l JOIN calendar_entries e ON e.id=l.entry_id WHERE customer_id=? OR vehicle_id IN (SELECT id FROM vehicle_files WHERE customer_id=?) OR order_id IN (SELECT order_id FROM order_files WHERE customer_id=?) ORDER BY entry_id)",[id,id,id]);
+  let calendarAdjustments=[];
+  if(await tableExists(env,'calendar_adjustments')){
+    calendarAdjustments=(await env.DB.prepare('SELECT a.id,a.order_id,a.version,a.state,a.created_at,a.updated_at,o.wg FROM calendar_adjustments a JOIN orders o ON o.id=a.order_id WHERE a.order_id IN (SELECT order_id FROM order_files WHERE customer_id=?) ORDER BY a.id').bind(id).all()).results;
+    counts.calendarAdjustments=calendarAdjustments.length;
+    await addSnapshot("SELECT json_group_array(json_object('id',id,'version',version,'state',state,'updated',updated_at)) snapshot FROM (SELECT * FROM calendar_adjustments WHERE order_id IN (SELECT order_id FROM order_files WHERE customer_id=?) ORDER BY id)",[id]);
+  }
   await addSnapshot("SELECT json_group_array(json_object('id',id,'state',state,'updated',updated_at)) snapshot FROM (SELECT * FROM jobs WHERE order_id IN (SELECT order_id FROM order_files WHERE customer_id=?) ORDER BY id)",[id]);
   for(const table of ['protocol_deliveries','invoice_mail_deliveries','appointment_confirmations'])if(await tableExists(env,table))await addSnapshot("SELECT json_group_array(json_object('id',job_id,'until',processing_until,'lease',lease_owner)) snapshot FROM (SELECT * FROM "+table+' WHERE order_id IN (SELECT order_id FROM order_files WHERE customer_id=?) ORDER BY job_id)',[id]);
   for(const [table,key] of [['assets','id'],['customer_messages','id'],['agreement_documents','asset_id'],['payment_documents','asset_id'],['invoice_originals','asset_id'],['invoice_payment_documents','asset_id']])if(await tableExists(env,table)){
@@ -56,14 +62,14 @@ async function related(env,id){
     const leases=(await env.DB.prepare('SELECT j.id,j.order_id,j.kind,j.state,j.updated_at,o.wg,d.processing_until FROM '+table+' d JOIN jobs j ON j.id=d.job_id JOIN orders o ON o.id=j.order_id WHERE d.order_id IN (SELECT order_id FROM order_files WHERE customer_id=?) AND d.processing_until>?').bind(id,Date.now()).all()).results;
     for(const lease of leases)if(!unsettledJobs.some(j=>j.id===lease.id))unsettledJobs.push({...lease,state:'processing'});
   }
-  return {vehicles,orders,counts,snapshots,unsettledJobs};
+  return {vehicles,orders,counts,snapshots,unsettledJobs,calendarAdjustments};
 }
 const proofFor=(version,links)=>({version,vehicles:links.vehicles.map(v=>[v.id,v.version]),orders:links.orders.map(o=>[o.id,o.version,o.linkedVehicleId]),counts:links.counts,snapshots:links.snapshots.map(s=>s.value)});
 export async function customerLifecyclePreview(env,id,identity){
   owner(env,identity);await indexCustomerFiles(env);
   const customer=await env.DB.prepare('SELECT * FROM customer_files WHERE id=?').bind(id).first();need(customer,'Kundenakte nicht gefunden.',404);
   const data=JSON.parse(customer.data),links=await related(env,id);
-  const docs=links.orders.flatMap(order=>documents(order).map(d=>({orderId:order.id,wg:order.wg,key:d.key,label:d.label,at:d.at,cancelled:Boolean(d.cancellation)})));
+  const docs=[...links.orders.flatMap(order=>documents(order).map(d=>({orderId:order.id,wg:order.wg,key:d.key,label:d.label,at:d.at,cancelled:Boolean(d.cancellation)}))),...links.calendarAdjustments.map(a=>({orderId:a.order_id,wg:a.wg,key:'calendarAdjustment:'+a.id,label:'Terminvorschlag / Änderung · '+({pending:'Kundenzustimmung offen',accepted:'vom Kunden angenommen',withdrawn:'zurückgezogen',declined:'vom Kunden abgelehnt'})[a.state],at:a.updated_at,cancelled:['withdrawn','declined'].includes(a.state)}))];
   const canDelete=links.orders.length===0&&links.counts.tasks===0&&links.counts.calendar===0;
   const reasons=[];
   if(links.orders.length)reasons.push('Verknüpfte Aufträge enthalten Originalanfragen und gegebenenfalls Vereinbarungen. Eine pauschale Löschung ist ohne Einzelfallprüfung der Dokumentarten, Fristbeginne und offenen Ansprüche gesperrt.');
@@ -89,6 +95,8 @@ export async function changeCustomerLifecycle(env,input,identity){
   const next={...data,lifecycle:{status,at,reason,actor:actor(identity),operationId,identityHashes:[...new Set([...(data.lifecycle?.identityHashes??[]),...customerIdentityHashes(data,Boolean(row.synthetic))])]}};
   if(input.mode==='anonymize')Object.assign(next,{name:'Anonymisierte Kundenakte',email:'',phone:'',address:'',notes:''});
   const statements=[env.DB.prepare('UPDATE customer_files SET data=?,version=version+1 WHERE id=? AND version=?').bind(json(next),input.id,input.version),env.DB.prepare('INSERT INTO records_cas_guard SELECT CASE WHEN changes()=1 THEN 1 ELSE 0 END')];
+  // New orders are indexed before every preview. A concurrent insertion cannot disappear from its scope.
+  statements.push(env.DB.prepare('INSERT INTO records_cas_guard SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM orders o LEFT JOIN order_files f ON f.order_id=o.id WHERE o.synthetic=? AND f.order_id IS NULL) THEN 1 ELSE 0 END').bind(row.synthetic));
   for(const snapshot of links.snapshots)statements.push(env.DB.prepare('INSERT INTO records_cas_guard SELECT CASE WHEN snapshot=? THEN 1 ELSE 0 END FROM ('+snapshot.sql+')').bind(snapshot.value,...snapshot.bindings));
   // All linked order versions are checked inside the same transaction. Any stale order rolls back the customer edit.
   for(const order of links.orders){
@@ -124,6 +132,7 @@ function projectDetails(input){
 }
 export async function editProject(env,input,identity){
   owner(env,identity);const order=await getOrder(env,input.id);need(order.version===input.version,'Auftrag wurde geändert. Bitte neu öffnen.',409);
+  need(!['blocked','anonymized'].includes(order.recordsRestriction?.status),'Kundenakte ist gesperrt. Projektstammdaten erst nach dokumentierter Prüfung der Sperre ändern; interne Aktennotizen bleiben möglich.',409);
   const reason=bounded(input.reason,2000,'Änderungsgrund');need(reason,'Bitte den Änderungsgrund dokumentieren.');const details=projectDetails(input.details),at=new Date().toISOString(),operationId=crypto.randomUUID();
   const before=(await projectRecords(env,order.id,identity)).details,updated={...order,projectDetails:details,operationId};
   const extra=[env.DB.prepare('INSERT INTO records_cas_guard SELECT CASE WHEN changes()=1 THEN 1 ELSE 0 END'),revision(env,{entityId:order.id,kind:'project',version:order.version+1,at,identity,action:'projectEdit',reason,data:{before,after:details}}),env.DB.prepare('DELETE FROM records_cas_guard')];
@@ -154,8 +163,9 @@ export async function replacementProject(env,input,identity){
   await indexCustomerFiles(env);const link=await env.DB.prepare('SELECT * FROM order_files WHERE order_id=?').bind(order.id).first();if(link)await assertCustomerActive(env,link.customer_id,order.synthetic);
   if(!order.synthetic)need((await settings(env)).numberAudit,'WG-Nummernstand muss zuerst geprüft sein.',409);
   const id=crypto.randomUUID(),at=new Date().toISOString(),source={...structuredClone(order.source)};delete source.id;delete source.raw;source.reviewConsent=false;
+  await assertCustomerSourceActive(env,source,order.synthetic);
   const replacement={id,source,synthetic:order.synthetic===true,status:'Preise prüfen',notes:[],payments:[],createdAt:at,updatedAt:at,replaces:{id:order.id,wg:order.wg,version:order.version,reason,at},projectDetails:order.projectDetails?{...structuredClone(order.projectDetails),workSteps:order.projectDetails.workSteps.map(s=>({...s,done:false}))}:undefined};
-  const updated={...order,replacementOrderId:id},statements=[env.DB.prepare('UPDATE orders SET data=?,version=version+1,updated_at=?,actor=?,action=? WHERE id=? AND version=?').bind(json(updated),at,actor(identity),'Ersatzvorgang angelegt',order.id,order.version),env.DB.prepare('INSERT INTO records_cas_guard SELECT CASE WHEN changes()=1 THEN 1 ELSE 0 END')];
+  const updated={...order,replacementOrderId:id},statements=[...customerSourceGuardStatements(env,source,order.synthetic),env.DB.prepare('UPDATE orders SET data=?,version=version+1,updated_at=?,actor=?,action=? WHERE id=? AND version=?').bind(json(updated),at,actor(identity),'Ersatzvorgang angelegt',order.id,order.version),env.DB.prepare('INSERT INTO records_cas_guard SELECT CASE WHEN changes()=1 THEN 1 ELSE 0 END')];
   if(order.synthetic)statements.push(env.DB.prepare('INSERT INTO orders(id,wg,status,data,updated_at,actor,action,synthetic) VALUES(?,?,?,?,?,?,?,1)').bind(id,'TEST-'+id.slice(0,8),replacement.status,json(replacement),at,actor(identity),'Ersatzentwurf ohne übertragene Freigaben'));
   else statements.push(env.DB.prepare("UPDATE sequences SET value=value+1 WHERE name='WG'"),env.DB.prepare("INSERT INTO orders(id,wg,status,data,updated_at,actor,action,synthetic) SELECT ?,printf('WG-%06d',value),?,?,?,?,?,0 FROM sequences WHERE name='WG'").bind(id,replacement.status,json(replacement),at,actor(identity),'Ersatzentwurf ohne übertragene Freigaben'));
   if(link)statements.push(env.DB.prepare('INSERT INTO order_files(order_id,customer_id,vehicle_id) VALUES(?,?,?)').bind(id,link.customer_id,link.vehicle_id));

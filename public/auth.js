@@ -12,16 +12,17 @@ function useEmail(setup){
   recovery.hidden=true;authMessage.textContent='';
 }
 function useCustomer(reset=false){
-  customerMode=true;resetMode=reset;authReturn='/kundenportal';
+  customerMode=true;resetMode=reset;if(!/^\/protokoll\/[a-f0-9]{64}$/.test(authReturn))authReturn='/kundenportal';
   document.querySelector('#auth-password-label').hidden=true;document.querySelector('#auth-password').disabled=true;
   if(!reset&&!authForm.querySelector('#auth-pin'))requirePin();
   const pin=authForm.querySelector('#auth-pin');if(pin){pin.disabled=reset;pin.parentElement.hidden=reset;pin.autocomplete='current-password';}
   document.querySelector('#auth-email').autocomplete='username';
-  document.querySelector('#auth-description').textContent=reset?'Fordere eine neue persönliche PIN an. Erst der bestätigte E-Mail-Link ersetzt deine bisherige PIN.':'Melde dich mit deiner E-Mail-Adresse und deiner persönlichen PIN wiederholt in deinem Kundenpanel an.';
+  document.querySelector('#auth-description').textContent=reset?'Fordere eine neue persönliche PIN an. Erst der bestätigte E-Mail-Link ersetzt deine bisherige PIN.':authReturn.startsWith('/protokoll/')?'Melde dich mit deiner E-Mail-Adresse und deiner persönlichen PIN an, um dein Fahrzeugübergabeprotokoll zu öffnen.':'Melde dich mit deiner E-Mail-Adresse und deiner persönlichen PIN wiederholt in deinem Kundenpanel an.';
   authForm.querySelector('button').textContent=reset?'Neue PIN anfordern':'Mit PIN anmelden';recovery.textContent=reset?'Zur Anmeldung zurück':'PIN vergessen / erstmalig anfordern';recovery.hidden=false;authMessage.textContent='';
 }
 if(authToken){authForm.innerHTML='<button class="primary" type="submit">Persönliche Anmeldung bestätigen</button>';document.querySelector('#auth-description').textContent='Bestätige die Anmeldung. Dieser Link kann einmal verwendet werden.';recovery.hidden=true;if(authURL.searchParams.get('pin')==='required')requirePin();history.replaceState(null,'','/auth/verify');}
 else if(authURL.searchParams.get('customer')==='1')useCustomer(authURL.searchParams.get('reset')==='1');
+else if(/^\/protokoll\/[a-f0-9]{64}$/.test(authReturn))useCustomer();
 else if(/^\/angebot\/[a-f0-9]{64}$/.test(authReturn))useEmail(false);
 else if(authURL.searchParams.get('setup')==='1')useEmail(true);
 recovery.addEventListener('click',()=>customerMode?useCustomer(!resetMode):useEmail(true));
@@ -31,6 +32,6 @@ authForm.addEventListener('submit',async event=>{
     const body=authToken?{token:authToken,pin:document.querySelector('#auth-pin')?.value}:customerMode?{email:document.querySelector('#auth-email').value,pin:document.querySelector('#auth-pin')?.value,returnTo:authReturn}:emailMode?{email:document.querySelector('#auth-email').value,returnTo:authReturn}:{email:document.querySelector('#auth-email').value,password:document.querySelector('#auth-password').value,returnTo:authReturn};
     const result=await fetch(authToken?'/auth/redeem':customerMode?(resetMode?'/auth/customer/reset/request':'/auth/customer/login'):emailMode?'/auth/request':'/auth/password/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const data=await result.json();if(!result.ok){if(data.pinRequired)requirePin();throw Error(data.error);}
-    if(data.returnTo&&data.customerPortal){authMessage.textContent=data.personalPinActivated?'Diese PIN ist jetzt deine persönliche Kunden-PIN. Du kannst dich damit und deiner E-Mail-Adresse wiederholt unter „Mein Kundenpanel“ anmelden. Bewahre sie sicher auf.':'Die Anmeldung ist bestätigt. Diese Eingabe-PIN gehört zu diesem Bestätigungslink. Deine bereits eingerichtete persönliche Kunden-PIN bleibt unverändert. Falls du sie vergessen hast, kannst du sie bei der Kundenpanel-Anmeldung erneuern.';authForm.replaceChildren();const link=document.createElement('a');link.href=data.returnTo;link.className='primary';link.textContent=data.returnTo==='/kundenportal'?'Mein Kundenpanel öffnen':'Zum Angebot weiter';authForm.append(link);if(data.returnTo!=='/kundenportal'){const portal=document.createElement('a');portal.href='/kundenportal';portal.textContent='Mein Kundenpanel';authForm.append(portal);}}else if(data.returnTo)location.replace(data.returnTo);else authMessage.textContent=data.message;
+    if(data.returnTo&&data.customerPortal){authMessage.textContent=data.personalPinActivated?'Diese PIN ist jetzt deine persönliche Kunden-PIN. Du kannst dich damit und deiner E-Mail-Adresse wiederholt unter „Mein Kundenpanel“ anmelden. Bewahre sie sicher auf.':'Die Anmeldung ist bestätigt. Diese Eingabe-PIN gehört zu diesem Bestätigungslink. Deine bereits eingerichtete persönliche Kunden-PIN bleibt unverändert. Falls du sie vergessen hast, kannst du sie bei der Kundenpanel-Anmeldung erneuern.';authForm.replaceChildren();const link=document.createElement('a');link.href=data.returnTo;link.className='primary';link.textContent=data.returnTo==='/kundenportal'?'Mein Kundenpanel öffnen':data.returnTo.startsWith('/protokoll/')?'Zum Protokoll weiter':'Zum Angebot weiter';authForm.append(link);if(data.returnTo!=='/kundenportal'){const portal=document.createElement('a');portal.href='/kundenportal';portal.textContent='Mein Kundenpanel';authForm.append(portal);}}else if(data.returnTo)location.replace(data.returnTo);else authMessage.textContent=data.message;
   }catch(error){authMessage.textContent=error.message;}finally{button.disabled=false;}
 });
