@@ -1,5 +1,5 @@
 import {need,transition} from '../src/domain.mjs';
-import {agreedOffer} from '../src/operations.mjs';
+import {agreedOffer,recordOperationIssue} from '../src/operations.mjs';
 import {getOrder,saveOrder} from '../src/worker.mjs';
 import {digest} from './auth.mjs';
 
@@ -27,6 +27,7 @@ export function paymentInput(input,now=new Date().toISOString()){
   return {id:input.idempotencyKey,amountCents:input.amountCents,method:input.method,reference:reference.trim(),at:new Date(input.at).toISOString(),receipt:input.receipt,cashConfirmed:input.method==='Bar'&&input.cashConfirmed===true,receivedConfirmed:true,...(input.method==='Bar'?{cashSource:input.cashSource.trim(),externalCashRecordedConfirmed:true,receiptHash:undefined}:{})};
 }
 export async function recordPayment(env,order,input,actor='owner',expectedVersion=order.version){
+  need(!recordOperationIssue(order,'payment'),recordOperationIssue(order,'payment'),409);
   need(actor==='owner','Den Zahlungseingang darf ausschließlich der persönlich angemeldete Betreiber bestätigen.',403);
   need(['Erledigt','Bezahlt'].includes(order.status)&&agreedOffer(order)&&order.acceptance,'Zahlungserfassung erst nach Abschluss und bestätigter Preisvereinbarung.',409);
   await paymentSchema(env);const payment=paymentInput(input);

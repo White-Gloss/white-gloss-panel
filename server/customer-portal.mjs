@@ -6,6 +6,8 @@ import {protocolDownload} from './protocol-mail.mjs';
 import {paymentDocument,templateSchema} from './document-template.mjs';
 import {agreementDocument} from './agreement-document.mjs';
 import {invoicePaymentDocument} from './invoice-payment.mjs';
+import {calendarAdjustmentData} from './calendar-adjustments.mjs';
+import {recordOperationIssue} from '../src/operations.mjs';
 
 export async function customerPortalSchema(env){
   await env.DB.batch([
@@ -25,7 +27,9 @@ function ownOrderDTO(order,issuedPayments=new Set()){
   if(typeof order.invoice?.url==='string'&&/^https:\/\/pay\.qonto\.com\/invoices\//.test(order.invoice.url))documents.push({kind:'invoice',label:'Rechnung '+order.invoice.number+' bei Qonto ansehen',at:order.invoice.at,url:order.invoice.url});
   if(/^[a-f0-9]{64}$/.test(order.invoice?.paymentCopyVersion??''))documents.push({kind:'invoice-payment',label:'Rechnung '+order.invoice.number+' · '+order.invoice.paymentCopy.header,at:order.invoice.paymentCopy.at,url:'/api/customer/invoice/payment/pdf?id='+encodeURIComponent(order.id)+'&version='+order.invoice.paymentCopyVersion});
   const safeAppointment=order.appointment?{start:order.appointment.start,end:order.appointment.end,duration:order.appointment.duration,delivery:order.appointment.delivery,location:order.appointment.location}:null;
-  return {id:order.id,wg:order.wg,status:order.status,customer:order.source.name,vehicle:order.source.vehicle,createdAt:order.createdAt,appointment:safeAppointment,offer:order.offer?{services:order.offer.services,totalCents:order.offer.totalCents,expiresAt:order.offer.expiresAt}:null,acceptedAt:order.acceptance?.at??null,completedAt:order.completedAt??null,documents};
+  const cancellations=(order.documentCancellations??[]).map(item=>({documentKey:item.documentKey,at:item.at,reason:item.reason,scope:item.scope}));
+  for(const document of documents){const key=document.kind==='agreement'?'offer':document.kind==='amendment'?'amendment:'+new URL(document.url,'https://panel.invalid').searchParams.get('amendment'):document.kind;const cancellation=cancellations.find(item=>item.documentKey===key||item.scope==='whole-agreement'&&['agreement','amendment'].includes(document.kind)||document.kind==='agreement'&&item.documentKey==='pickup');if(cancellation){Object.assign(document,{cancellation});document.label='Originalbeleg (storniert): '+document.label;}}
+  return {id:order.id,wg:order.wg,status:order.status,customer:order.source.name,vehicle:order.source.vehicle,createdAt:order.createdAt,appointment:safeAppointment,offer:order.offer?{services:order.offer.services,totalCents:order.offer.totalCents,expiresAt:order.offer.expiresAt}:null,acceptedAt:order.acceptance?.at??null,completedAt:order.completedAt??null,documents,documentCancellations:cancellations,operationIssue:recordOperationIssue(order)};
 }
 export async function customerPortalData(env,identity){await templateSchema(env);
   const rows=await env.DB.prepare("SELECT * FROM orders WHERE lower(trim(json_extract(data,'$.source.email')))=? ORDER BY updated_at DESC").bind(normalized(identity)).all();
@@ -33,7 +37,7 @@ export async function customerPortalData(env,identity){await templateSchema(env)
   for(const row of rows.results){const order={...JSON.parse(row.data),id:row.id,wg:row.wg,status:row.status,version:row.version};const issued=await env.DB.prepare('SELECT payment_id FROM payment_documents WHERE order_id=?').bind(order.id).all(),dto=ownOrderDTO(order,new Set(issued.results.map(item=>item.payment_id)));const unread=await unreadCount(env,order.id,'customer');dto.unreadMessages=unread;dto.version=order.version;dto.reviewConsent={granted:order.reviewConsent?.granted===true&&!order.reviewConsent?.revokedAt,revokedAt:order.reviewConsent?.revokedAt??null};dto.reviewPolicy=validPolicy&&['Erledigt','Bezahlt'].includes(order.status)?{version:policy.version,schedule:policy.schedule,optOutText:policy.optOutText}:null;
     const links=await env.DB.prepare('SELECT hash,expires_at FROM offer_tokens WHERE order_id=? AND revoked=0 AND expires_at>?').bind(order.id,new Date().toISOString()).all();
     const eligible=new Set(links.results.map(item=>item.hash));dto.offerUrl=order.offerToken&&eligible.has(digest(order.offerToken))?'/angebot/'+order.offerToken:null;
-    dto.amendments=(order.amendments??[]).filter(item=>item.state==='open'&&eligible.has(digest(item.token))).map(item=>({id:item.id,services:item.services,amountCents:item.amountCents,url:'/angebot/'+item.token}));orders.push(dto);
+    dto.amendments=(order.amendments??[]).filter(item=>item.state==='open'&&eligible.has(digest(item.token))).map(item=>({id:item.id,services:item.services,amountCents:item.amountCents,url:'/angebot/'+item.token}));dto.appointmentChanges=await calendarAdjustmentData(env,order);orders.push(dto);
   }
   return {orders};
 }
@@ -58,12 +62,13 @@ export async function customerChat(env,request,identity,isOwner){
     return Response.json({ok:true,unread:await unreadCount(env,id,role)});
   }
   need(input.action==='send','Unbekannter Nachrichtenschritt.');
+  const issue=recordOperationIssue(await getOrder(env,id),'customerMessage');need(!issue,issue,409);
   need(typeof input.requestId==='string'&&/^[a-f0-9-]{36}$/.test(input.requestId),'Eindeutige Nachrichten-ID fehlt.');
   need(typeof input.body==='string'&&input.body.trim().length>0&&input.body.length<=4000&&!/\u0000/.test(input.body),'Nachricht muss 1 bis 4000 Zeichen enthalten.');
   const body=input.body.trim(),existing=await env.DB.prepare('SELECT id,body FROM customer_messages WHERE order_id=? AND sender_role=? AND request_id=?').bind(id,role,input.requestId).first();
   if(existing){need(existing.body===body,'Nachrichten-ID bereits mit anderem Inhalt verwendet.',409);return Response.json({ok:true,id:existing.id});}
   need(!await limited(env,'chat:'+role+':'+normalized(identity),Date.now(),60),'Zu viele Nachrichten. Bitte später erneut versuchen.',429);
-  await env.DB.prepare('INSERT OR IGNORE INTO customer_messages(order_id,sender_role,request_id,body,created_at) VALUES(?,?,?,?,?)').bind(id,role,input.requestId,body,new Date().toISOString()).run();
+  await env.DB.prepare("INSERT OR IGNORE INTO customer_messages(order_id,sender_role,request_id,body,created_at) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM orders WHERE id=? AND COALESCE(json_extract(data,'$.recordsRestriction.status'),'') NOT IN ('blocked','anonymized') AND COALESCE(json_array_length(data,'$.documentCancellations'),0)=0)").bind(id,role,input.requestId,body,new Date().toISOString(),id).run();
   const saved=await env.DB.prepare('SELECT id,body FROM customer_messages WHERE order_id=? AND sender_role=? AND request_id=?').bind(id,role,input.requestId).first();need(saved?.body===body,'Nachrichten-ID bereits mit anderem Inhalt verwendet.',409);
   return Response.json({ok:true,id:saved.id});
 }

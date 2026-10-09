@@ -45,7 +45,7 @@ export async function deliverAppointmentConfirmation(env,orderId){
   if(!claimed.meta.changes)return {state:'queued',message:'Termin gespeichert; die Bestätigungsmail wird bereits verarbeitet.'};
   let attempted=false,providerId=null;
   try{
-    const order=await getOrder(env,orderId);
+    const order=await getOrder(env,orderId);need(!recordOperationIssue(order,'send'),recordOperationIssue(order,'send'),409);
     if(order.status==='Storniert'){await env.DB.prepare("UPDATE jobs SET state='cancelled',detail='Auftrag vor Versand storniert; keine Bestätigungsmail',updated_at=? WHERE id=? AND state IN ('queued','failed') AND EXISTS(SELECT 1 FROM appointment_confirmations WHERE job_id=? AND lease_owner=?)").bind(new Date().toISOString(),record.job_id,record.job_id,leaseOwner).run();return {state:'cancelled',message:'Auftrag storniert; die ausstehende Terminbestätigung wurde aufgehoben.'};}
     need(!order.synthetic&&order.acceptance?.snapshotHash===record.snapshot_hash&&order.acceptance?.appointmentOptionId,'Versand gehört nicht zur unterschriebenen Terminvereinbarung.',409);
     need(JSON.stringify(order.appointment)===JSON.stringify(order.acceptance.snapshot?.appointment),'Aktueller Termin weicht von der unterschriebenen Vereinbarung ab.',409);
@@ -73,3 +73,4 @@ export async function pendingAppointmentConfirmations(env){
   for(const row of rows.results){const result=await deliverAppointmentConfirmation(env,row.order_id);if(!['sent','cancelled'].includes(result.state))errors.push(result.message);}
   return errors;
 }
+import {recordOperationIssue} from '../src/operations.mjs';

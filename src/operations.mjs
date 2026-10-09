@@ -1,4 +1,10 @@
 // Shared by the server and the owner UI. Signed originals are never rewritten.
+export function recordOperationIssue(order,action='operate') {
+  if(['note','vehicleCare','followUpDone','cancel','calendarCancel'].includes(action))return null;
+  if(['blocked','anonymized'].includes(order.recordsRestriction?.status))return 'Diese Kundenakte ist gesperrt. Neue Vorgänge, Kundenkommunikation und finanzielle Aktionen sind gesperrt; aufbewahrte Originale bleiben lesbar.';
+  if((order.documentCancellations??[]).length)return 'Ein bestätigtes Dokument dieses Vorgangs wurde storniert. Folgeaktionen benötigen einen geprüften Ersatzvorgang; Originale und Zahlungen bleiben erhalten.';
+  return null;
+}
 export function agreedOffer(order) {
   if (!order.offer) return null;
   const approved=(order.amendments??[]).filter(item=>item.state==='accepted');
@@ -8,6 +14,7 @@ export function agreedOffer(order) {
     lines:[...(order.offer.lines??[{title:'Fahrzeugaufbereitung',description:order.offer.services,amountCents:order.offer.totalCents}]),...approved.map(item=>({title:'Freigegebener Nachtrag',description:item.services,amountCents:item.amountCents}))]};
 }
 export function protocolAllowed(order,kind,direct=false) {
+  if(recordOperationIssue(order,kind))return false;
   if (!['intake','return'].includes(kind)||order[kind]) return false;
   if (['Abgelehnt','Storniert','Abgelaufen','Bezahlt','Erledigt'].includes(order.status)) return false;
   if (kind==='return'&&(order.amendments??[]).some(item=>item.state==='open'&&Date.parse(item.expiresAt)>Date.now())) return false;
@@ -20,6 +27,7 @@ export function todayTasks(orders,jobs=[],now=new Date()) {
   const today=dayBerlin(now),tasks=[];
   const add=(o,key,title,tab,priority,due)=>tasks.push({id:o.id+':'+key,orderId:o.id,wg:o.wg,customer:o.source.name,title,tab,priority,due});
   for(const o of orders){
+    if(recordOperationIssue(o))continue;
     if(['Abgelehnt','Storniert','Abgelaufen'].includes(o.status))continue;
     if(o.status==='Preise prüfen')add(o,'price','Begutachtung und Preis prüfen','price',30,o.createdAt);
     if(o.status==='Angebot offen'&&!o.acceptance)add(o,'signature','Kundenunterschrift / Terminauswahl offen','appointment',40,o.offer?.expiresAt);

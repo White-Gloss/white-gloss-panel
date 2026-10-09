@@ -1,5 +1,5 @@
 import worker,{init,setting,protect,settings,configuration,background} from '../src/worker.mjs';
-import {customerFilesSchema,customerFiles,updateCustomerFile} from './customer-files.mjs';
+import {customerFilesSchema,customerFiles,updateCustomerFile,assertCustomerSourceActive} from './customer-files.mjs';
 import {pushSchema,pushStatus,pushDevice,pushMaintenance,collectPush} from './push.mjs';
 import {AppError} from '../src/domain.mjs';
 import {authSchema,sessionIdentity,requestLogin,redeemLogin,customerPinLogin,customerResetRequest,logout,loginPage,pruneAuth,digest} from './auth.mjs';
@@ -14,15 +14,21 @@ import {createStorage} from './storage.mjs';
 import {providerOperations,providerSchema} from './providers.mjs';
 import {agentAuthSchema,agentAuthEndpoint,pruneAgentAuth} from './agent-auth.mjs';
 import {agentActionSchema,agentMcpEndpoint} from './agent-tools.mjs';
+import {recordsLifecycleSchema,recordsLifecycleEndpoint} from './records-lifecycle.mjs';
+import {calendarAdjustmentSchema,calendarAdjustmentEndpoint} from './calendar-adjustments.mjs';
+import {tasksSchema,tasksEndpoint} from './tasks.mjs';
+import {panelAssistantSchema,panelAssistantEndpoint} from './panel-assistant.mjs';
+import {customerCreateEndpoint} from './customer-create.mjs';
+import {assistantProviderSchema,assistantProviderEndpoint} from './assistant-provider.mjs';
 const lockedHeaders={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Strict-Transport-Security':'max-age=31536000','Permissions-Policy':'camera=(), microphone=(), geolocation=()','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com"};
 function errorResponse(message,status=500){return new Response(JSON.stringify({error:message}),{status,headers:{'Content-Type':'application/json'}});}
 export async function createApplication(env){
   const origin=new URL(env.PANEL_ORIGIN);if(origin.protocol!=='https:'||origin.origin!==env.PANEL_ORIGIN||origin.username||origin.password)throw Error('PANEL_ORIGIN muss ein eindeutiger HTTPS-Ursprung sein.');
   if(!/^[a-f0-9]{64}$/.test(env.OWNER_EMAIL_SHA256??''))throw Error('Betreiberidentität fehlt.');
-  await init(env);await authSchema(env);await customerPortalSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await agentAuthSchema(env);await agentActionSchema(env);await customerFilesSchema(env);await pushSchema(env);
+  await init(env);await authSchema(env);await customerPortalSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await agentAuthSchema(env);await agentActionSchema(env);await customerFilesSchema(env);await pushSchema(env);await recordsLifecycleSchema(env);await calendarAdjustmentSchema(env);await tasksSchema(env);await panelAssistantSchema(env);await assistantProviderSchema(env);
   env.passwordResetStatements=newHash=>[env.DB.prepare('UPDATE agent_grants SET revoked=1 WHERE EXISTS(SELECT 1 FROM auth_sessions WHERE hash=?)').bind(newHash)];
   env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=providerOperations;
-  env.validatePaymentPDF=validatePaymentPDF;
+  env.validatePaymentPDF=validatePaymentPDF;env.assertCustomerSourceActive=assertCustomerSourceActive;
   const handle=async request=>{
     try{
       const url=new URL(request.url);if(url.origin!==env.PANEL_ORIGIN)return errorResponse('Ungültiger Host.',400);
@@ -41,6 +47,8 @@ export async function createApplication(env){
       const identity=await sessionIdentity(env,request);
       if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/angebot\/[a-f0-9]{64}$/.test(url.pathname))login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/kundenportal')login.searchParams.set('customer','1');if(url.pathname==='/'&&/^[a-f0-9-]{36}$/.test(url.searchParams.get('order')??''))login.searchParams.set('returnTo','/?order='+url.searchParams.get('order'));if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
       const isOwner=digest(identity)===env.OWNER_EMAIL_SHA256;
+      const calendarAdjustment=await calendarAdjustmentEndpoint(env,request,identity,isOwner);if(calendarAdjustment)return calendarAdjustment;
+      for(const endpoint of [recordsLifecycleEndpoint,tasksEndpoint,panelAssistantEndpoint,customerCreateEndpoint,assistantProviderEndpoint]){const response=await endpoint(env,request,identity);if(response)return response;}
       if(!isOwner&&url.pathname==='/'&&request.method==='GET')return Response.redirect(new URL('/kundenportal',env.PANEL_ORIGIN),303);
       if(!isOwner&&url.pathname==='/kundenportal'&&request.method==='GET')return customerPortalPage();
       if(!isOwner&&url.pathname==='/api/customer-portal'&&request.method==='GET')return Response.json(await customerPortalData(env,identity));

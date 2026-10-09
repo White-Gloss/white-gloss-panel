@@ -2,6 +2,15 @@ import {need,text} from '../src/domain.mjs';
 import {getOrder} from '../src/worker.mjs';
 import {digest} from './auth.mjs';
 
+const phoneIdentity=value=>{const digits=String(value??'').replace(/\D/g,'');return digits.startsWith('0049')?'0'+digits.slice(4):digits.startsWith('49')?'0'+digits.slice(2):digits;};
+export function customerIdentityHashes(data,synthetic){const scope=synthetic?'test:':'live:',email=String(data.email??'').trim().toLowerCase(),phone=phoneIdentity(data.phone);return [email?digest(scope+'email:'+email):null,phone?digest(scope+'phone:'+phone):null].filter(Boolean);}
+export async function assertCustomerSourceActive(env,source,synthetic){
+  const hashes=customerIdentityHashes(source,synthetic);if(!hashes.length)return;
+  const rows=(await env.DB.prepare("SELECT id,data FROM customer_files WHERE synthetic=? AND json_extract(data,'$.lifecycle.status') IN ('blocked','anonymized')").bind(Number(synthetic)).all()).results;
+  const blocked=rows.some(row=>{const data=JSON.parse(row.data);return [row.id,...customerIdentityHashes(data,synthetic),...(data.lifecycle?.identityHashes??[])].some(hash=>hashes.includes(hash));});
+  need(!blocked,'Eine passende Kundenakte ist gesperrt oder anonymisiert. Neue Aufträge und Importe benötigen zuerst eine dokumentierte Prüfung dieser Akte.',409);
+}
+
 export async function customerFilesSchema(env){
   await env.DB.batch([
     'CREATE TABLE IF NOT EXISTS customer_files(id TEXT PRIMARY KEY,version INTEGER NOT NULL DEFAULT 1,data TEXT NOT NULL,synthetic INTEGER NOT NULL)',
@@ -23,6 +32,11 @@ export async function indexCustomerFiles(env){
       env.DB.prepare('INSERT OR IGNORE INTO vehicle_files(id,customer_id,data) VALUES(?,?,?)').bind(vid,cid,JSON.stringify({name:source.vehicle,plate,vin:'',notes:''})),
       env.DB.prepare('INSERT OR IGNORE INTO order_files VALUES(?,?,?)').bind(row.id,cid,vid)
     ]);
+    const indexed=await env.DB.prepare('SELECT data FROM customer_files WHERE id=?').bind(cid).first(),lifecycle=JSON.parse(indexed.data).lifecycle;
+    if(['blocked','anonymized'].includes(lifecycle?.status)&&!o.recordsRestriction){
+      o.recordsRestriction={status:lifecycle.status,at:new Date().toISOString(),reason:'Sperre aus bestehender Kundenakte übernommen',customerId:cid};
+      await env.DB.prepare('UPDATE orders SET data=?,version=version+1,updated_at=?,actor=?,action=? WHERE id=? AND version=?').bind(JSON.stringify(o),new Date().toISOString(),'owner','Bestehende Kundensperre übernommen',row.id,row.version).run();
+    }
   }
 }
 export async function customerFiles(env,synthetic){
@@ -35,8 +49,9 @@ export async function customerFiles(env,synthetic){
 export async function updateCustomerFile(env,input){
   await indexCustomerFiles(env);const now=new Date().toISOString();
   if(input.kind==='link'){
-    const order=await getOrder(env,input.orderId),vehicle=await env.DB.prepare('SELECT v.*,c.synthetic FROM vehicle_files v JOIN customer_files c ON c.id=v.customer_id WHERE v.id=?').bind(input.vehicleId).first();
+    const order=await getOrder(env,input.orderId),vehicle=await env.DB.prepare('SELECT v.*,c.synthetic,c.data AS customer_data FROM vehicle_files v JOIN customer_files c ON c.id=v.customer_id WHERE v.id=?').bind(input.vehicleId).first();
     need(vehicle&&Boolean(vehicle.synthetic)===Boolean(order.synthetic),'Fahrzeugakte nicht gefunden.',404);need(order.version===input.orderVersion,'Auftrag wurde geändert. Bitte neu öffnen.',409);
+    need(!order.recordsRestriction&&!['blocked','anonymized'].includes(JSON.parse(vehicle.customer_data).lifecycle?.status),'Gesperrte Kundenakten können nicht neu zugeordnet werden.',409);
     const old=await env.DB.prepare('SELECT * FROM order_files WHERE order_id=?').bind(order.id).first();need(old?.vehicle_id===input.previousVehicleId,'Zuordnung bereits geändert. Bitte neu laden.',409);
     need(input.confirmed===true,'Kunden- und Fahrzeugzuordnung bitte ausdrücklich prüfen.');
     const result=await env.DB.batch([env.DB.prepare('UPDATE order_files SET customer_id=?,vehicle_id=? WHERE order_id=? AND vehicle_id=?').bind(vehicle.customer_id,vehicle.id,order.id,input.previousVehicleId),env.DB.prepare('INSERT INTO file_audit(at,entity_id,action,data) SELECT ?,?,?,? WHERE changes()>0').bind(now,order.id,'Auftrag einer geprüften Fahrzeugakte zugeordnet',JSON.stringify({before:old,customerId:vehicle.customer_id,vehicleId:vehicle.id}))]);
@@ -44,8 +59,11 @@ export async function updateCustomerFile(env,input){
   }
   const vehicle=input.kind==='vehicle';need(vehicle||input.kind==='customer','Unbekannte Akte.');
   const table=vehicle?'vehicle_files':'customer_files',old=await env.DB.prepare('SELECT * FROM '+table+' WHERE id=?').bind(input.id).first();need(old,'Akte nicht gefunden.',404);
+  const customer=vehicle?await env.DB.prepare('SELECT data FROM customer_files WHERE id=?').bind(old.customer_id).first():old;
+  need(!['blocked','anonymized'].includes(JSON.parse(customer.data).lifecycle?.status),'Kundenakte ist gesperrt. Zuerst die Sperre mit dokumentiertem Grund prüfen.',409);
   need(old.version===input.version,'Akte wurde inzwischen geändert. Bitte neu laden.',409);
   const data=Object.fromEntries((vehicle?['name','plate','vin','notes']:['name','email','phone','address','notes']).map(key=>[key,text(input.data?.[key],key==='notes'?4000:600)]));
+  if(!vehicle&&JSON.parse(old.data).lifecycle)data.lifecycle=JSON.parse(old.data).lifecycle;
   need(data.name,'Name fehlt.');if(!vehicle)need(!data.email||/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email),'E-Mail ungültig.');
   if(vehicle)need(!data.vin||/^[A-HJ-NPR-Z0-9]{17}$/.test(data.vin.toUpperCase()),'FIN muss 17 gültige Zeichen enthalten.');
   const changed=await env.DB.batch([env.DB.prepare('UPDATE '+table+' SET data=?,version=version+1 WHERE id=? AND version=?').bind(JSON.stringify(data),input.id,input.version),env.DB.prepare('INSERT INTO file_audit(at,entity_id,action,data) SELECT ?,?,?,? WHERE changes()>0').bind(now,input.id,'Stammdaten aktualisiert; Auftragsschnappschüsse unverändert',JSON.stringify({before:JSON.parse(old.data),after:data}))]);

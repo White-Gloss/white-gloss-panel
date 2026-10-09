@@ -28,7 +28,7 @@ export async function deliverProtocol(env,orderId,kind){
   if(!lease.meta.changes)return {state:'queued',message:'Protokoll gespeichert; PDF-Versand läuft bereits.'};
   let attempted=false,providerId=null;
   try{
-    const order=await getOrder(env,orderId),p=order[kind];need(!order.synthetic&&p?.snapshotHash===record.snapshot_hash&&p.signaturesConfirmed,'Versand gehört nicht zum bestätigten Protokoll.',409);
+    const order=await getOrder(env,orderId),p=order[kind];need(!recordOperationIssue(order,'send'),recordOperationIssue(order,'send'),409);need(!order.synthetic&&p?.snapshotHash===record.snapshot_hash&&p.signaturesConfirmed,'Versand gehört nicht zum bestätigten Protokoll.',409);
     const config=await configuration(env,['resendKey']);need(config.emailVerified&&config.sendApproved&&config.resendKey&&config.sender,'Protokoll gespeichert. E-Mail-Versand zuerst prüfen und freigeben.',409);
     const pdf=await persistedPDF(env,order,record),label=kind==='intake'?'Annahmeprotokoll':'Rückgabeprotokoll';
     const payload={from:config.sender,to:[record.recipient],...(record.copy_to!==record.recipient?{cc:[record.copy_to]}:{}),reply_to:record.copy_to,subject:'White Gloss · '+label+' · '+order.wg,text:'Guten Tag '+p.customerName+',\n\nanbei erhalten Sie das gemeinsam geprüfte und persönlich unterschriebene '+label+' für Ihr Fahrzeug '+p.vehicle+' ('+p.plate+').\n\nBei Rückfragen antworten Sie bitte auf diese E-Mail.\n\n'+p.business.name+'\n'+p.business.owner+'\n'+p.business.street+'\n'+p.business.city+'\n'+p.business.phone+'\n'+p.business.email,attachments:[{filename:pdf.filename,content:Buffer.from(pdf.bytes).toString('base64')}]};
@@ -52,3 +52,4 @@ export async function protocolDownload(env,orderId,kind){
   const pdf=record?.asset_id?await persistedPDF(env,order,record):await protocolDocument(env,order,kind);
   return new Response(pdf.bytes,{headers:{'Content-Type':'application/pdf','Content-Disposition':'attachment; filename="'+pdf.filename+'"','Cache-Control':'no-store'}});
 }
+import {recordOperationIssue} from '../src/operations.mjs';
