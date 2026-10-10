@@ -1,12 +1,10 @@
 import {getOrder,saveOrder,configuration,claimJob} from '../src/worker.mjs';
 import {need,text,cents,customerSignaturePNG} from '../src/domain.mjs';
-import {agreedOffer,recordOperationIssue} from '../src/operations.mjs';
+import {agreedOffer} from '../src/operations.mjs';
 import {digest,issueCustomerAccess} from './auth.mjs';
 import {validateCustomerSignature} from './customer-signature.mjs';
-import {customerAccessGuards,customerLinkGuards} from '../src/customer-access.mjs';
 
 export function amendmentOpen(order) {
-  need(!recordOperationIssue(order),recordOperationIssue(order),409);
   need(order.acceptance&&order.offer&&!order.invoice&&!order.return&&!(order.payments??[]).length&&['Angenommen','Termin verbindlich','In Arbeit'].includes(order.status),'Nachträge sind nach der Kundenannahme und vor Rückgabe, Rechnung oder Zahlung möglich.',409);
 }
 export function createAmendment(order,input,now=new Date().toISOString()) {
@@ -36,8 +34,7 @@ export async function amendmentAction(env,order,action,input) {
   updated.operationId=operationId;
   return saveOrder(env,updated,order.version,action==='amendmentCreate'?'Nachtrag zur Kundenfreigabe erstellt':'Offenen Nachtrag zurückgezogen','owner',extra);
 }
-export async function acceptAmendment(env,order,item,input,authorization=null) {
-  need(!recordOperationIssue(order),recordOperationIssue(order),409);
+export async function acceptAmendment(env,order,item,input) {
   if(item.state==='accepted'){need(item.acceptance.snapshotHash===input.snapshotHash,'Ein anderer Nachtrag wurde unterschrieben.',409);return {ok:true,amendment:true};}
   amendmentOpen(order);need(item.state==='open'&&Date.parse(item.expiresAt)>Date.now(),'Dieser Nachtrag ist geschlossen oder abgelaufen.',409);
   need(input.paymentObligation===true,'Bitte den zusätzlichen Preis ausdrücklich bestätigen.');
@@ -46,12 +43,10 @@ export async function acceptAmendment(env,order,item,input,authorization=null) {
   validateCustomerSignature(customerSignaturePNG(input.signature));
   const updated=structuredClone(order),a=updated.amendments.find(a=>a.id===item.id);
   a.state='accepted';a.acceptance={at:new Date().toISOString(),snapshotHash:input.snapshotHash,snapshot,signature:input.signature,paymentObligation:true};
-  if(authorization)a.acceptance.authenticatedIdentity=authorization.access.identity;
-  await saveOrder(env,updated,order.version,'Kunde hat Nachtrag persönlich unterschrieben','customer',authorization?[...customerAccessGuards(env,authorization.access),...customerLinkGuards(env,authorization.tokenHash,'offer')]:[]);
+  await saveOrder(env,updated,order.version,'Kunde hat Nachtrag persönlich unterschrieben','customer');
   return {ok:true,amendment:true};
 }
 export async function sendAmendment(env,order,input) {
-  need(!recordOperationIssue(order,'send'),recordOperationIssue(order,'send'),409);
   amendmentOpen(order);need(!order.synthetic,'Testnachträge werden nicht versendet.',409);
   const item=order.amendments?.find(a=>a.id===input.amendmentId);need(item?.state==='open'&&Date.parse(item.expiresAt)>Date.now(),'Kein offener Nachtrag vorhanden.',409);
   const config=await configuration(env,['resendKey']);need(config.emailVerified&&config.sendApproved&&config.resendKey,'E-Mail-Versand zuerst prüfen und freigeben.',409);

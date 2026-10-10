@@ -30,11 +30,10 @@ export function assessmentSeed(source){
   if(!quote&&packageId&&classId)try{quote=catalogQuote({packageId,classId,extraIds,delivery:(source.pickupCents>0||source.delivery==='Abholung'||raw.pickup_requested===true)?'Abholung':'Kunde bringt',citySlug:source.citySlug??raw.city_slug,pickupKm:source.pickupKm??raw.pickup_distance_km,customPickupCents:source.pickupCents});}catch{/* Historical input remains visible even when today's catalogue cannot price it. */}
   const sourceTotal=assessmentCents(source.amountCents??0),pickup=assessmentCents(source.pickupCents??0);
   assessmentNeed(sourceTotal>=pickup,'Der ursprüngliche Gesamtpreis ist niedriger als die Abholung. Bitte Quelldaten prüfen.');
-  const pickupPending=quote?.pickupOnRequest===true&&quote.pickupCents===null&&source.pickupCents==null;
-  const matched=quote&&(pickupPending||quote.totalCents===sourceTotal&&quote.pickupCents===pickup);
+  const matched=quote&&quote.totalCents===sourceTotal&&quote.pickupCents===pickup;
   const lines=[{id:'package',kind:'package',...(packageId?{catalogId:packageId}:{}),title:quote?.packageName??source.package??'Fahrzeugaufbereitung',description:'',amountCents:matched?quote.packageCents:sourceTotal-pickup}];
   const requestedExtras=quote?.extras??(source.extras??[]).map((name,index)=>({id:String(index),name:extras.find(e=>e.id===name)?.name??String(name)}));
   for(const extra of requestedExtras)lines.push({id:'extra-'+extra.id,kind:'extra',...(extras.some(e=>e.id===extra.id)?{catalogId:extra.id}:{}),title:extra.name,description:'',amountCents:matched?extra.amountCents:0});
-  if(pickup>0||source.delivery==='Abholung'||quote?.delivery==='Abholung')lines.push({id:'pickup',kind:'pickup',title:'Abholung und Rückbringung',description:source.address??'',amountCents:pickup,...(pickupPending?{pricePending:true}:{})});
-  return {lines,condition:'',pricesReviewed:false,...(pickupPending?{pickupPricePending:true}:{}),reconciliationRequired:!matched&&requestedExtras.length>0};
+  if(pickup>0||source.delivery==='Abholung'||quote?.delivery==='Abholung')lines.push({id:'pickup',kind:'pickup',title:'Abholung und Rückbringung',description:source.address??'',amountCents:pickup});
+  return {lines,condition:'',pricesReviewed:false,reconciliationRequired:!matched&&requestedExtras.length>0};
 }

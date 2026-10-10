@@ -1,5 +1,5 @@
 import {recordPayment} from './payment-ledger.mjs';
-import {agreedOffer,recordOperationIssue} from '../src/operations.mjs';
+import {agreedOffer} from '../src/operations.mjs';
 import {amendmentAction,amendmentView,acceptAmendment} from './amendments.mjs';
 import {qontoNumberCheck} from '../src/qonto.mjs';
 import {configuration,settings,setting,getOrder,saveOrder,claimJob,importWebsite} from '../src/worker.mjs';
@@ -95,16 +95,6 @@ async function reconcile(env,order){
       if(response.status===404){if(Date.parse(job.updated_at)<Date.now()-60000)await finishJob(env,job.id,'failed',null,'Google bestätigt: Termin nicht vorhanden. Erneuter manueller Abgleich verwendet dieselbe eindeutige Termin-ID.');continue;}
       const remote=await response.json();need(remote.extendedProperties?.private?.whiteGlossOrder===current.id&&remote.extendedProperties?.private?.whiteGlossSnapshot===expected.extendedProperties.private.whiteGlossSnapshot&&Date.parse(remote.start?.dateTime)===Date.parse(current.appointment.start)&&Date.parse(remote.end?.dateTime)===Date.parse(current.appointment.end),'Google-Termin passt nicht zur aktuellen verbindlichen Vereinbarung.',409);
       await finishJob(env,job.id,'sent',remote.id);current.calendar={eventId:remote.id,snapshot:expected.extendedProperties.private.whiteGlossSnapshot,at:new Date().toISOString()};current=await saveOrder(env,current,current.version,'Vorhandenen Google-Termin lesend abgeglichen','provider');
-    }else if(/^reminder:[a-f0-9]{64}$/.test(job.kind)&&job.provider_id&&job.state==='unknown'){
-      const delivery=await env.DB.prepare('SELECT payload,appointment_key FROM appointment_reminder_deliveries WHERE job_id=? AND order_id=?').bind(job.id,order.id).first();
-      need(delivery&&job.kind==='reminder:'+delivery.appointment_key,'Gespeicherter Terminbezug dieser Erinnerung fehlt.',409);
-      let payload;try{payload=JSON.parse(delivery.payload);}catch{throw new AppError('Gespeicherter Erinnerungsinhalt ist nicht lesbar.',409);}
-      need(Array.isArray(payload.to)&&payload.to.length===1&&typeof payload.to[0]==='string','Gespeicherter Erinnerungsempfänger fehlt.',409);
-      const config=await configuration(env,['resendKey']);
-      const remote=await providerJSON('https://api.resend.com/emails/'+encodeURIComponent(job.provider_id),{headers:{Authorization:'Bearer '+config.resendKey}});
-      const normalize=value=>String(value).trim().toLowerCase();
-      need(remote.id===job.provider_id&&Array.isArray(remote.to)&&remote.to.length===1&&typeof remote.to[0]==='string'&&normalize(remote.to[0])===normalize(payload.to[0]),'E-Mail gehört nicht zum gespeicherten Erinnerungsempfänger.',409);
-      await env.DB.prepare("UPDATE jobs SET state='sent',detail='Vorhandene Erinnerung lesend beim Anbieter bestätigt; Zustellung noch nicht bestätigt',updated_at=? WHERE id=? AND state='unknown' AND provider_id=? AND EXISTS(SELECT 1 FROM appointment_reminder_deliveries WHERE job_id=? AND order_id=? AND payload=?)").bind(new Date().toISOString(),job.id,job.provider_id,job.id,order.id,delivery.payload).run();
     }else if(['offer','reminder','review'].includes(job.kind)&&job.provider_id&&job.state==='unknown'){
       const config=await configuration(env,['resendKey']);const remote=await providerJSON('https://api.resend.com/emails/'+encodeURIComponent(job.provider_id),{headers:{Authorization:'Bearer '+config.resendKey}});need(remote.id===job.provider_id&&remote.to?.includes(order.source.email),'E-Mail gehört nicht eindeutig zu diesem Auftrag.',409);await finishJob(env,job.id,'sent',remote.id,'Resend hat die vorhandene E-Mail lesend bestätigt.');
     }
@@ -132,7 +122,7 @@ export const providerOperations={
   protocolDelivery:deliverProtocol,
   protocolDownload,
   validateAppointment:calendarAvailability,
-  async action(env,order,action,input){const operation=action==='calendarSync'&&order.status==='Storniert'?'calendarCancel':action;need(!recordOperationIssue(order,operation),recordOperationIssue(order,operation),409);if(action==='sendOffer')return sendOffer(env,order);if(action==='calendarSync')return order.status==='Storniert'?cancelCalendar(env,order):syncCalendar(env,order);if(action==='invoice')return invoice(env,order,input);if(action==='sendCashInvoice')return ownerCashInvoiceDelivery(env,await invoicePaymentFollowup(env,order),'owner');if(action==='reconcile'){const saved=await reconcile(env,order);return saved.invoice&&(await invoicePaymentState(env,saved)).receivedTotalCents>0?invoicePaymentFollowup(env,saved):saved;}throw new AppError('Unbekannte Anbieteraktion.');},
+  async action(env,order,action,input){if(action==='sendOffer')return sendOffer(env,order);if(action==='calendarSync')return order.status==='Storniert'?cancelCalendar(env,order):syncCalendar(env,order);if(action==='invoice')return invoice(env,order,input);if(action==='sendCashInvoice')return ownerCashInvoiceDelivery(env,await invoicePaymentFollowup(env,order),'owner');if(action==='reconcile'){const saved=await reconcile(env,order);return saved.invoice&&(await invoicePaymentState(env,saved)).receivedTotalCents>0?invoicePaymentFollowup(env,saved):saved;}throw new AppError('Unbekannte Anbieteraktion.');},
   async background(env){
     const config=await settings(env),errors=[];const safe=async(label,fn)=>{try{return await fn();}catch(error){errors.push(label+': '+error.message);return null;}};
     if(config.emailVerified&&config.sendApproved){errors.push(...await pendingProtocolMails(env));errors.push(...await pendingAppointmentConfirmations(env));}
@@ -141,7 +131,7 @@ export const providerOperations={
       const rows=await env.DB.prepare("SELECT o.id FROM orders o LEFT JOIN booking_photo_checks c ON c.order_id=o.id WHERE o.website_id IS NOT NULL AND o.synthetic=0 ORDER BY COALESCE(c.checked_at,''),o.updated_at LIMIT 2").all();
       for(const row of rows.results){const result=await safe('Buchungsaufnahmen',()=>getOrder(env,row.id).then(order=>syncBookingPhotos(env,order,2)));await env.DB.prepare('INSERT INTO booking_photo_checks VALUES(?,?,?) ON CONFLICT(order_id) DO UPDATE SET checked_at=excluded.checked_at,error=excluded.error').bind(row.id,new Date().toISOString(),result?null:errors.at(-1)).run();}
     }
-    if(config.calendarVerified&&config.calendarOAuth&&config.calendarSyncApproved){const rows=await env.DB.prepare("SELECT id FROM orders WHERE synthetic=0 AND status IN ('Termin verbindlich','Storniert')").all();let remaining=3;for(const row of rows.results){const order=await getOrder(env,row.id);if(!order.appointment||recordOperationIssue(order,order.status==='Storniert'?'calendarCancel':'calendarSync'))continue;const cancelled=order.status==='Storniert',snapshot=digest(JSON.stringify(order.appointment));if(cancelled?order.calendar?.cancelled:order.calendar?.snapshot===snapshot)continue;const previous=await env.DB.prepare('SELECT state FROM jobs WHERE order_id=? AND kind=?').bind(order.id,cancelled?'calendar-cancel':'calendar-'+snapshot).first();if(previous)continue;await safe('Google-Termin',()=>cancelled?cancelCalendar(env,order):syncCalendar(env,order));if(--remaining===0)break;}}
+    if(config.calendarVerified&&config.calendarOAuth&&config.calendarSyncApproved){const rows=await env.DB.prepare("SELECT id FROM orders WHERE synthetic=0 AND status IN ('Termin verbindlich','Storniert')").all();let remaining=3;for(const row of rows.results){const order=await getOrder(env,row.id);if(!order.appointment)continue;const cancelled=order.status==='Storniert',snapshot=digest(JSON.stringify(order.appointment));if(cancelled?order.calendar?.cancelled:order.calendar?.snapshot===snapshot)continue;const previous=await env.DB.prepare('SELECT state FROM jobs WHERE order_id=? AND kind=?').bind(order.id,cancelled?'calendar-cancel':'calendar-'+snapshot).first();if(previous)continue;await safe('Google-Termin',()=>cancelled?cancelCalendar(env,order):syncCalendar(env,order));if(--remaining===0)break;}}
     return {errors};
   },
   async endpoint(env,url){if(url.pathname==='/api/bookingphotos')return bookingPhotos(env,url.searchParams.get('id'),true);if(url.pathname==='/api/qonto/clients')return qontoInventory(env,await getOrder(env,url.searchParams.get('id')));throw new AppError('Funktion nicht gefunden.',404);}
