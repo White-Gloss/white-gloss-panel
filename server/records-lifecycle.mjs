@@ -39,10 +39,22 @@ function documents(order){
 async function related(env,id){
   const vehicles=(await env.DB.prepare('SELECT id,version,data FROM vehicle_files WHERE customer_id=? ORDER BY id').bind(id).all()).results;
   const orders=(await env.DB.prepare('SELECT o.*,f.vehicle_id AS linked_vehicle_id FROM orders o JOIN order_files f ON f.order_id=o.id WHERE f.customer_id=? ORDER BY o.id').bind(id).all()).results.map(r=>({...JSON.parse(r.data),id:r.id,wg:r.wg,version:r.version,status:r.status,linkedVehicleId:r.linked_vehicle_id}));
-  const counts={assets:0,archiveFiles:0,messages:0,deliveryRecords:0,tasks:0,calendar:0,calendarAdjustments:0};
+  const counts={assets:0,archiveFiles:0,messages:0,deliveryRecords:0,tasks:0,calendar:0,calendarAdjustments:0,resultReports:0,resultMaskPreviews:0};
   for(const [table,key,column] of [['assets','assets','order_id'],['customer_messages','messages','order_id'],['protocol_deliveries','deliveryRecords','order_id'],['invoice_mail_deliveries','deliveryRecords','order_id']])if(await tableExists(env,table))counts[key]+=(await env.DB.prepare('SELECT COUNT(*) n FROM '+table+' WHERE '+column+' IN (SELECT order_id FROM order_files WHERE customer_id=?)').bind(id).first()).n;
   for(const [table,key] of [['panel_tasks','tasks'],['calendar_entry_links','calendar']])if(await tableExists(env,table))counts[key]=(await env.DB.prepare('SELECT COUNT(*) n FROM '+table+' WHERE customer_id=? OR vehicle_id IN (SELECT id FROM vehicle_files WHERE customer_id=?) OR order_id IN (SELECT order_id FROM order_files WHERE customer_id=?)').bind(id,id,id).first()).n;
   const snapshots=[],addSnapshot=async(sql,bindings)=>{const value=(await env.DB.prepare(sql).bind(...bindings).first()).snapshot;snapshots.push({sql,bindings,value});};
+  let resultReports=[];
+  if(await tableExists(env,'result_reports')){
+    resultReports=(await env.DB.prepare('SELECT r.order_id,r.version,r.updated_at,o.wg FROM result_reports r JOIN orders o ON o.id=r.order_id WHERE r.order_id IN (SELECT order_id FROM order_files WHERE customer_id=?) ORDER BY r.order_id').bind(id).all()).results;
+    counts.resultReports=resultReports.length;
+    // Reports and image permissions have their own version. Order versions alone
+    // cannot protect a deletion preview against a parallel release or revocation.
+    await addSnapshot("SELECT json_group_array(json_object('order',order_id,'version',version,'data',data,'updated',updated_at)) snapshot FROM (SELECT * FROM result_reports WHERE order_id IN (SELECT order_id FROM order_files WHERE customer_id=?) ORDER BY order_id)",[id]);
+  }
+  if(await tableExists(env,'result_mask_previews')){
+    counts.resultMaskPreviews=(await env.DB.prepare('SELECT COUNT(*) n FROM result_mask_previews WHERE order_id IN (SELECT order_id FROM order_files WHERE customer_id=?)').bind(id).first()).n;
+    await addSnapshot("SELECT json_group_array(json_object('id',id,'order',order_id,'original',original_id,'sourceHash',source_hash,'hash',hash,'data',data,'created',created_at)) snapshot FROM (SELECT * FROM result_mask_previews WHERE order_id IN (SELECT order_id FROM order_files WHERE customer_id=?) ORDER BY id)",[id]);
+  }
   if(await tableExists(env,'panel_tasks'))await addSnapshot("SELECT json_group_array(json_object('id',id,'version',version,'customer',customer_id,'vehicle',vehicle_id,'order',order_id,'calendar',calendar_id)) snapshot FROM (SELECT * FROM panel_tasks WHERE customer_id=? OR vehicle_id IN (SELECT id FROM vehicle_files WHERE customer_id=?) OR order_id IN (SELECT order_id FROM order_files WHERE customer_id=?) ORDER BY id)",[id,id,id]);
   if(await tableExists(env,'calendar_entry_links'))await addSnapshot("SELECT json_group_array(json_object('id',entry_id,'version',version,'customer',customer_id,'vehicle',vehicle_id,'order',order_id)) snapshot FROM (SELECT l.*,e.version FROM calendar_entry_links l JOIN calendar_entries e ON e.id=l.entry_id WHERE customer_id=? OR vehicle_id IN (SELECT id FROM vehicle_files WHERE customer_id=?) OR order_id IN (SELECT order_id FROM order_files WHERE customer_id=?) ORDER BY entry_id)",[id,id,id]);
   let calendarAdjustments=[];
@@ -62,7 +74,7 @@ async function related(env,id){
     const leases=(await env.DB.prepare('SELECT j.id,j.order_id,j.kind,j.state,j.updated_at,o.wg,d.processing_until FROM '+table+' d JOIN jobs j ON j.id=d.job_id JOIN orders o ON o.id=j.order_id WHERE d.order_id IN (SELECT order_id FROM order_files WHERE customer_id=?) AND d.processing_until>?').bind(id,Date.now()).all()).results;
     for(const lease of leases)if(!unsettledJobs.some(j=>j.id===lease.id))unsettledJobs.push({...lease,state:'processing'});
   }
-  return {vehicles,orders,counts,snapshots,unsettledJobs,calendarAdjustments};
+  return {vehicles,orders,counts,snapshots,unsettledJobs,calendarAdjustments,resultReports};
 }
 const proofFor=(version,links)=>({version,vehicles:links.vehicles.map(v=>[v.id,v.version]),orders:links.orders.map(o=>[o.id,o.version,o.linkedVehicleId]),counts:links.counts,snapshots:links.snapshots.map(s=>s.value)});
 export async function customerLifecyclePreview(env,id,identity){
@@ -70,12 +82,14 @@ export async function customerLifecyclePreview(env,id,identity){
   const customer=await env.DB.prepare('SELECT * FROM customer_files WHERE id=?').bind(id).first();need(customer,'Kundenakte nicht gefunden.',404);
   const data=JSON.parse(customer.data),links=await related(env,id);
   const docs=[...links.orders.flatMap(order=>documents(order).map(d=>({orderId:order.id,wg:order.wg,key:d.key,label:d.label,at:d.at,cancelled:Boolean(d.cancellation)}))),...links.calendarAdjustments.map(a=>({orderId:a.order_id,wg:a.wg,key:'calendarAdjustment:'+a.id,label:'Terminvorschlag / Änderung · '+({pending:'Kundenzustimmung offen',accepted:'vom Kunden angenommen',withdrawn:'zurückgezogen',declined:'vom Kunden abgelehnt'})[a.state],at:a.updated_at,cancelled:['withdrawn','declined'].includes(a.state)}))];
-  const canDelete=links.orders.length===0&&links.counts.tasks===0&&links.counts.calendar===0;
+  docs.push(...links.resultReports.map(report=>({orderId:report.order_id,wg:report.wg,key:'resultReport:'+report.order_id,label:'Ergebnisbericht und Bildfreigaben · Version '+report.version,at:report.updated_at,cancelled:false})));
+  const canDelete=links.orders.length===0&&links.counts.tasks===0&&links.counts.calendar===0&&links.counts.resultReports===0&&links.counts.resultMaskPreviews===0;
   const reasons=[];
   if(links.orders.length)reasons.push('Verknüpfte Aufträge enthalten Originalanfragen und gegebenenfalls Vereinbarungen. Eine pauschale Löschung ist ohne Einzelfallprüfung der Dokumentarten, Fristbeginne und offenen Ansprüche gesperrt.');
   if(docs.some(d=>d.key==='invoice'))reasons.push('Rechnungskopien werden nach § 14b UStG grundsätzlich acht Jahre ab Jahresende aufbewahrt; steuerliche Verlängerungen bleiben möglich.');
   if(docs.length)reasons.push('Geschäftsbriefe und Buchungsbelege können nach § 147 AO sechs bzw. acht Jahre aufbewahrungspflichtig sein. Unterschriften allein bestimmen keine pauschale Löschfrist.');
   if(links.counts.tasks||links.counts.calendar)reasons.push('Verknüpfte Aufgaben oder Kalendereinträge zuerst einzeln prüfen und ihre Zuordnung entfernen.');
+  if(links.counts.resultReports||links.counts.resultMaskPreviews)reasons.push('Ergebnisberichte, Bildfreigaben und Maskierungsnachweise bleiben mit den Originalaufnahmen im gesperrten Auftragsarchiv erhalten. Stammdaten-Anonymisierung löscht diese Nachweise nicht.');
   const proof=proofFor(customer.version,links);
   return {id,version:customer.version,name:data.name,lifecycle:data.lifecycle??{status:'active'},previewToken:digest(json(proof)),canDelete,canAnonymize:true,canBlock:true,vehicles:links.vehicles.map(v=>({id:v.id,...JSON.parse(v.data)})),orders:links.orders.map(o=>({id:o.id,wg:o.wg,status:o.status,version:o.version})),documents:docs,counts:links.counts,unsettledJobs:links.unsettledJobs,reasons,notice:'Stammdaten-Anonymisierung entfernt Kontaktfelder und freie Hinweise aus der Kunden-/Fahrzeugakte. Identifizierende Originalaufträge, Dokumente und gesetzlich benötigte Belege bleiben im gesperrten Archiv erhalten. Dies ist keine vollständige Anonymisierung des Bestands. Sicherungen können frühere Daten enthalten. Ihre Bereinigung muss im bestehenden Betriebsweg geprüft werden; bei Wiederherstellung muss die Sperre erneut angewandt werden.',sources:[{label:'§ 147 AO',url:'https://www.gesetze-im-internet.de/ao_1977/__147.html'},{label:'§ 14b UStG',url:'https://www.gesetze-im-internet.de/ustg_1980/__14b.html'},{label:'Art. 17 und 18 DSGVO',url:'https://eur-lex.europa.eu/legal-content/DE/TXT/?uri=CELEX%3A32016R0679'}]};
 }

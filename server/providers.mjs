@@ -95,6 +95,16 @@ async function reconcile(env,order){
       if(response.status===404){if(Date.parse(job.updated_at)<Date.now()-60000)await finishJob(env,job.id,'failed',null,'Google bestätigt: Termin nicht vorhanden. Erneuter manueller Abgleich verwendet dieselbe eindeutige Termin-ID.');continue;}
       const remote=await response.json();need(remote.extendedProperties?.private?.whiteGlossOrder===current.id&&remote.extendedProperties?.private?.whiteGlossSnapshot===expected.extendedProperties.private.whiteGlossSnapshot&&Date.parse(remote.start?.dateTime)===Date.parse(current.appointment.start)&&Date.parse(remote.end?.dateTime)===Date.parse(current.appointment.end),'Google-Termin passt nicht zur aktuellen verbindlichen Vereinbarung.',409);
       await finishJob(env,job.id,'sent',remote.id);current.calendar={eventId:remote.id,snapshot:expected.extendedProperties.private.whiteGlossSnapshot,at:new Date().toISOString()};current=await saveOrder(env,current,current.version,'Vorhandenen Google-Termin lesend abgeglichen','provider');
+    }else if(/^reminder:[a-f0-9]{64}$/.test(job.kind)&&job.provider_id&&job.state==='unknown'){
+      const delivery=await env.DB.prepare('SELECT payload,appointment_key FROM appointment_reminder_deliveries WHERE job_id=? AND order_id=?').bind(job.id,order.id).first();
+      need(delivery&&job.kind==='reminder:'+delivery.appointment_key,'Gespeicherter Terminbezug dieser Erinnerung fehlt.',409);
+      let payload;try{payload=JSON.parse(delivery.payload);}catch{throw new AppError('Gespeicherter Erinnerungsinhalt ist nicht lesbar.',409);}
+      need(Array.isArray(payload.to)&&payload.to.length===1&&typeof payload.to[0]==='string','Gespeicherter Erinnerungsempfänger fehlt.',409);
+      const config=await configuration(env,['resendKey']);
+      const remote=await providerJSON('https://api.resend.com/emails/'+encodeURIComponent(job.provider_id),{headers:{Authorization:'Bearer '+config.resendKey}});
+      const normalize=value=>String(value).trim().toLowerCase();
+      need(remote.id===job.provider_id&&Array.isArray(remote.to)&&remote.to.length===1&&typeof remote.to[0]==='string'&&normalize(remote.to[0])===normalize(payload.to[0]),'E-Mail gehört nicht zum gespeicherten Erinnerungsempfänger.',409);
+      await env.DB.prepare("UPDATE jobs SET state='sent',detail='Vorhandene Erinnerung lesend beim Anbieter bestätigt; Zustellung noch nicht bestätigt',updated_at=? WHERE id=? AND state='unknown' AND provider_id=? AND EXISTS(SELECT 1 FROM appointment_reminder_deliveries WHERE job_id=? AND order_id=? AND payload=?)").bind(new Date().toISOString(),job.id,job.provider_id,job.id,order.id,delivery.payload).run();
     }else if(['offer','reminder','review'].includes(job.kind)&&job.provider_id&&job.state==='unknown'){
       const config=await configuration(env,['resendKey']);const remote=await providerJSON('https://api.resend.com/emails/'+encodeURIComponent(job.provider_id),{headers:{Authorization:'Bearer '+config.resendKey}});need(remote.id===job.provider_id&&remote.to?.includes(order.source.email),'E-Mail gehört nicht eindeutig zu diesem Auftrag.',409);await finishJob(env,job.id,'sent',remote.id,'Resend hat die vorhandene E-Mail lesend bestätigt.');
     }

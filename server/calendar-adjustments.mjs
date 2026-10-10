@@ -4,6 +4,7 @@ import {recordOperationIssue} from '../src/operations.mjs';
 import {getOrder} from '../src/worker.mjs';
 import {digest} from './auth.mjs';
 import {validateBookingCalendar,bookingCalendarSchema} from './booking-calendar.mjs';
+import {customerAccessRequire,customerAccessGuards} from '../src/customer-access.mjs';
 
 const ready=new WeakMap();
 export async function calendarAdjustmentSchema(env){
@@ -31,7 +32,7 @@ async function inputOf(request){
 }
 async function change(env,input,identity,isOwner){
   const order=await getOrder(env,input.orderId),at=new Date().toISOString();
-  need(isOwner||String(order.source.email??'').trim().toLowerCase()===identity.trim().toLowerCase(),'Vorgang nicht gefunden.',404);
+  const access=isOwner?null:await customerAccessRequire(env,order,identity,'sign-calendar');
   if(input.action==='propose'){
     need(isOwner,'Nur der Betreiber erstellt Terminvorschläge.',403);available(order);
     need(typeof input.requestId==='string'&&/^[a-f0-9-]{36}$/.test(input.requestId),'Aktionskennung fehlt.');
@@ -61,7 +62,7 @@ async function change(env,input,identity,isOwner){
     need(item.state==='pending','Terminänderung ist bereits abgeschlossen.',409);
     need(text(input.reason).length>=3,'Bitte einen Grund angeben.');
     const record={...item,closedAt:at,closedBy:identity,closeReason:text(input.reason)},state=input.action==='withdraw'?'withdrawn':'declined';
-    const result=await env.DB.batch([env.DB.prepare("UPDATE calendar_adjustments SET version=version+1,state=?,data=?,updated_at=? WHERE id=? AND version=? AND state='pending'").bind(state,JSON.stringify(record),at,item.id,item.version)]);
+    const result=await env.DB.batch([env.DB.prepare("UPDATE calendar_adjustments SET version=version+1,state=?,data=?,updated_at=? WHERE id=? AND version=? AND state='pending'").bind(state,JSON.stringify(record),at,item.id,item.version),...(access?customerAccessGuards(env,access):[])]);
     need(result[0].meta.changes>0,'Terminänderung inzwischen beantwortet. Bitte neu laden.',409);return {ok:true,state};
   }
   need(input.action==='accept','Unbekannte Terminänderung.');need(!isOwner,'Nur der persönlich angemeldete Kunde kann dieser Terminänderung zustimmen.',403);
@@ -78,8 +79,9 @@ async function change(env,input,identity,isOwner){
   const result=await env.DB.batch([
     env.DB.prepare("UPDATE orders SET data=?,version=version+1,updated_at=?,actor=?,action=? WHERE id=? AND version=? AND EXISTS(SELECT 1 FROM calendar_adjustments WHERE id=? AND version=? AND state='pending') AND EXISTS(SELECT 1 FROM appointments WHERE order_id=? AND start=? AND end=?)").bind(JSON.stringify(updated),at,'customer','Terminänderung persönlich bestätigt; ursprüngliche Vereinbarung erhalten',order.id,order.version,item.id,item.version,order.id,item.before.start,item.before.end),
     env.DB.prepare("UPDATE calendar_adjustments SET state='accepted',version=version+1,data=?,updated_at=? WHERE id=? AND version=? AND state='pending' AND "+guard).bind(JSON.stringify(record),at,item.id,item.version,order.id,order.version+1,operationId),
+    ...customerAccessGuards(env,access),
     env.DB.prepare('UPDATE appointments SET start=?,end=? WHERE order_id=? AND '+guard).bind(item.after.start,item.after.end,order.id,order.id,order.version+1,operationId),
-    env.DB.prepare("UPDATE jobs SET state='cancelled',detail='Termin persönlich geändert; alte Bestätigung darf nicht versendet werden',updated_at=? WHERE order_id=? AND kind IN ('appointment-confirmation','reminder') AND state IN ('queued','failed') AND "+guard).bind(at,order.id,order.id,order.version+1,operationId)
+    env.DB.prepare("UPDATE jobs SET state='cancelled',detail='Termin persönlich geändert; alte Bestätigung darf nicht versendet werden',updated_at=? WHERE order_id=? AND (kind IN ('appointment-confirmation','reminder') OR kind LIKE 'reminder:%') AND state IN ('queued','failed') AND "+guard).bind(at,order.id,order.id,order.version+1,operationId)
   ]);
   need(result[0].meta.changes>0&&result[1].meta.changes>0,'Terminänderung inzwischen beantwortet oder Auftrag verändert. Bitte neu laden.',409);
   return {ok:true,state:'accepted',appointment:item.after,message:'Neuer Termin persönlich bestätigt. Die ursprüngliche Vereinbarung und diese Terminänderung bleiben gespeichert.'};
@@ -95,8 +97,9 @@ export async function calendarAdjustmentEndpoint(env,request,identity,isOwner){
   }
   if(request.method==='GET'){
     const order=await getOrder(env,url.searchParams.get('orderId'));
-    need(isOwner||String(order.source.email??'').trim().toLowerCase()===identity.trim().toLowerCase(),'Vorgang nicht gefunden.',404);
-    return Response.json({adjustments:await calendarAdjustmentData(env,order)});
+    if(!isOwner)await customerAccessRequire(env,order,identity,'read-calendar');
+    const adjustments=await calendarAdjustmentData(env,order);if(!isOwner)await customerAccessRequire(env,await getOrder(env,order.id),identity,'read-calendar');
+    return Response.json({adjustments});
   }
   need(request.method==='POST','Methode nicht erlaubt.',405);
   try{return Response.json(await change(env,await inputOf(request),identity,isOwner));}
