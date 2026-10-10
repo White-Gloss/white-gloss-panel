@@ -1,7 +1,6 @@
 import {createHash,createHmac,randomBytes,randomInt,scrypt,timingSafeEqual} from 'node:crypto';
 import {AppError} from '../src/domain.mjs';
 import {configuration,init} from '../src/worker.mjs';
-import {customerAccessResolve,customerLinkAllowed} from '../src/customer-access.mjs';
 export const digest=value=>createHash('sha256').update(value).digest('hex');
 const token=()=>randomBytes(32).toString('hex');
 const authHeaders={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'};
@@ -29,10 +28,9 @@ async function eligible(env,email,returnTo,now){
   let row,handoverToken;
   if(/^\/angebot\/[a-f0-9]{64}$/.test(returnTo))row=await env.DB.prepare('SELECT o.data FROM offer_tokens t JOIN orders o ON o.id=t.order_id WHERE t.hash=? AND t.revoked=0 AND t.expires_at>?').bind(digest(returnTo.slice('/angebot/'.length)),new Date(now).toISOString()).first();
   else if(/^\/protokoll\/[a-f0-9]{64}$/.test(returnTo)){handoverToken=returnTo.slice('/protokoll/'.length);row=await env.DB.prepare('SELECT o.data,t.kind FROM handover_tokens t JOIN orders o ON o.id=t.order_id WHERE t.hash=? AND t.revoked=0').bind(digest(handoverToken)).first();}
-  if(!row)return false;const order=JSON.parse(row.data),linkHash=digest(returnTo.split('/').at(-1));
-  if(!await customerLinkAllowed(env,linkHash,now))return false;
-  if(handoverToken&&order.handovers?.[row.kind]?.token!==handoverToken)return false;
-  return !order.synthetic&&(await customerAccessResolve(env,order,email,'read',handoverToken?{protocolKind:row.kind}:{})).allowed;
+  if(!row)return false;const order=JSON.parse(row.data);
+  if(handoverToken){const handover=order.handovers?.[row.kind];if(handover?.token!==handoverToken||String(handover?.protocol?.customerEmail??'').trim().toLowerCase()!==email)return false;}
+  return !order.synthetic&&String(order.source?.email??'').trim().toLowerCase()===email;
 }
 const pinDigest=(env,hash,pin)=>createHmac('sha256',Buffer.from(env.CONFIG_KEY,'base64')).update('customer-pin:'+hash+':'+pin).digest('hex');
 export async function issueCustomerAccess(env,email,returnTo,now=Date.now(),expiresAt=now+600000){

@@ -14,7 +14,6 @@ Jede Änderung benötigt einen eigenen geprüften IONOS-Release und einen Live-N
 - [Passwort, Kunden-PIN und Protokoll-PDF](docs/Passwort-PIN-und-Protokoll-PDF.md)
 - [Mischverhältnisrechner](docs/Mischrechner.md)
 - [Terminwahl, gemeinsame Unterschrift und Bestätigungsmail](docs/Terminwahl-und-Bestaetigung.md)
-- [Panel-Erweiterung: Assistent, Akten, Kalender und Aufgaben](docs/Panel-Erweiterung-2026-10-09.md)
 
 ## Aufbau
 
