@@ -8,5 +8,5 @@ const revision=run(git,['rev-parse','HEAD']);if(!/^[a-f0-9]{40}$/.test(revision)
 if(!process.argv[2])throw Error('Absoluten Archivpfad angeben.');const archive=resolve(process.argv[2]);if(!archive.endsWith('/white-gloss-panel-'+revision+'.tar.gz')&&!archive.endsWith('\\white-gloss-panel-'+revision+'.tar.gz'))throw Error('Archivname muss den geprüften Commit enthalten.');
 run(process.execPath,['scripts/build.mjs']);run(process.execPath,['--check','dist/server/index.js']);
 writeFileSync('dist/release.json',JSON.stringify({commit:revision,createdAt:new Date().toISOString()}));
-run('tar',['-czf',archive,'src','server','deploy','dist/client','dist/pdf','dist/release.json','README.md','package.json','package-lock.json','docs']);
+run('tar',['-czf',archive,'src','server','deploy','dist/client','dist/pdf','dist/mcp','dist/release.json','README.md','package.json','package-lock.json','docs']);
 console.log(JSON.stringify({commit:revision,archive,sha256:createHash('sha256').update(readFileSync(archive)).digest('hex')}));

@@ -13,6 +13,7 @@ Jede Änderung benötigt einen eigenen geprüften IONOS-Release und einen Live-N
 - [IONOS und Google Einrichtung](docs/IONOS-und-Google.md)
 - [Passwort, Kunden-PIN und Protokoll-PDF](docs/Passwort-PIN-und-Protokoll-PDF.md)
 - [Mischverhältnisrechner](docs/Mischrechner.md)
+- [Terminwahl, gemeinsame Unterschrift und Bestätigungsmail](docs/Terminwahl-und-Bestaetigung.md)
 
 ## Aufbau
 
