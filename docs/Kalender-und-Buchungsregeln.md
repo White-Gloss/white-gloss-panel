@@ -1,7 +1,8 @@
 # Kalender und Buchungsregeln
 
-Umgesetzt in der isolierten Arbeitskopie, nicht veröffentlicht. Kein lokaler
-Website-Server wurde gestartet.
+Die Erweiterungen vom 9. Oktober 2026 sind in der isolierten Arbeitskopie
+umgesetzt. Ihr Veröffentlichungs- und Live-Prüfstand wird gesondert im
+Abschlussbericht geführt. Kein lokaler Website-Server wurde gestartet.
 
 Der Betreiberkalender liest sämtliche Belegungen im ausgewählten Monatsbereich,
 unabhängig von der 300-Aufträge-Grenze der Übersicht. Die Tagesansicht zeigt freie
@@ -50,13 +51,84 @@ externe Kalenderänderungen werden nicht automatisch als Auftragsvereinbarung
 übernommen. Die Hauptwebsite braucht eine separate, geprüfte Integration dieser
 Panel-Verfügbarkeit. Ein grüner Panel-Test allein beweist diese Verbindung nicht.
 
-Serverfreie Nachweise: `tests/booking-calendar.test.mjs` enthält 11 Prüfungen
+Serverfreie Nachweise: `tests/booking-calendar.test.mjs` enthält 19 Prüfungen
 für Zeitgrenzen, Sommer-/Winterzeit, Freigabe und erneute Sperrung, private
 Verfügbarkeitsdaten, veraltete Änderungen, parallele Einträge, parallele
 Kundenannahme und Blockierung, Rücknahme einer Freigabe während der Annahme,
-Testdatentrennung und Monatsabfrage außerhalb der Übersicht. Alle 11 bestehen;
+Testdatentrennung und Monatsabfrage außerhalb der Übersicht. Ergänzt sind Aktenlinks,
+vollständige Änderungsschnappschüsse, Tag/Woche/Monat über Jahres- und DST-Grenzen,
+persönliche Kundenfreigabe, Wiederholung, Fremdkontensperre, erneute Belegungsprüfung,
+gleichzeitige Rücknahme und Zustimmung sowie gesperrte Akten und stornierte
+Dokumente. Alle 19 bestehen;
 gezielte ESLint-Prüfung und TypeScript-Typprüfung bestehen ebenfalls.
 
 Offen vor Abnahme: Veröffentlichung nach Betreiberfreigabe, Live-Prüfung auf
 IONOS, Smartphone-/Desktop-Browserprüfung am veröffentlichten Stand sowie
 Aktivierung und Live-Nachweis der Hauptwebsite-Verbindung.
+
+## Bedienung der erweiterten Ansichten
+
+Tag, Woche und Monat sowie eine Datumwahl stehen direkt im Kalender. Die Pfeile
+wechseln jeweils einen Tag, eine Woche oder einen Monat; „Heute“ bleibt in der
+gewählten Ansicht. Private Einträge werden über „Öffnen / bearbeiten“ geladen.
+Beginn und Ende können geändert oder mit den Tag-/Wochenknöpfen verschoben
+werden. Erst „Änderung speichern“ übernimmt die Verschiebung. Löschen zeigt
+zunächst Titel und Zeitraum; ein zweiter ausdrücklicher Klick bestätigt es.
+
+Kunde, Fahrzeug und Projekt sind optionale Verknüpfungen. Die Zuordnung wird gegen
+die echten Akten-IDs und den Testbereich geprüft, auch innerhalb der
+Schreibtransaktion. Ein Projektbezug allein ändert keine Kundenzusage. Gesperrte
+oder anonymisierte Kunden erhalten keine neuen Verknüpfungen. Bereits verknüpfte
+private Einträge bleiben für interne Korrekturen und Löschung bearbeitbar.
+`calendar_entry_links` enthält die Verknüpfungen; `calendar_entry_history` hält
+vorherige und neue Eintragsversion einschließlich Zuordnung, Zeitpunkt und
+Betreiberrolle fest. Diese Details können über „Änderungsverlauf“ gelesen werden;
+frühere Bestandsänderungen bekommen keine erfundenen Schnappschüsse.
+
+## Persönlich freigegebene Terminänderung
+
+Der bisherige Ablauf erlaubt eine persönliche gemeinsame Unterschrift unter
+Angebot und ausgewählten Termin. Einen späteren Abstimmungsablauf gab es nicht.
+Die Erweiterung ergänzt deshalb einen gesonderten, ausdrücklich als Terminänderung
+bezeichneten Vorgang im bestehenden persönlichen Kundenpanel:
+
+1. Im Kalender den verbindlichen Kundentermin öffnen. Neuer Beginn, neues Ende
+   und Änderungsgrund bilden einen unveränderlichen Vorschlag.
+2. Der bisherige Termin bleibt reserviert. Der Vorschlag reserviert die neue Zeit
+   noch nicht. Es wird keine Nachricht automatisch versendet. Die bestehende
+   Projektnachrichtenfunktion kann für eine ausdrücklich beauftragte Abstimmung
+   verwendet werden.
+3. Nur der persönlich angemeldete Kunde des ursprünglichen Auftrags sieht und
+   bestätigt seinen konkreten Vorschlag. Er kann ihn stattdessen mit Grund
+   ablehnen. Der Betreiber darf einen offenen Vorschlag mit Grund zurückziehen,
+   aber keine Kundenfreigabe stellvertretend abgeben.
+4. Bei Zustimmung werden Auftragsversion, Vorschlag und ursprünglicher Termin
+   erneut geprüft, anschließend Kapazität, Zeitfenster und vorhandener externer
+   Kalendercheck. Auftrag, Reservierung und persönlicher Freigabenachweis werden
+   gemeinsam atomar gespeichert. Alte ausstehende Bestätigungs-/Erinnerungsjobs
+   werden für den alten Termin storniert. Ein altes oder fremdes Konto kann
+   den Termin nicht ändern; gleichzeitig zurückgezogene Vorschläge ebenfalls nicht.
+
+`calendar_adjustments` und `order.appointmentRevisions` dokumentieren alten und
+neuen Termin, Grund, Vorschlagszeit, Ersetzungszeit, persönlich angemeldete
+Kundenidentität und den Hash des angezeigten Vorschlags. Die ursprüngliche
+Annahme, Unterschrift, Preise und Protokolle bleiben erhalten. Die Freigabe ist
+eine explizite persönliche Zustimmung im angemeldeten Kundenpanel; sie wird nicht
+als neue handschriftliche Unterschrift bezeichnet. Bestätigte Hol-/Bringart und
+Übergabeadresse sowie Arbeitsdauer dürfen in diesem Ablauf nicht verändert werden.
+Für diese Inhalte gelten Stornierung und geprüfter Ersatzvorgang.
+
+Nach Fahrzeugannahme, bei gesperrten Akten oder stornierten Originaldokumenten
+ist keine rückwirkende Terminverschiebung möglich. Frühere Belege und der
+Terminänderungsverlauf bleiben für beide Seiten sichtbar. Der vorhandene
+Google-Abgleich arbeitet mit dem neuen Termin-Schnappschuss; ein erfolgreicher
+Kalenderabgleich oder Kundennachricht wird nicht allein aus der lokalen Speicherung
+abgeleitet.
+
+Zusätzliche geschützte Endpunkte:
+
+- `GET /api/calendar/history?id=…`: Betreiber, Vorher-/Nachher-Schnappschüsse.
+- `GET /api/calendar/adjustments?orderId=…`: Betreiber oder exakt zugehöriger Kunde.
+- `POST /api/calendar/adjustments`: Betreiber `propose`/`withdraw`; Kunde
+  `accept`/`decline`. Gleicher Ursprung, JSON, aktuelle Versionen und bei Annahme
+  Hash des angezeigten Vorschlags sind Pflicht. Keine zusätzlichen Kontorechte.

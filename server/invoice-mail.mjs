@@ -91,7 +91,7 @@ export async function sendPaidCashInvoice(env,orderId,actor){
   if(!claimed.meta.changes)return invoiceMailStatus(env,orderId);
   let attempted=false,providerId=null;
   try{
-    const current=await getOrder(env,orderId),prepared=await preparedInvoice(env,current);
+    const current=await getOrder(env,orderId);need(!recordOperationIssue(current,'send'),recordOperationIssue(current,'send'),409);const prepared=await preparedInvoice(env,current);
     need(current.invoice.id===record.invoice_id&&prepared.version===record.copy_version&&prepared.recipient===record.recipient&&prepared.payloadHash===record.payload_hash&&JSON.stringify(prepared.payload)===record.payload,'Versandauftrag stimmt nicht mehr mit der gespeicherten Rechnung oder Kundenadresse überein. Bitte prüfen.',409);
     const config=await configuration(env,['resendKey']);
     need(config.emailVerified===true&&config.sendApproved===true&&config.resendKey&&config.sender,'Rechnungsversand steht aus: E-Mail-Absender zuerst prüfen und Versand freigeben.',409);
@@ -113,3 +113,4 @@ export async function sendPaidCashInvoice(env,orderId,actor){
     await env.DB.prepare("UPDATE invoice_mail_deliveries SET processing_until=0,lease_owner='' WHERE job_id=? AND lease_owner=?").bind(record.job_id,leaseOwner).run().catch(()=>{});
   }
 }
+import {recordOperationIssue} from '../src/operations.mjs';

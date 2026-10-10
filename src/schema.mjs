@@ -27,6 +27,8 @@ export const SCHEMA=[
 `CREATE TRIGGER IF NOT EXISTS calendar_day_insert_audit AFTER INSERT ON calendar_day_rules BEGIN INSERT INTO calendar_audit(day,synthetic,action,at) VALUES(NEW.day,NEW.synthetic,'Wochenendfreigabe gespeichert',NEW.updated_at); END`,
 `CREATE TRIGGER IF NOT EXISTS calendar_day_update_audit AFTER UPDATE ON calendar_day_rules BEGIN INSERT INTO calendar_audit(day,synthetic,action,at) VALUES(NEW.day,NEW.synthetic,'Wochenendfreigabe geändert',NEW.updated_at); END`,
 `CREATE TABLE IF NOT EXISTS offer_tokens(hash TEXT PRIMARY KEY,order_id TEXT NOT NULL,expires_at TEXT NOT NULL,revoked INTEGER NOT NULL DEFAULT 0)`,
+`CREATE TABLE IF NOT EXISTS customer_link_controls(hash TEXT PRIMARY KEY,version INTEGER NOT NULL DEFAULT 1,expires_at TEXT NOT NULL,revoked INTEGER NOT NULL DEFAULT 0,updated_at TEXT NOT NULL)`,
+`CREATE TABLE IF NOT EXISTS customer_access_guard(value INTEGER NOT NULL CONSTRAINT customer_access_authorized CHECK(value=1))`,
 `CREATE TABLE IF NOT EXISTS handover_tokens(hash TEXT PRIMARY KEY,order_id TEXT NOT NULL,kind TEXT NOT NULL,revoked INTEGER NOT NULL DEFAULT 0,UNIQUE(order_id,kind))`,
 `CREATE TABLE IF NOT EXISTS protocol_drafts(id TEXT PRIMARY KEY,order_id TEXT NOT NULL,kind TEXT NOT NULL,version INTEGER NOT NULL,data TEXT NOT NULL,hash TEXT NOT NULL)`
  ,`CREATE TABLE IF NOT EXISTS signature_bindings(asset_id TEXT PRIMARY KEY,draft_id TEXT NOT NULL,snapshot_hash TEXT NOT NULL)`

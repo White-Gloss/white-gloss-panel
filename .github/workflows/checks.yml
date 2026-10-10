@@ -35,7 +35,9 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: node scripts/ui-smoke.mjs
       - run: node scripts/ui-feature-smoke.mjs
+      - run: node scripts/ui-panel-extension-smoke.mjs
       - run: node scripts/ui-handover-smoke.mjs
+      - run: node scripts/ui-eight-features-smoke.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
