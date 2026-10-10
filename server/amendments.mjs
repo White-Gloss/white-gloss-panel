@@ -3,6 +3,7 @@ import {need,text,cents,customerSignaturePNG} from '../src/domain.mjs';
 import {agreedOffer,recordOperationIssue} from '../src/operations.mjs';
 import {digest,issueCustomerAccess} from './auth.mjs';
 import {validateCustomerSignature} from './customer-signature.mjs';
+import {customerAccessGuards,customerLinkGuards} from '../src/customer-access.mjs';
 
 export function amendmentOpen(order) {
   need(!recordOperationIssue(order),recordOperationIssue(order),409);
@@ -35,7 +36,7 @@ export async function amendmentAction(env,order,action,input) {
   updated.operationId=operationId;
   return saveOrder(env,updated,order.version,action==='amendmentCreate'?'Nachtrag zur Kundenfreigabe erstellt':'Offenen Nachtrag zurückgezogen','owner',extra);
 }
-export async function acceptAmendment(env,order,item,input) {
+export async function acceptAmendment(env,order,item,input,authorization=null) {
   need(!recordOperationIssue(order),recordOperationIssue(order),409);
   if(item.state==='accepted'){need(item.acceptance.snapshotHash===input.snapshotHash,'Ein anderer Nachtrag wurde unterschrieben.',409);return {ok:true,amendment:true};}
   amendmentOpen(order);need(item.state==='open'&&Date.parse(item.expiresAt)>Date.now(),'Dieser Nachtrag ist geschlossen oder abgelaufen.',409);
@@ -45,7 +46,8 @@ export async function acceptAmendment(env,order,item,input) {
   validateCustomerSignature(customerSignaturePNG(input.signature));
   const updated=structuredClone(order),a=updated.amendments.find(a=>a.id===item.id);
   a.state='accepted';a.acceptance={at:new Date().toISOString(),snapshotHash:input.snapshotHash,snapshot,signature:input.signature,paymentObligation:true};
-  await saveOrder(env,updated,order.version,'Kunde hat Nachtrag persönlich unterschrieben','customer');
+  if(authorization)a.acceptance.authenticatedIdentity=authorization.access.identity;
+  await saveOrder(env,updated,order.version,'Kunde hat Nachtrag persönlich unterschrieben','customer',authorization?[...customerAccessGuards(env,authorization.access),...customerLinkGuards(env,authorization.tokenHash,'offer')]:[]);
   return {ok:true,amendment:true};
 }
 export async function sendAmendment(env,order,input) {

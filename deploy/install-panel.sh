@@ -44,6 +44,16 @@ find "$target" -type d -exec chmod 0750 {} +
 find "$target" -type f -exec chmod 0640 {} +
 [[ -f $target/server/start.mjs && -f $target/dist/client/index.html ]] || exit 1
 /usr/bin/node -e 'const fs=require("fs");if(JSON.parse(fs.readFileSync(process.argv[1])).commit!==process.argv[2])process.exit(1)' "$target/dist/release.json" "$release"
+# Install locked runtime packages before touching any active service or timer.
+# sharp uses the platform-specific prebuilt package; dependency scripts stay disabled.
+(
+    cd "$target"
+    npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+    /usr/bin/node --input-type=module -e 'import sharp from "sharp"; const p=await sharp({create:{width:2,height:2,channels:3,background:"black"}}).png().toBuffer();if((await sharp(p).metadata()).width!==2)process.exit(1)'
+)
+chown -R root:white-gloss-panel "$target/node_modules"
+find "$target/node_modules" -type d -exec chmod 0750 {} +
+find "$target/node_modules" -type f -exec chmod 0640 {} +
 if [[ ! -f /etc/white-gloss-panel/environment ]]; then
     /usr/bin/node "$target/deploy/prepare-environment.mjs"
 fi
