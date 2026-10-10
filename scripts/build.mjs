@@ -16,6 +16,7 @@ for(const f of ['customer-calendar.js','assistant-provider.js','panel-assistant.
 copyFileSync('public/result-reports.js','dist/client/result-reports.js');
 copyFileSync('public/appointment-reminders.js','dist/client/appointment-reminders.js');
 copyFileSync('public/customer-access.js','dist/client/customer-access.js');
+copyFileSync('public/rebooking.js','dist/client/rebooking.js');
 copyFileSync('src/operations.mjs','dist/client/operations.mjs');
 copyFileSync('src/catalog.mjs','dist/client/catalog.mjs');copyFileSync('src/assessment.mjs','dist/client/assessment.mjs');
 copyFileSync('.openai/hosting.json','dist/.openai/hosting.json');console.log('Build abgeschlossen. Kein Server gestartet.');

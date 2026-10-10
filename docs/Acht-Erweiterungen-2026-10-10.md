@@ -81,6 +81,34 @@ Zugriffsprüfung gilt zusätzlich für direkte Dokument- und Bildabrufe. Schreib
 und Signaturwege prüfen die Rechte im Speicherabschluss erneut, damit ein
 zwischenzeitlicher Widerruf oder Kundenwechsel nicht übergangen wird.
 
+## 17 · Erneut anfragen
+
+Im **Kundenbereich** und in **Kunden → Kundenakte → bisheriger Auftrag**
+öffnet „Erneut anfragen“ dieselbe Wiederanfrage. Fahrzeug und frühere
+Leistungen dienen als Vorschlag. Aktueller Zustand, Wünsche, Extras und
+Terminwunsch werden erneut geprüft und eingegeben. Der angezeigte Betrag
+stammt aus dem vorhandenen aktuellen Panelkatalog und bleibt unverbindlich.
+Individuell zu prüfende Abholung besitzt noch keinen Endpreis.
+
+Das Absenden erstellt eine neue Anfrage im Zustand **Preise prüfen** mit
+derselben Kunden- und Fahrzeugakte. Originalauftrag, frühere Preise,
+Sondervereinbarungen, Terminzusagen, Unterschriften und Kommunikationsfreigaben
+werden nicht geändert oder als neue Freigabe übernommen.
+
+Ein im Browser gespeicherter Entwurf hält die Wiederholungskennung und einen
+bereits abgesendeten Inhalt stabil. Bei verlorener Antwort wird exakt dieser
+Versuch erneut geprüft, auch nach Neuladen. Die Datenbank speichert neue
+Anfrage, Aktenzuordnung und Wiederholungsbeleg gemeinsam. Gleiche Kennung mit
+anderem Inhalt wird abgewiesen. Nach bestätigtem Erfolg zeigt die Oberfläche
+die gespeicherte Anfrage; eine weitere Anfrage beginnt erst mit einem
+bewussten neuen Entwurf. Ohne funktionierenden Entwurfsspeicher wird das
+Absenden mit Erklärung gesperrt, statt eine doppelte Anfrage zu riskieren.
+
+Die aktuelle Zugriffsberechtigung, Kundensperren sowie Kunden-/Fahrzeugzuordnung
+werden auch bei Wiederholungen geprüft. Ein bestehender Erfolg bleibt bei
+späterer fachlicher Bearbeitung der neuen Anfrage auffindbar; ein inzwischen
+fremder oder gesperrter Vorgang wird dadurch nicht zugänglich.
+
 ## Prüfung und Veröffentlichung
 
 Die Entwicklung und isolierte App.fetch-/SQLite-Prüfungen starten keinen

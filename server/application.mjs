@@ -2,6 +2,7 @@ import worker,{init,setting,protect,settings,configuration,background} from '../
 import {customerFilesSchema,customerFiles,updateCustomerFile,assertCustomerSourceActive,customerSourceGuardStatements} from './customer-files.mjs';
 import {pushSchema,pushStatus,pushDevice,pushMaintenance,collectPush} from './push.mjs';
 import {resultReportsSchema,resultReportsEndpoint} from './result-reports.mjs';
+import {rebookingSchema,rebookingEndpoint} from './rebooking.mjs';
 import {customerAccessEndpoint} from './customer-access.mjs';
 import {appointmentReminderSchema,appointmentRemindersEndpoint,pendingAppointmentReminders,appointmentConfirmed} from './appointment-reminders.mjs';
 import {AppError} from '../src/domain.mjs';
@@ -28,7 +29,7 @@ function errorResponse(message,status=500){return new Response(JSON.stringify({e
 export async function createApplication(env){
   const origin=new URL(env.PANEL_ORIGIN);if(origin.protocol!=='https:'||origin.origin!==env.PANEL_ORIGIN||origin.username||origin.password)throw Error('PANEL_ORIGIN muss ein eindeutiger HTTPS-Ursprung sein.');
   if(!/^[a-f0-9]{64}$/.test(env.OWNER_EMAIL_SHA256??''))throw Error('Betreiberidentität fehlt.');
-  await init(env);await authSchema(env);await customerPortalSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await agentAuthSchema(env);await agentActionSchema(env);await customerFilesSchema(env);await resultReportsSchema(env);await appointmentReminderSchema(env);await pushSchema(env);await recordsLifecycleSchema(env);await calendarAdjustmentSchema(env);await tasksSchema(env);await panelAssistantSchema(env);await assistantProviderSchema(env);
+  await init(env);await authSchema(env);await customerPortalSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await agentAuthSchema(env);await agentActionSchema(env);await customerFilesSchema(env);await resultReportsSchema(env);await rebookingSchema(env);await appointmentReminderSchema(env);await pushSchema(env);await recordsLifecycleSchema(env);await calendarAdjustmentSchema(env);await tasksSchema(env);await panelAssistantSchema(env);await assistantProviderSchema(env);
   env.passwordResetStatements=newHash=>[env.DB.prepare('UPDATE agent_grants SET revoked=1 WHERE EXISTS(SELECT 1 FROM auth_sessions WHERE hash=?)').bind(newHash)];
   env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=providerOperations;env.appointmentReminderBackground=pendingAppointmentReminders;env.appointmentReminderLegacyEligible=appointmentConfirmed;
   env.validatePaymentPDF=validatePaymentPDF;env.assertCustomerSourceActive=assertCustomerSourceActive;env.customerSourceGuardStatements=customerSourceGuardStatements;
@@ -51,7 +52,7 @@ export async function createApplication(env){
       if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/(angebot|protokoll)\/[a-f0-9]{64}$/.test(url.pathname))login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/kundenportal'||/^\/protokoll\/[a-f0-9]{64}$/.test(url.pathname))login.searchParams.set('customer','1');if(url.pathname==='/'&&/^[a-f0-9-]{36}$/.test(url.searchParams.get('order')??''))login.searchParams.set('returnTo','/?order='+url.searchParams.get('order'));if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
       const isOwner=digest(identity)===env.OWNER_EMAIL_SHA256;
       const calendarAdjustment=await calendarAdjustmentEndpoint(env,request,identity,isOwner);if(calendarAdjustment)return calendarAdjustment;
-      for(const endpoint of [customerAccessEndpoint,resultReportsEndpoint,appointmentRemindersEndpoint,recordsLifecycleEndpoint,tasksEndpoint,panelAssistantEndpoint,customerCreateEndpoint,assistantProviderEndpoint]){const response=await endpoint(env,request,identity);if(response)return response;}
+      for(const endpoint of [customerAccessEndpoint,rebookingEndpoint,resultReportsEndpoint,appointmentRemindersEndpoint,recordsLifecycleEndpoint,tasksEndpoint,panelAssistantEndpoint,customerCreateEndpoint,assistantProviderEndpoint]){const response=await endpoint(env,request,identity);if(response)return response;}
       if(!isOwner&&url.pathname==='/'&&request.method==='GET')return Response.redirect(new URL('/kundenportal',env.PANEL_ORIGIN),303);
       if(!isOwner&&url.pathname==='/kundenportal'&&request.method==='GET')return customerPortalPage();
       if(!isOwner&&url.pathname==='/api/customer-portal'&&request.method==='GET')return Response.json(await customerPortalData(env,identity));
