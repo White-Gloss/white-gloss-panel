@@ -52,3 +52,4 @@ a.button .icon{width:16px;height:16px}
 .vo-total{display:flex;justify-content:space-between;font-size:20px;font-weight:700;margin:12px 0}
 .vo-bar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:10px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:white;border-top:1px solid var(--line);z-index:6}
 .vo-bar button{flex:1}
+.withdrawal-text{white-space:pre-line}

@@ -3,6 +3,8 @@ export const catalogCheckedAt='2026-10-01';
 function catalogNeed(ok,message){if(!ok)throw Object.assign(new Error(message),{status:400});}
 // Fester Kundenhinweis zu allen Preisen; gilt für Angebote, Vor-Ort-Annahme und PDFs.
 export const priceNote='Stellt sich der Aufwand vor Ort als höher heraus, kann sich der Preis nach Absprache mit dem Kunden noch ändern.';
+// Ausdrückliches Verlangen des sofortigen Beginns samt Kenntnis vom Erlöschen des Widerrufsrechts (§ 356 Abs. 4 BGB).
+export const immediateStartNotice='Ich verlange ausdrücklich, dass White Gloss vor Ablauf der Widerrufsfrist mit der Ausführung beginnt. Mir ist bekannt, dass mein Widerrufsrecht bei vollständiger Vertragserfüllung erlischt.';
 // Richtwerte für die Termindauer je Paket in Minuten (Keramikschutz ca. 2 Tage).
 export const packageMinutes={basis:180,premium:360,keramik:2880};
 export const vehiclePanels=['Motorhaube','Dach','Heckklappe / Kofferraum','Kotflügel vorne links','Kotflügel vorne rechts','Tür vorne links','Tür vorne rechts','Tür hinten links','Tür hinten rechts','Seitenteil hinten links','Seitenteil hinten rechts','Stoßfänger vorne','Stoßfänger hinten','Schweller links','Schweller rechts','A-Säule links','A-Säule rechts','Außenspiegel links','Außenspiegel rechts','Felgen','Scheiben','Innenraum'];

@@ -55,7 +55,21 @@ Am Laptop bleibt das Panel (`/`) die vollständige Oberfläche. Beide nutzen die
 - Die Widerrufsbelehrung wird in den Einstellungen unter „Kundentexte“ eingetragen. Ohne Text wird
   kein Abschnitt angezeigt. Der Wortlaut ist vom Betreiber bzw. rechtlich zu prüfen.
 - Bei der Annahme werden Zahlungspflicht, Wunsch nach sofortigem Beginn und Anzeige der
-  Widerrufsbelehrung als eigene Bestätigungen gespeichert.
+  Widerrufsbelehrung als eigene Bestätigungen gespeichert. Das Häkchen zum sofortigen Beginn ist nie
+  vorab gesetzt und lautet: „Ich verlange ausdrücklich, dass White Gloss vor Ablauf der Widerrufsfrist
+  mit der Ausführung beginnt. Mir ist bekannt, dass mein Widerrufsrecht bei vollständiger
+  Vertragserfüllung erlischt.“ Der bestätigte Wortlaut und der angezeigte Belehrungstext werden mit
+  der Annahme gespeichert.
+- Der Belehrungstext wird mit seinen Absätzen angezeigt.
+
+## Auftragsbestätigung
+
+Nach jeder Annahme (vor Ort, online oder als unterschriebenes Ersatzangebot) entsteht eine
+Auftragsbestätigung als PDF: Betrieb, Kunde, Fahrzeug, Leistungen, Festpreis, Preishinweis, Art und
+Zeitpunkt der Annahme, die bestätigten Erklärungen, die Unterschrift sowie Widerrufsbelehrung und
+Muster-Widerrufsformular im angezeigten Wortlaut. Mit Kunden-E-Mail und Versandfreigabe wird sie
+automatisch versendet (Kopie an die Betreiberadresse). Ohne E-Mail lässt sie sich im Panel und in der
+Vor-Ort-App herunterladen oder über „Teilen“ (z. B. WhatsApp) übergeben.
 
 ## Kundenstamm
 
