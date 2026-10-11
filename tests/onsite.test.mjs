@@ -124,3 +124,32 @@ test('IONOS runtime serves the Vor-Ort app, its manifest and customer document l
   const page=await app.fetch(new Request(origin+'/vor-ort'));assert.equal(page.status,303);assert.match(page.headers.get('location'),/returnTo=%2Fvor-ort/);
   const doc=await app.fetch(new Request(origin+'/dokument/'+'a'.repeat(64)));assert.equal(doc.status,303);assert.match(doc.headers.get('location'),/returnTo=%2Fdokument%2F/);
 });
+
+test('review fixes: signatureless acceptance stays editable, corrections respect overpayment, receipts and vehicle versions are checked',async t=>{
+  const e=env(t);let o=await ok(e,'onsite',{synthetic:true,source:{name:'Ohne Unterschrift'},assessment:{lines},appointment:{skip:true}});assert.equal(o.acceptance.signature,null);
+  o=await ok(e,'action',{id:o.id,version:o.version,action:'price',input:{lines:[lines[0]]}});assert.equal(o.offer.totalCents,43625);
+  assert.equal((await req(e,'action',{id:o.id,version:o.version,action:'replacement',input:{kind:'offer'}})).status,409);
+  o=await ok(e,'action',{id:o.id,version:o.version,action:'onsiteAccept',input:{signature}});assert.ok(o.acceptance.signature);assert.equal(o.offer.replaces,undefined);
+  o=await ok(e,'action',{id:o.id,version:o.version,action:'payment',input:{amountCents:40000,method:'Bar'}});
+  assert.equal((await req(e,'action',{id:o.id,version:o.version,action:'paymentEdit',input:{id:o.payments[0].id,amountCents:50000}})).status,409);
+  o=await ok(e,'action',{id:o.id,version:o.version,action:'paymentEdit',input:{id:o.payments[0].id,amountCents:50000,allowOverpayment:true}});assert.equal(o.payments[0].amountCents,50000);
+  o=await ok(e,'action',{id:o.id,version:o.version,action:'paymentEdit',input:{id:o.payments[0].id,note:'Trinkgeld enthalten'}});assert.equal(o.payments[0].note,'Trinkgeld enthalten');
+  const photo=await worker.fetch(new Request(origin+'/api/upload/'+o.id+'?kind=photo',{method:'POST',headers:{'oai-authenticated-user-email':ownerEmail,Origin:origin,'Content-Type':'image/png'},body:png}),e);const photoId=(await photo.json()).id;
+  assert.equal((await req(e,'action',{id:o.id,version:o.version,action:'payment',input:{amountCents:100,method:'Karte',receipt:photoId,allowOverpayment:true}})).status,400);
+  assert.equal((await req(e,'action',{id:o.id,version:o.version,action:'intake',input:{protocol:{paint:{readings:[{panel:'Dach',values:[1,2,3,4,5,6]}]}}}})).status,400);
+  const c=await ok(e,'customer',{synthetic:true,customer:{name:'Fahrzeug'}});const v=await ok(e,'vehicle',{customerId:c.id,vehicle:{plate:'A-1'}});assert.equal(v.version,1);
+  const v2=await ok(e,'vehicle',{id:v.id,version:1,vehicle:{color:'Blau'}});assert.equal(v2.version,2);assert.equal((await req(e,'vehicle',{id:v.id,version:1,vehicle:{color:'Rot'}})).status,409);
+});
+
+test('German phone numbers match in national and international form',async()=>{
+  const {phoneKey}=await import('../src/customers.mjs');
+  for(const value of ['+49 7451 12345','0049 7451 12345','07451 12345','+49 (0)7451-12345'.replace('(0)','')])assert.equal(phoneKey(value),'0745112345',value);
+  assert.equal(phoneKey('+49 152 1234567'),'01521234567');assert.equal(phoneKey('4915212345678'),'015212345678');assert.equal(phoneKey('+43 1 234567'),'431234567');
+});
+
+test('on-site bookings are checked against the business calendar before they are stored',async t=>{
+  const e=env(t);const calls=[];e.operations={validateAppointment:async(_env,order)=>{calls.push(order.appointment.start);throw Object.assign(new (await import('../src/domain.mjs')).AppError('Dieser Zeitraum ist im geschäftlichen Google-Kalender bereits belegt.',409));}};
+  const r=await req(e,'onsite',{synthetic:true,source:{name:'Kalender'},assessment:{lines},acceptance:{signature}});assert.equal(r.status,409);assert.equal(calls.length,1);
+  assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM orders').get().n,0);assert.equal(e.files.size,0);
+  assert.equal((await req(e,'onsite',{synthetic:true,source:{name:'Ohne Termin'},appointment:{skip:true}})).status,200);assert.equal(calls.length,1);
+});

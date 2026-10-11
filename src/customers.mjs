@@ -5,7 +5,8 @@ import {vehicleClasses} from './catalog.mjs';
 const CUSTOMER_FIELDS={name:180,company:180,email:180,phone:80,address:600,city:180,billingAddress:600,note:2000};
 const VEHICLE_FIELDS={plate:40,label:180,make:80,model:80,color:60,vin:40,note:1000};
 export const emailKey=value=>text(value,180).toLowerCase();
-export const phoneKey=value=>{const digits=String(value??'').replace(/[^0-9]/g,'').replace(/^0049/,'0').replace(/^49(?=1)/,'0');return digits.length>=6?digits:'';};
+// German numbers are compared in national form: +49 7451 …, 0049 7451 … and 07451 … match.
+export const phoneKey=value=>{const raw=String(value??'').replace(/[\s()/.-]/g,'');let digits=raw.replace(/[^0-9]/g,'');if(raw.startsWith('+49')||digits.startsWith('0049'))digits='0'+digits.replace(/^(?:00)?49/,'');else digits=digits.replace(/^49(?=1)/,'0');return digits.length>=6?digits:'';};
 export const plateKey=value=>String(value??'').toUpperCase().replace(/[^A-Z0-9ÄÖÜ]/g,'');
 export function normalizeCustomer(input,old){
   need(input&&typeof input==='object'&&!Array.isArray(input),'Kundendaten fehlen.');
@@ -26,7 +27,7 @@ export const vehicleTitle=v=>[v?.label||[v?.make,v?.model].filter(Boolean).join(
 const customerSearch=c=>[c.name,c.company,c.emailKey,c.phone,c.phoneKey,c.address,c.city].filter(Boolean).join(' ').toLowerCase();
 const vehicleSearch=v=>[v.plate,v.plateKey,v.label,v.make,v.model,v.color,v.vin].filter(Boolean).join(' ').toLowerCase();
 const parseCustomer=row=>row?{...JSON.parse(row.data),id:row.id,version:row.version,synthetic:row.synthetic===1,createdAt:row.created_at,updatedAt:row.updated_at}:null;
-const parseVehicle=row=>row?{...JSON.parse(row.data),id:row.id,customerId:row.customer_id,createdAt:row.created_at,updatedAt:row.updated_at}:null;
+const parseVehicle=row=>row?{...JSON.parse(row.data),id:row.id,customerId:row.customer_id,version:row.version,createdAt:row.created_at,updatedAt:row.updated_at}:null;
 export async function getCustomer(env,id){const c=parseCustomer(await env.DB.prepare('SELECT * FROM customers WHERE id=?').bind(id).first());need(c,'Kunde nicht gefunden.',404);return c;}
 export async function getVehicle(env,id){const v=parseVehicle(await env.DB.prepare('SELECT * FROM vehicles WHERE id=?').bind(id).first());need(v,'Fahrzeug nicht gefunden.',404);return v;}
 export function customerInsert(env,id,data,synthetic,at){return [env.DB.prepare('INSERT INTO customers(id,data,search,synthetic,version,created_at,updated_at) VALUES(?,?,?,?,1,?,?)').bind(id,JSON.stringify(data),customerSearch(data),synthetic?1:0,at,at)];}
@@ -78,8 +79,8 @@ export async function saveCustomer(env,input,synthetic=false){
 export async function saveVehicle(env,input){
   const at=new Date().toISOString();
   if(!input.id){const customer=await getCustomer(env,input.customerId);const data=normalizeVehicle(input.vehicle??{});const id=crypto.randomUUID();await env.DB.batch([vehicleInsert(env,id,customer.id,data,at)]);return getVehicle(env,id);}
-  const old=await getVehicle(env,input.id);const {id:_id,customerId:_customer,createdAt:_created,updatedAt:_updated,...stored}=old;const data=normalizeVehicle(input.vehicle??{},stored);data.history=[...(stored.history??[]),{at,before:Object.fromEntries(Object.keys(input.vehicle??{}).map(key=>[key,stored[key]??null]))}].slice(-50);
-  await env.DB.prepare('UPDATE vehicles SET data=?,search=?,updated_at=? WHERE id=?').bind(JSON.stringify(data),vehicleSearch(data),at,old.id).run();return getVehicle(env,old.id);
+  const old=await getVehicle(env,input.id);need(input.version===undefined||input.version===old.version,'Diese Fahrzeugansicht ist veraltet. Bitte neu öffnen.',409);const {id:_id,customerId:_customer,version:_version,createdAt:_created,updatedAt:_updated,...stored}=old;const data=normalizeVehicle(input.vehicle??{},stored);data.history=[...(stored.history??[]),{at,before:Object.fromEntries(Object.keys(input.vehicle??{}).map(key=>[key,stored[key]??null]))}].slice(-50);
+  const r=await env.DB.prepare('UPDATE vehicles SET data=?,search=?,version=version+1,updated_at=? WHERE id=? AND version=?').bind(JSON.stringify(data),vehicleSearch(data),at,old.id,old.version).run();if(!r.meta.changes)throw new AppError('Diese Fahrzeugansicht ist veraltet. Bitte neu öffnen.',409);return getVehicle(env,old.id);
 }
 export async function customerDetail(env,id){
   const customer=await getCustomer(env,id);const vehicles=(await env.DB.prepare('SELECT * FROM vehicles WHERE customer_id=? ORDER BY updated_at DESC').bind(id).all()).results.map(parseVehicle);

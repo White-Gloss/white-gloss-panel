@@ -168,3 +168,12 @@ test('panel: every page and every order tab renders without errors on desktop an
   await ui.click('[data-tab="notes"]');await ui.click('[data-click="audit"]');assert.match(ui.$('#modal').textContent,/Änderungsprotokoll/);
   assert.deepEqual(ui.errors,[]);
 });
+
+test('Vor-Ort app: an invalid surcharge is shown and blocks the next step',async t=>{
+  const ui=await boot(t,{page:'vor-ort.html',script:'vor-ort.js',storage:{'wg-vo-test':'1'}});
+  await ui.go('#buchung');await ui.submit('#c-new');await ui.settle();await ui.submit('#v-new');await ui.settle();
+  const form=ui.$('#s-form');form.elements.surcharge.value='12,345';form.dispatchEvent(new ui.w.Event('input',{bubbles:true}));
+  assert.match(ui.$('#s-total').textContent,/höchstens zwei Nachkommastellen/);await ui.submit(form);await ui.settle();assert.ok(ui.$('#s-form'),'bleibt bei den Leistungen');
+  form.elements.surcharge.value='12,50';form.dispatchEvent(new ui.w.Event('input',{bubbles:true}));await ui.submit(form);await ui.settle();assert.ok(ui.$('#a-form'));
+  assert.deepEqual(ui.errors,[]);
+});

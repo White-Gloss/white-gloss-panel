@@ -27,6 +27,8 @@ export function normalizeSource(row) {
 const field=(value,max,label)=>{if(value===undefined||value===null)return '';need(['string','number'].includes(typeof value),'Protokollangabe ist ungültig: '+label);const result=String(value).trim();need(result.length<=max,'Protokollangabe ist zu lang: '+label);return result;};
 const count=(value,min,max,label)=>{if(value===undefined||value===null||value==='')return null;const number=typeof value==='string'?Number(value.replace(',','.')):value;need(Number.isSafeInteger(number)&&number>>0===number&&number>=min&&number<=max,label+' ist ungültig.');return number;};
 export const isSigned=p=>Boolean(p&&p.customerSignature);
+// An offer counts as signed only with a customer signature; an unsigned acceptance stays editable.
+export const offerSigned=o=>Boolean(o?.acceptance?.signature);
 export const PROTOCOL_CHECKS=['valuablesRemoved','warningLights','damageKnown','waterAvailable','powerAvailable'];
 // Every protocol field is optional. Values are bounded and every referenced file must belong to this order.
 export function protocolValid(p,kind,assetIds) {
@@ -44,7 +46,7 @@ export function protocolValid(p,kind,assetIds) {
   const damages=p.damages??[];need(Array.isArray(damages)&&damages.length<=60,'Höchstens 60 Schäden pro Protokoll.');
   out.damages=damages.map(d=>{need(d&&typeof d==='object','Schadensangabe ist ungültig.');return {area:field(d.area,80,'Schadensposition'),kind:field(d.kind,80,'Schadensart'),size:field(d.size,60,'Schadensgröße'),note:field(d.note,1000,'Schadensbeschreibung'),photo:d.photo?own(d.photo):''};}).filter(d=>d.area||d.kind||d.size||d.note||d.photo);
   const paint=p.paint&&typeof p.paint==='object'?p.paint:{};const readings=paint.readings??[];need(Array.isArray(readings)&&readings.length<=40,'Höchstens 40 Lackmesspunkte.');
-  out.paint={device:field(paint.device,120,'Messgerät'),notes:field(paint.notes,2000,'Lackhinweise'),readings:readings.map(r=>{need(r&&typeof r==='object','Lackmessung ist ungültig.');const values=r.values??[];need(Array.isArray(values)&&values.length<=10,'Höchstens 10 Messwerte pro Bauteil.');return {panel:field(r.panel,80,'Bauteil'),values:values.map(v=>count(v,0,5000,'Lackschichtdicke')).filter(v=>v!==null)};}).filter(r=>r.panel||r.values.length)};
+  out.paint={device:field(paint.device,120,'Messgerät'),notes:field(paint.notes,2000,'Lackhinweise'),readings:readings.map(r=>{need(r&&typeof r==='object','Lackmessung ist ungültig.');const values=r.values??[];need(Array.isArray(values)&&values.length<=5,'Höchstens 5 Messwerte pro Bauteil.');return {panel:field(r.panel,80,'Bauteil'),values:values.map(v=>count(v,0,5000,'Lackschichtdicke')).filter(v=>v!==null)};}).filter(r=>r.panel||r.values.length)};
   for(const key of ['customerSignature','operatorSignature'])out[key]=p[key]?own(p[key]):null;
   need(!out.customerSignature||out.customerSignature!==out.operatorSignature,'Zwei getrennte Unterschriften sind erforderlich.');
   out.signaturesConfirmed=p.signaturesConfirmed===true;
@@ -67,16 +69,16 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     if(input.lines!==undefined){try{o.assessment=normalizeAssessment(input);}catch(error){throw new AppError(error.message,400);}}
     else{const totalCents=cents(input.totalCents??0),pickupCents=cents(input.pickupCents??0);need(totalCents>=pickupCents,'Gesamtfestpreis darf nicht niedriger als die Abholung sein.');o.assessment={condition:text(input.condition),services:text(input.services),totalCents,pickupCents};}
     // An unsigned offer follows the edited prices; a signed offer stays and needs a signed replacement.
-    if(o.offer&&!o.acceptance){history(o,'offerHistory',{offer:o.offer,acceptance:null,replacedAt:now});o.offer={...structuredClone(o.assessment),createdAt:o.offer.createdAt,expiresAt:o.offer.expiresAt,editedAt:now};}
+    if(o.offer&&!offerSigned(o)){history(o,'offerHistory',{offer:o.offer,acceptance:o.acceptance??null,replacedAt:now});o.offer={...structuredClone(o.assessment),createdAt:o.offer.createdAt,expiresAt:o.offer.expiresAt,editedAt:now};}
   }
   else if(action==='confirm') { need(['Preise prüfen','Abgelaufen'].includes(status)&&!o.acceptance,'Das Angebot ist bereits freigegeben.',409); if(o.offer)history(o,'offerHistory',{offer:o.offer,acceptance:null,replacedAt:now}); o.offer={...structuredClone(o.assessment??emptyAssessment()),createdAt:now,expiresAt:new Date(Date.parse(now)+14*86400000).toISOString()}; o.status='Angebot offen'; }
   else if(action==='accept') { need(role==='customer','Annahme ist ausschließlich dem Kunden vorbehalten.',403); if(status==='Angenommen') return o; need(status==='Angebot offen'&&!o.acceptance&&Date.parse(o.offer.expiresAt)>Date.parse(now),'Angebot geschlossen oder abgelaufen.',409); need(input.signature&&input.snapshotHash&&input.paymentObligation===true,'Eigene Unterschrift und zahlungspflichtige Annahme sind erforderlich.'); o.acceptance={signature:input.signature,snapshotHash:input.snapshotHash,at:now,mode:'online',immediateStart:input.immediateStart===true,withdrawalNotice:input.withdrawalNotice===true}; o.status='Angenommen'; }
   else if(action==='onsiteAccept') {
     // The customer signs in person on the operator's device. A signed offer is only replaced by a new signature.
     const signature=text(input.signature,100)||null;
-    need(!o.acceptance||signature,'Ein unterschriebenes Angebot bleibt erhalten. Für Änderungen unterschreibt der Kunde ein Ersatzangebot.',409);
-    const base=o.acceptance?(o.assessment??emptyAssessment()):(o.offer??o.assessment??emptyAssessment());const previous=o.acceptance?{at:o.acceptance.at,offerCreatedAt:o.offer?.createdAt??null,snapshotHash:o.acceptance.snapshotHash??null}:null;
-    const offer={...structuredClone(base),createdAt:o.acceptance||!o.offer?now:o.offer.createdAt,expiresAt:o.acceptance||!o.offer?now:o.offer.expiresAt,...(previous?{replaces:previous}:{})};
+    const signed=offerSigned(o);need(!signed||signature,'Ein unterschriebenes Angebot bleibt erhalten. Für Änderungen unterschreibt der Kunde ein Ersatzangebot.',409);
+    const base=signed?(o.assessment??emptyAssessment()):(o.offer??o.assessment??emptyAssessment());const previous=signed?{at:o.acceptance.at,signedAt:o.acceptance.at,offerCreatedAt:o.offer?.createdAt??null,snapshotHash:o.acceptance.snapshotHash??null}:null;
+    const offer={...structuredClone(base),createdAt:signed||!o.offer?now:o.offer.createdAt,expiresAt:signed||!o.offer?now:o.offer.expiresAt,...(previous?{replaces:previous}:{})};
     applyDocument(o,'offer',offer,{mode:'vor Ort',at:now,signature,customerName:text(input.customerName,180),paymentObligation:input.paymentObligation===true,immediateStart:input.immediateStart===true,withdrawalNotice:input.withdrawalNotice===true,snapshotHash:text(input.snapshotHash,128)||null,...(previous?{replaces:previous}:{})},now);
     if(BEFORE_ACCEPT.includes(status))o.status='Angenommen';
   }
@@ -96,7 +98,7 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
   }
   else if(action==='replacement') {
     const kind=input.kind;need(['offer','intake','return'].includes(kind),'Unbekanntes Dokument.');
-    need(kind==='offer'?o.acceptance:isSigned(o[kind]),'Nicht unterschriebene Dokumente werden direkt bearbeitet.',409);
+    need(kind==='offer'?offerSigned(o):isSigned(o[kind]),'Nicht unterschriebene Dokumente werden direkt bearbeitet.',409);
     const content=kind==='offer'?{...structuredClone(o.assessment??emptyAssessment())}:input.content;need(content&&typeof content==='object','Ersatzdokument fehlt.');
     const current=kind==='offer'?o.offer:o[kind];
     o.pending={...(o.pending??{}),[kind]:{content,createdAt:now,replaces:{at:current?.at??current?.createdAt??null,signedAt:kind==='offer'?o.acceptance.at:(current.signedAt??current.savedAt??null),snapshotHash:kind==='offer'?(o.acceptance.snapshotHash??null):(current.snapshotHash??null)}}};
@@ -124,7 +126,8 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     const old=payments[index],{history:previous=[],...snapshot}=old,next={...old,history:[...previous,{...snapshot,changedAt:now}]};
     if(input.cancelled===true)next.cancelledAt=now;
     else{if(input.amountCents!==undefined){next.amountCents=cents(input.amountCents);need(next.amountCents>0,'Zahlungsbetrag muss positiv sein.');}if(input.at)next.at=optionalTime(input.at);if(input.method!==undefined){next.method=text(input.method,40);need(['Überweisung','Karte','Bar'].includes(next.method),'Zahlungsart ist ungültig.');}if(input.note!==undefined)next.note=text(input.note,500);delete next.cancelledAt;}
-    o.payments=payments.map((p,i)=>i===index?next:p);settle(o);
+    o.payments=payments.map((p,i)=>i===index?next:p);
+    need(input.allowOverpayment===true||!o.offer||paidCents(o)<=o.offer.totalCents||paidCents(o)<=paidCents(order),'Korrektur überschreitet den vereinbarten Festpreis. Bitte Betrag prüfen oder Überzahlung ausdrücklich bestätigen.',409);settle(o);
   }
   else if(action==='reject') { need(status!=='Bezahlt','Ein bezahlter Auftrag wird nicht abgelehnt.',409); history(o,'statusHistory',{from:status,to:'Abgelehnt',at:now,reason:text(input.reason)}); o.status='Abgelehnt'; o.closeReason=text(input.reason); }
   else if(action==='cancel') { need(status!=='Bezahlt','Ein bezahlter Auftrag wird nicht storniert.',409); history(o,'statusHistory',{from:status,to:'Storniert',at:now,reason:text(input.reason)}); o.status='Storniert';o.closeReason=text(input.reason); }
