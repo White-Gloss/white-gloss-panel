@@ -1,6 +1,14 @@
 // Geprüfter Auszug aus White-Gloss/glanz-buchung-meister, src/data/site.ts, 01.10.2026.
 export const catalogCheckedAt='2026-10-01';
 function catalogNeed(ok,message){if(!ok)throw Object.assign(new Error(message),{status:400});}
+// Fester Kundenhinweis zu allen Preisen; gilt für Angebote, Vor-Ort-Annahme und PDFs.
+export const priceNote='Stellt sich der Aufwand vor Ort als höher heraus, kann sich der Preis nach Absprache mit dem Kunden noch ändern.';
+// Richtwerte für die Termindauer je Paket in Minuten (Keramikschutz ca. 2 Tage).
+export const packageMinutes={basis:180,premium:360,keramik:2880};
+export const vehiclePanels=['Motorhaube','Dach','Heckklappe / Kofferraum','Kotflügel vorne links','Kotflügel vorne rechts','Tür vorne links','Tür vorne rechts','Tür hinten links','Tür hinten rechts','Seitenteil hinten links','Seitenteil hinten rechts','Stoßfänger vorne','Stoßfänger hinten','Schweller links','Schweller rechts','A-Säule links','A-Säule rechts','Außenspiegel links','Außenspiegel rechts','Felgen','Scheiben','Innenraum'];
+export const damageKinds=['Kratzer','Delle','Steinschlag','Lackabplatzer','Riss','Swirls / Hologramme','Ätzung / Vogelkot','Wasserflecken','Rost','Fleck / Verschmutzung','Brandloch','Sonstiges'];
+export const soilingLevels=['','1 · Leicht','2 · Normal','3 · Stark','4 · Extrem'];
+export const intakeChecks=[['valuablesRemoved','Wertsachen entnommen bzw. mit Kunde geklärt'],['warningLights','Warnleuchten im Kombiinstrument aktiv'],['damageKnown','Vorschäden mit dem Kunden besprochen'],['waterAvailable','Wasser vor Ort verfügbar'],['powerAvailable','Strom vor Ort verfügbar']];
 export function extraIncluded(packageId,extraId){return packageId==='keramik'&&['glas','leder'].includes(extraId);}
 export function catalogQuote(selection){
   const pack=packages.find(p=>p.id===selection.packageId),klass=vehicleClasses.find(c=>c.id===selection.classId);

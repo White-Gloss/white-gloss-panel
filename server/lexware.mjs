@@ -93,7 +93,7 @@ export async function lexwareInventory(env,order){need(!order.synthetic,'Testauf
 export const lexwareMarker=order=>'[White-Gloss-Auftrag '+bounded(order.wg,80,'WG-Nummer fehlt.')+' | Panel '+bounded(order.id,80,'Panel-Auftrags-ID fehlt.')+']';
 function eligible(order,input){
   need(input.provider==='lexware','Bitte Lexware Office als Rechnungsanbieter auswählen.',409);
-  need(!order.synthetic&&['Erledigt','Bezahlt'].includes(order.status)&&order.return&&order.completedAt,'Rechnung erst nach vollständigem Arbeitsabschluss und Rückgabe.',409);
+  need(!order.synthetic&&['Erledigt','Bezahlt'].includes(order.status)&&order.completedAt&&order.offer,'Rechnung erst nach Arbeitsabschluss mit festgelegtem Preis.',409);
   need(input.reviewed===true,'Bitte Rechnungskunde, Leistungen, Steuer und Gesamtbetrag ausdrücklich prüfen.');
   need([0,700,1900].includes(input.vatBasisPoints),'Bitte den gültigen deutschen Umsatzsteuersatz ausdrücklich auswählen.');
   need(input.vatBasisPoints>0||typeof input.vatExemptionReason==='string'&&input.vatExemptionReason.trim().length>0&&input.vatExemptionReason.length<=500,'Bei steuerfreier Rechnung ist die geprüfte Begründung erforderlich.');

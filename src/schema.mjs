@@ -14,4 +14,12 @@ export const SCHEMA=[
 `CREATE TABLE IF NOT EXISTS offer_tokens(hash TEXT PRIMARY KEY,order_id TEXT NOT NULL,expires_at TEXT NOT NULL,revoked INTEGER NOT NULL DEFAULT 0)`,
 `CREATE TABLE IF NOT EXISTS protocol_drafts(id TEXT PRIMARY KEY,order_id TEXT NOT NULL,kind TEXT NOT NULL,version INTEGER NOT NULL,data TEXT NOT NULL,hash TEXT NOT NULL)`
  ,`CREATE TABLE IF NOT EXISTS signature_bindings(asset_id TEXT PRIMARY KEY,draft_id TEXT NOT NULL,snapshot_hash TEXT NOT NULL)`
+ ,`CREATE TABLE IF NOT EXISTS customers(id TEXT PRIMARY KEY,data TEXT NOT NULL,search TEXT NOT NULL,synthetic INTEGER NOT NULL DEFAULT 0,version INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`
+ ,`CREATE TABLE IF NOT EXISTS vehicles(id TEXT PRIMARY KEY,customer_id TEXT NOT NULL,data TEXT NOT NULL,search TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`
+ ,`CREATE TABLE IF NOT EXISTS customer_orders(order_id TEXT PRIMARY KEY,customer_id TEXT NOT NULL,vehicle_id TEXT)`
+ ,`CREATE TABLE IF NOT EXISTS document_requests(hash TEXT PRIMARY KEY,order_id TEXT NOT NULL,kind TEXT NOT NULL,expires_at TEXT NOT NULL,revoked INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL)`
+ // Kunden, Fahrzeuge und Aufträge werden nie gelöscht; Änderungen bleiben im Verlauf.
+ ,`CREATE TRIGGER IF NOT EXISTS no_customer_delete BEFORE DELETE ON customers BEGIN SELECT RAISE(ABORT,'Kunden werden nicht gelöscht'); END`
+ ,`CREATE TRIGGER IF NOT EXISTS no_vehicle_delete BEFORE DELETE ON vehicles BEGIN SELECT RAISE(ABORT,'Fahrzeuge werden nicht gelöscht'); END`
+ ,`CREATE TRIGGER IF NOT EXISTS no_order_delete BEFORE DELETE ON orders BEGIN SELECT RAISE(ABORT,'Aufträge werden nicht gelöscht'); END`
 ];

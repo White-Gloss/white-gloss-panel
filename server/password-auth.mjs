@@ -1,6 +1,6 @@
 import {randomBytes,scrypt,timingSafeEqual} from 'node:crypto';
 import {AppError} from '../src/domain.mjs';
-import {authResponse,digest,limited,sessionHash,sessionCookie,sessionIdentity} from './auth.mjs';
+import {authResponse,digest,limited,safeReturn,sessionHash,sessionCookie,sessionIdentity} from './auth.mjs';
 
 // OWASP scrypt minimum: N=2^17, r=8, p=1. Salt and derived key only; no plaintext.
 const cost={N:131072,r:8,p:1,maxmem:256*1024*1024};
@@ -37,7 +37,7 @@ export async function passwordLogin(env,request,now=Date.now()){
   // A concurrent password reset cannot turn a previously checked password into a new session.
   const inserted=await env.DB.prepare('INSERT INTO auth_sessions(hash,email,expires_at,last_at) SELECT ?,?,?,? FROM auth_passwords WHERE owner_hash=? AND revision=?').bind(digest(raw),email,now+86400000,now,env.OWNER_EMAIL_SHA256,row.revision).run();
   if(!inserted.meta.changes)return authResponse({error:'Bitte erneut anmelden.'},409);
-  return sessionCookie(authResponse({returnTo:'/'}),raw);
+  return sessionCookie(authResponse({returnTo:input.returnTo==='/vor-ort'?safeReturn(input.returnTo):'/'}),raw);
 }
 export async function savePassword(env,request,now=Date.now()){
   const input=await inputFor(env,request),email=await sessionIdentity(env,request,now);
