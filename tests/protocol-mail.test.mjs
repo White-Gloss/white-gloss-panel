@@ -69,3 +69,14 @@ test('a queue insertion failure rolls back the signed order and its audit atomic
   const f=await fixture(t),draft=await f.signed('intake');await f.env.DB.prepare("CREATE TRIGGER reject_test_queue BEFORE INSERT ON protocol_deliveries BEGIN SELECT RAISE(ABORT,'synthetic queue error'); END").run();const before=(await f.env.DB.prepare('SELECT COUNT(*) n FROM audit').first()).n;
   const result=await f.request('/api/action',{id:f.order.id,version:draft.version,action:'intake',input:draft.input});assert.equal(result.status,500);assert.equal((await getOrder(f.env,f.order.id)).status,'Termin verbindlich');assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM audit').first()).n,before);assert.equal((await f.env.DB.prepare("SELECT COUNT(*) n FROM jobs WHERE kind='protocol-intake'").first()).n,0);
 });
+test('a replacement protocol signed by the customer is sent again and states which protocol it replaces',async t=>{
+  const f=await fixture(t),sent=[];t.mock.method(globalThis,'fetch',async(_url,options)=>{sent.push(JSON.parse(options.body));return new Response(JSON.stringify({id:'mail-'+sent.length}));});
+  const draft=await f.signed('intake');let order=await (await f.request('/api/action',{id:f.order.id,version:draft.version,action:'intake',input:draft.input})).json();assert.equal(sent.length,1);
+  order=await (await f.request('/api/action',{id:order.id,version:order.version,action:'replacement',input:{kind:'intake',protocol:{plate:'TEST-NEU',condition:'Nachgetragener Kratzer'}}})).json();assert.equal(sent.length,1);
+  const signature='data:image/png;base64,'+Buffer.concat([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ypcAAAAASUVORK5CYII=','base64'),Buffer.alloc(300)]).toString('base64');
+  const result=await f.request('/api/action',{id:order.id,version:order.version,action:'signReplacement',input:{kind:'intake',signature,inPerson:true}});assert.equal(result.status,200);order=await result.json();
+  assert.equal(order.protocolDelivery.state,'sent');assert.equal(sent.length,2);assert.match(sent[1].subject,/Ersatz/);assert.match(sent[1].text,/ersetzt ausdrücklich/);
+  const pdf=Buffer.from(sent[1].attachments[0].content,'base64');assert.equal(pdf.subarray(0,5).toString(),'%PDF-');
+  const download=await f.app.fetch(new Request(origin+'/api/protocol/pdf?id='+order.id+'&kind=intake',{headers:{cookie:f.cookie}}));assert.deepEqual(Buffer.from(await download.arrayBuffer()),pdf);
+  assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM protocol_deliveries').first()).n,1);assert.equal((await f.env.DB.prepare("SELECT COUNT(*) n FROM jobs WHERE kind LIKE 'protocol-intake%'").first()).n,2);
+});

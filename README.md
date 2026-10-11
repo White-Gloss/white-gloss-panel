@@ -13,12 +13,14 @@ Jede Änderung benötigt einen eigenen geprüften IONOS-Release und einen Live-N
 - [IONOS und Google Einrichtung](docs/IONOS-und-Google.md)
 - [Passwort, Kunden-PIN und Protokoll-PDF](docs/Passwort-PIN-und-Protokoll-PDF.md)
 - [Lexware Office ersetzt Qonto](docs/Lexware-statt-Qonto.md)
+- [Vor-Ort-App, Kundenstamm und Bearbeitung](docs/Vor-Ort-App-und-Bearbeitung.md)
 
 ## Aufbau
 
 `src/worker.mjs` enthält die HTTP-Endpunkte und die Hintergrundprüfung.
-`src/domain.mjs` prüft den Auftragsablauf; `src/schema.mjs` definiert SQLite-Tabellen
-und Trigger. `public/` enthält die Oberfläche. Das Build erzeugt einen Sites-Worker
+`src/domain.mjs` prüft den Auftragsablauf; `src/customers.mjs` führt Kunden und Fahrzeuge;
+`src/schema.mjs` definiert SQLite-Tabellen und Trigger. `public/` enthält das Panel (`index.html`)
+und die installierbare Vor-Ort-Web-App (`vor-ort.html`, `/vor-ort`). Das Build erzeugt einen Sites-Worker
 und statische Dateien; `server/start.mjs` stellt separat die IONOS-Laufzeit bereit.
 
 Sites nutzt seine Anmeldung, D1 und R2. Die IONOS-Laufzeit nutzt Betreiberpasswörter,
@@ -40,7 +42,8 @@ npm run build
 node --check dist/server/index.js
 ```
 
-Die Tests nutzen synthetische Daten und isoliertes SQLite. Der GitHub-Workflow
+Die Tests nutzen synthetische Daten und isoliertes SQLite. Die UI-Tests laden die gebauten
+Seiten in jsdom und rufen die Serverlogik direkt im Prozess auf; es wird kein Server gestartet. Der GitHub-Workflow
 führt dieselben Prüfungen auf einem Linux-Runner aus. Er veröffentlicht nichts
 und benötigt keine IONOS- oder Anbieterzugänge.
 
