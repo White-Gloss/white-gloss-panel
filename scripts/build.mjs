@@ -1,10 +1,11 @@
-import {mkdirSync,readFileSync,writeFileSync,copyFileSync,rmSync} from 'node:fs';
+import {mkdirSync,readFileSync,writeFileSync,copyFileSync,rmSync,readdirSync} from 'node:fs';
 rmSync('dist',{recursive:true,force:true});mkdirSync('dist/server',{recursive:true});mkdirSync('dist/client',{recursive:true});mkdirSync('dist/.openai',{recursive:true});
 await import('./build-pdf.mjs');
 const company=readFileSync('src/company.mjs','utf8').replace(/export /g,'');
 const calendar=readFileSync('src/calendar.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');
 const migration=readFileSync('src/migration.mjs','utf8').replace(/export /g,'');const assessment=readFileSync('src/assessment.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');const catalog=readFileSync('src/catalog.mjs','utf8').replace(/export /g,'');const domain=readFileSync('src/domain.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');const schema=readFileSync('src/schema.mjs','utf8').replace(/export /g,'');const customers=readFileSync('src/customers.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');const worker=readFileSync('src/worker.mjs','utf8').replace(/^import .*;\r?\n/gm,'');
 writeFileSync('dist/server/index.js',company+'\n'+catalog+'\n'+assessment+'\n'+domain+'\n'+customers+'\n'+calendar+'\n'+schema+'\n'+migration+'\n'+worker);
-for(const f of ['index.html','app.js','style.css','offer.js','manual.js','pricing.js','auth.js','password.js','protocol-photos.js','invoice-ui.js','migration.js'])copyFileSync('public/'+f,'dist/client/'+f);
+// Every file in public/ belongs to the client (pages, scripts, styles, manifest and icons).
+for(const f of readdirSync('public'))copyFileSync('public/'+f,'dist/client/'+f);
 copyFileSync('src/catalog.mjs','dist/client/catalog.mjs');copyFileSync('src/assessment.mjs','dist/client/assessment.mjs');
 copyFileSync('.openai/hosting.json','dist/.openai/hosting.json');console.log('Build abgeschlossen. Kein Server gestartet.');

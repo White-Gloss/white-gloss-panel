@@ -1,0 +1,20 @@
+import {offerLinesHTML} from './pricing.js';
+import {protocolSummaryHTML,shownDate} from './protocol-form.js';
+import {signaturePad} from './signature.js';
+// Customer page for a replacement document. The customer signs here; the signed document then replaces the earlier one.
+export const isDocument=location.pathname.startsWith('/dokument/');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const labels={offer:'Ersatzangebot',intake:'Ersatz-Annahmeprotokoll',return:'Ersatz-Rückgabeprotokoll'};
+export async function showDocument(){
+  const root=document.querySelector('#app'),token=location.pathname.split('/').pop();
+  const response=await fetch('/api/document/'+encodeURIComponent(token));const d=await response.json().catch(()=>({error:'Dokument nicht lesbar.'}));
+  const shell=body=>`<main class="appoff card document-page"><div class="brand"><span class="brandmark">WG</span><div><strong>White Gloss</strong><small>DETAILING · HORB AM NECKAR</small></div></div>${body}</main>`;
+  if(!response.ok){root.innerHTML=shell('<h1>Ihr Dokument</h1><p>'+esc(d.error)+'</p>');return;}
+  const snapshotHash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(d))))).map(x=>x.toString(16).padStart(2,'0')).join('');
+  const assetUrl=id=>'/api/document/'+encodeURIComponent(token)+'/asset/'+encodeURIComponent(id);
+  const content=d.kind==='offer'?`${offerLinesHTML(d.document)}<p><strong>Gesamtfestpreis inklusive Umsatzsteuer</strong><br>${new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format((d.document.totalCents??0)/100)}</p>${d.hints?.price?`<p class="hint">${esc(d.hints.price)}</p>`:''}`:protocolSummaryHTML(d.document,{kind:d.kind,assetUrl});
+  root.innerHTML=shell(`<h1>${labels[d.kind]}</h1><p>${esc(d.customer)} · ${esc(d.wg)} · ${esc(d.vehicle)}</p><p class="notice">Nach Ihrer Unterschrift ersetzt dieses Dokument ausdrücklich das ${d.replaces?.signedAt?'am '+esc(shownDate(d.replaces.signedAt))+' ':''}unterschriebene Dokument.</p><div class="protocolreview">${content}</div>${d.hints?.withdrawal?`<details class="protocolreview" open><summary>Widerrufsbelehrung</summary><p>${esc(d.hints.withdrawal)}</p></details>`:''}${d.ownerPreview?'<p class="hint">Betreibervorschau · Nur der Kunde unterschreibt dieses Dokument.</p>':`<form id="documentForm"><h2 class="sectiontitle">Ihre persönliche Unterschrift</h2><canvas id="documentSignature" class="signature" aria-label="Ihre persönliche Unterschrift"></canvas><button type="button" id="clearDocument">Unterschrift löschen</button><label class="check sectiongap"><input type="checkbox" id="documentConfirmed">Ich habe das angezeigte Dokument geprüft und bestätige es mit meiner Unterschrift.</label>${d.kind==='offer'?'<label class="check"><input type="checkbox" id="documentPayment">Ich nehme das Ersatzangebot zahlungspflichtig an.</label>':''}<div class="error" id="documentError"></div><button class="primary" type="submit">Unterschreiben</button></form>`}`);
+  if(d.ownerPreview)return;
+  const pad=signaturePad(document.querySelector('#documentSignature'));document.querySelector('#clearDocument').onclick=()=>pad.clear();
+  document.querySelector('#documentForm').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('[type=submit]');try{const signature=pad.dataURL();if(!signature)throw Error('Bitte persönlich unterschreiben.');button.disabled=true;const r=await fetch('/api/document/'+encodeURIComponent(token),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snapshotHash,signature,confirmed:document.querySelector('#documentConfirmed').checked,paymentObligation:document.querySelector('#documentPayment')?.checked===true})});const result=await r.json().catch(()=>({error:'Unterschrift nicht bestätigt.'}));if(!r.ok)throw Error(result.error);root.innerHTML=shell('<h1>Vielen Dank</h1><p>Ihre Unterschrift ist gespeichert. Das neue Dokument ersetzt das bisherige.</p>');}catch(error){document.querySelector('#documentError').textContent=error.message;button.disabled=false;}};
+}
