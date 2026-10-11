@@ -80,3 +80,25 @@ test('a replacement protocol signed by the customer is sent again and states whi
   const download=await f.app.fetch(new Request(origin+'/api/protocol/pdf?id='+order.id+'&kind=intake',{headers:{cookie:f.cookie}}));assert.deepEqual(Buffer.from(await download.arrayBuffer()),pdf);
   assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM protocol_deliveries').first()).n,1);assert.equal((await f.env.DB.prepare("SELECT COUNT(*) n FROM jobs WHERE kind LIKE 'protocol-intake%'").first()).n,2);
 });
+test('an on-site acceptance sends the order confirmation with the withdrawal text and the immediate-start consent',async t=>{
+  const f=await fixture(t),sent=[];t.mock.method(globalThis,'fetch',async(_url,options)=>{sent.push(JSON.parse(options.body));return new Response(JSON.stringify({id:'mail-'+sent.length}));});
+  await setting(f.env,'withdrawalText','Widerrufsbelehrung\n\nWiderrufsrecht\nTEST · Sie haben das Recht …');
+  const signature='data:image/png;base64,'+Buffer.concat([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ypcAAAAASUVORK5CYII=','base64'),Buffer.alloc(300)]).toString('base64');
+  await setting(f.env,'numberAudit',true);
+  const result=await f.request('/api/onsite',{source:{name:'TEST · Vor-Ort-Kunde',email:'customer@example.invalid'},assessment:{lines:[{id:'p',kind:'package',title:'TEST · Paket',amountCents:34900}]},acceptance:{signature,paymentObligation:true,immediateStart:true,withdrawalNotice:true}});
+  assert.equal(result.status,200);const order=await result.json();assert.equal(order.protocolDelivery.state,'sent');
+  assert.match(order.acceptance.immediateStartText,/Widerrufsrecht bei vollständiger Vertragserfüllung erlischt/);assert.match(order.acceptance.withdrawalText,/^Widerrufsbelehrung/);
+  assert.equal(sent.length,1);assert.match(sent[0].subject,/Auftragsbestätigung/);assert.match(sent[0].text,/Widerrufsbelehrung und dem Muster-Widerrufsformular/);assert.deepEqual(sent[0].to,['customer@example.invalid']);
+  const pdf=Buffer.from(sent[0].attachments[0].content,'base64');assert.equal(pdf.subarray(0,5).toString(),'%PDF-');assert.match(sent[0].attachments[0].filename,/Auftragsbestaetigung\.pdf$/);
+  const download=await f.app.fetch(new Request(origin+'/api/protocol/pdf?id='+order.id+'&kind=acceptance',{headers:{cookie:f.cookie}}));assert.equal(download.status,200);assert.deepEqual(Buffer.from(await download.arrayBuffer()),pdf);
+  // A later signature on the replacement offer sends a new confirmation.
+  let current=await (await f.request('/api/action',{id:order.id,version:order.version,action:'price',input:{lines:[{id:'p',kind:'package',title:'TEST · Paket',amountCents:39900}]}})).json();
+  current=await (await f.request('/api/action',{id:current.id,version:current.version,action:'replacement',input:{kind:'offer'}})).json();
+  current=await (await f.request('/api/action',{id:current.id,version:current.version,action:'signReplacement',input:{kind:'offer',signature,inPerson:true,paymentObligation:true}})).json();
+  assert.equal(current.protocolDelivery.state,'sent');assert.equal(sent.length,2);assert.match(sent[1].subject,/Ersatz/);assert.match(sent[1].text,/ersetzt ausdrücklich/);
+});
+test('order confirmation PDF renders legacy data-URL signatures and orders without signature',async t=>{
+  const f=await fixture(t);const {acceptanceDocument}=await import('../server/acceptance-document.mjs');
+  const base={id:f.order.id,wg:'WG-TEST-PDF',synthetic:true,source:{name:'TEST',vehicle:'TEST'},offer:{lines:[{title:'Paket',amountCents:1000}],totalCents:1000}};
+  for(const acceptance of [{at:'2026-10-01T10:00:00Z',mode:'online',signature:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ypcAAAAASUVORK5CYII=',withdrawalText:'Zeile 1\nZeile 2'},{at:'2026-10-01T10:00:00Z',mode:'vor Ort',signature:null}]){const pdf=await acceptanceDocument(f.env,{...base,acceptance});assert.equal(Buffer.from(pdf.bytes.subarray(0,5)).toString(),'%PDF-');}
+});

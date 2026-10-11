@@ -187,3 +187,15 @@ test('panel: a new order for a customer takes the vehicle class from the chosen 
   await ui.click(ui.$('#modal [data-new-order]'));const create=ui.$('#createform');assert.equal(create.elements.classId.value,'transporter');assert.match(ui.$('#manual-quote').textContent,/230,95/);
   assert.deepEqual(ui.errors,[]);
 });
+
+test('consent texts: immediate start is never pre-ticked, names the lapse of the withdrawal right and the withdrawal text keeps its paragraphs',async t=>{
+  const env=environment();await worker.fetch(new Request(origin+'/api/settings',{method:'POST',headers:{'oai-authenticated-user-email':owner,Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({withdrawalText:'Widerrufsbelehrung\n\nWiderrufsrecht'})}),env);
+  const ui=await boot(t,{page:'vor-ort.html',script:'vor-ort.js',storage:{'wg-vo-test':'1'},env});
+  await ui.go('#buchung');await ui.submit('#c-new');await ui.settle();await ui.submit('#v-new');await ui.settle();await ui.submit('#s-form');await ui.settle();
+  const form=ui.$('#a-form');assert.equal(form.elements.immediateStart.checked,false);assert.match(form.elements.immediateStart.closest('label').textContent,/Widerrufsrecht bei vollständiger Vertragserfüllung erlischt/);
+  assert.ok(ui.$('.withdrawal-text'));assert.equal(ui.$('.withdrawal-text').textContent,'Widerrufsbelehrung\n\nWiderrufsrecht');
+  ui.draw(ui.$('#a-sign'));ui.fill(form,{paymentObligation:true,immediateStart:true,withdrawalNotice:true});await ui.submit(form);await ui.settle();
+  const row=await env.DB.prepare('SELECT id FROM orders').first();const o=await getOrder(env,row.id);assert.equal(o.acceptance.immediateStart,true);assert.equal(o.acceptance.withdrawalNotice,true);assert.equal(o.acceptance.withdrawalText,'Widerrufsbelehrung\n\nWiderrufsrecht');
+  await ui.go('#auftrag='+row.id);assert.ok(ui.$('[data-share="acceptance"]'));
+  assert.deepEqual(ui.errors,[]);
+});
