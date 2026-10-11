@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node --test tests/*.test.mjs",
-    "pretest": "node scripts/build-pdf.mjs",
+    "pretest": "node scripts/build.mjs",
     "lint": "eslint src public server deploy && node scripts/check.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
@@ -14,6 +14,7 @@
     "@types/node": "^22.20.5",
     "esbuild": "0.25.12",
     "eslint": "^9.36.0",
+    "jsdom": "^25.0.1",
     "typescript": "~5.9.3"
   },
   "dependencies": {

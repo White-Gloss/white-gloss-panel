@@ -1,0 +1,84 @@
+import {vehiclePanels,damageKinds,soilingLevels,intakeChecks} from './catalog.mjs';
+import {prepareProtocolPhotos} from './protocol-photos.js';
+// Shared vehicle protocol form for the panel and the Vor-Ort app. No field is required.
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const berlinFormat=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+const dateTimeFormat=new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',dateStyle:'medium',timeStyle:'short'});
+export const berlinLocal=iso=>berlinFormat.format(iso?new Date(iso):new Date()).replace(' ','T');
+export const shownDate=iso=>iso?dateTimeFormat.format(new Date(iso)):'—';
+const options=(list,value,empty='—')=>`<option value="">${empty}</option>`+list.map(item=>`<option ${item===value?'selected':''}>${esc(item)}</option>`).join('');
+const input=(label,name,value='',attributes='')=>`<label>${label}<input name="${name}" value="${esc(value)}" ${attributes}></label>`;
+export function paintHint(values){if(!values.length)return '';const average=Math.round(values.reduce((a,b)=>a+b,0)/values.length),min=Math.min(...values),max=Math.max(...values);const notes=[];if(max>250)notes.push('Hinweis: möglicherweise nachlackiert');if(min<80)notes.push('Hinweis: dünner Lack, vorsichtig polieren');return `Ø ${average} µm · min ${min} · max ${max}${notes.length?' · '+notes.join(' · '):''}`;}
+function paintRow(reading={panel:'',values:[]}){const values=[...reading.values,...Array(5).fill('')].slice(0,Math.max(5,reading.values.length));return `<div class="paint-row" data-paint-row><label>Bauteil<select data-paint-panel>${options(vehiclePanels,reading.panel,'Bauteil wählen')}</select></label><div class="paint-values">${values.map(v=>`<input data-paint-value inputmode="numeric" aria-label="Messwert in µm" placeholder="µm" value="${esc(v)}">`).join('')}</div><span class="hint" data-paint-summary>${esc(paintHint(reading.values))}</span><button type="button" data-paint-remove aria-label="Messpunkt entfernen">Entfernen</button></div>`;}
+function damageRow(damage={}){return `<div class="damage-row" data-damage-row data-photo="${esc(damage.photo??'')}"><label>Position<select data-damage-area>${options(vehiclePanels.includes(damage.area)||!damage.area?vehiclePanels:[damage.area,...vehiclePanels],damage.area,'Position wählen')}</select></label><label>Art<select data-damage-kind>${options(damageKinds,damage.kind,'Art wählen')}</select></label><label>Größe<input data-damage-size value="${esc(damage.size)}" placeholder="z. B. 3 cm"></label><label>Beschreibung<input data-damage-note value="${esc(damage.note)}"></label><label>Foto${damage.photo?' (vorhanden)':''}<input data-damage-file type="file" accept="image/*" capture="environment"></label><button type="button" data-damage-remove aria-label="Schaden entfernen">Entfernen</button></div>`;}
+// Top view with clickable zones; a click adds a damage at that position.
+const zones=[['Stoßfänger vorne',50,8,100,24],['Motorhaube',50,34,100,70],['Kotflügel vorne links',28,40,22,70],['Kotflügel vorne rechts',150,40,22,70],['Scheiben',55,104,90,18],['A-Säule links',44,104,11,22],['A-Säule rechts',145,104,11,22],['Dach',55,124,90,118],['Tür vorne links',28,114,24,70],['Tür vorne rechts',148,114,24,70],['Tür hinten links',28,186,24,70],['Tür hinten rechts',148,186,24,70],['Schweller links',20,114,8,142],['Schweller rechts',172,114,8,142],['Seitenteil hinten links',28,258,22,70],['Seitenteil hinten rechts',150,258,22,70],['Heckklappe / Kofferraum',50,244,100,84],['Stoßfänger hinten',50,330,100,24],['Außenspiegel links',8,116,16,12],['Außenspiegel rechts',176,116,16,12]];
+export function damageSketch(marked=[]){return `<svg class="damage-sketch" viewBox="0 0 200 362" role="group" aria-label="Fahrzeugskizze: Bereich antippen, um einen Schaden hinzuzufügen"><text x="100" y="6" text-anchor="middle" class="sketch-label">vorne</text>${zones.map(([name,x,y,w,h])=>`<rect class="zone ${marked.includes(name)?'marked':''}" data-zone="${esc(name)}" x="${x}" y="${y}" width="${w}" height="${h}" rx="4" tabindex="0" role="button" aria-label="${esc(name)}"><title>${esc(name)}</title></rect>`).join('')}<text x="100" y="361" text-anchor="middle" class="sketch-label">hinten</text></svg>`;}
+export function protocolFormHTML({kind,protocol={},order,company,submitLabel='Speichern',signLabel='Anzeigen & unterschreiben',id='protocolform',replacement=false}){
+  const p=protocol??{},checklist=p.checklist??{},photos=p.photos??[];
+  return `<form id="${id}" class="protocol-form" data-kind="${kind}" data-replacement="${replacement}">
+  <div class="sectiontitle">Fahrzeug und Übergabe</div>
+  <div class="grid2">${input('Kennzeichen','plate',p.plate??order?.source?.plate??'','autocapitalize="characters"')}${input('Datum / Uhrzeit · Europe/Berlin','at',berlinLocal(p.at),'type="datetime-local"')}${input('Übergabeort','location',p.location??order?.appointment?.location??order?.source?.address??'')}<label>Übergabeart<select name="delivery">${['','Kunde bringt','Abholung'].map(v=>`<option value="${v}" ${v===(p.delivery??order?.appointment?.delivery??'')?'selected':''}>${v||'—'}</option>`).join('')}</select></label>${input('Kilometerstand','mileage',p.mileage??'','type="number" min="0" step="1" inputmode="numeric"')}${input('Anzahl Schlüssel','keys',p.keys??'','type="number" min="0" max="20" step="1" inputmode="numeric"')}${input('Tank- bzw. Ladestand in %','fuel',p.fuel??'','type="number" min="0" max="100" step="5" inputmode="numeric"')}${input('Name des Kunden','customerName',p.customerName??order?.source?.name??'')}${input('Name des Betriebsvertreters','operatorName',p.operatorName??company?.owner??'')}</div>
+  <div class="sectiontitle">Zustand</div>
+  <div class="grid2"><label>Verschmutzung innen<select name="soilingInside">${soilingLevels.map((label,i)=>`<option value="${i||''}" ${String(p.soilingInside??'')===String(i||'')?'selected':''}>${label||'—'}</option>`).join('')}</select></label><label>Verschmutzung außen<select name="soilingOutside">${soilingLevels.map((label,i)=>`<option value="${i||''}" ${String(p.soilingOutside??'')===String(i||'')?'selected':''}>${label||'—'}</option>`).join('')}</select></label></div>
+  <label>Fahrzeugzustand / Schäden<textarea name="condition">${esc(p.condition)}</textarea></label>
+  <fieldset class="catalog-options"><legend>Checkliste</legend>${intakeChecks.map(([key,label])=>`<label class="check"><input type="checkbox" name="check-${key}" ${checklist[key]?'checked':''}>${esc(label)}</label>`).join('')}${input('Anmerkung zur Checkliste','checklistNote',p.checklistNote??'')}</fieldset>
+  <div class="sectiontitle">Schäden und Vorschäden</div><p class="hint">Bereich in der Skizze antippen oder Schaden manuell hinzufügen.</p>
+  <div class="damage-layout">${damageSketch((p.damages??[]).map(d=>d.area))}<div><div data-damages>${(p.damages??[]).map(damageRow).join('')}</div><button type="button" data-damage-add>Schaden hinzufügen</button></div></div>
+  <div class="sectiontitle">Lackschichtdicke messen</div><p class="hint">Bis zu 5 Messwerte pro Bauteil in µm. Werkslack liegt meist bei etwa 80–180 µm.</p>
+  ${input('Messgerät','paintDevice',p.paint?.device??'')}
+  <div data-paint-rows>${(p.paint?.readings??[]).map(paintRow).join('')}</div>
+  <div class="actions"><button type="button" data-paint-add>Messpunkt hinzufügen</button><button type="button" data-paint-standard>Alle Standardbauteile hinzufügen</button></div>
+  <label>Hinweise zur Lackmessung<textarea name="paintNotes">${esc(p.paint?.notes)}</textarea></label>
+  <label>Zusätzliche Hinweise<textarea name="notes">${esc(p.notes)}</textarea></label>
+  ${kind==='return'?`<label>Ausgeführte Leistungen<textarea name="services">${esc(p.services??order?.offer?.services??'')}</textarea></label><label>Offene Punkte<textarea name="openPoints">${esc(p.openPoints)}</textarea></label><label class="check"><input type="checkbox" name="workComplete" ${p.workComplete?'checked':''}>Die vereinbarten Arbeiten sind abgeschlossen.</label>`:''}
+  <div class="sectiontitle">Fotos</div>
+  ${photos.length?`<div class="photos keep-photos">${photos.map(photo=>`<label class="keep-photo"><img src="/api/asset/${esc(photo)}" alt="Gespeichertes Zustandsfoto"><span><input type="checkbox" name="keepPhoto" value="${esc(photo)}" checked> behalten</span></label>`).join('')}</div>`:''}
+  <div class="grid2"><label>Foto aufnehmen<input type="file" data-photo-input accept="image/*" capture="environment" multiple></label><label>Aus Galerie wählen<input type="file" data-photo-input accept="image/jpeg,image/png,image/webp" multiple></label></div>
+  <div class="actions sectiongap"><button class="primary" type="submit" data-submit="save">${submitLabel}</button>${signLabel?`<button type="submit" data-submit="sign">${signLabel}</button>`:''}</div>
+  <div class="error" id="form-error"></div></form>`;
+}
+export function mountProtocolForm(form){
+  if(!form)return;const damages=form.querySelector('[data-damages]'),rows=form.querySelector('[data-paint-rows]');
+  const mark=()=>{const areas=[...damages.querySelectorAll('[data-damage-area]')].map(s=>s.value);for(const zone of form.querySelectorAll('[data-zone]'))zone.classList.toggle('marked',areas.includes(zone.dataset.zone));};
+  const addDamage=area=>{damages.insertAdjacentHTML('beforeend',damageRow({area}));mark();damages.lastElementChild.querySelector('[data-damage-kind]').focus();};
+  form.addEventListener('click',e=>{
+    const zone=e.target.closest('[data-zone]');if(zone){addDamage(zone.dataset.zone);return;}
+    if(e.target.closest('[data-damage-add]'))addDamage('');
+    if(e.target.closest('[data-damage-remove]')){e.target.closest('[data-damage-row]').remove();mark();}
+    if(e.target.closest('[data-paint-add]'))rows.insertAdjacentHTML('beforeend',paintRow());
+    if(e.target.closest('[data-paint-standard]')){const present=new Set([...rows.querySelectorAll('[data-paint-panel]')].map(s=>s.value));rows.insertAdjacentHTML('beforeend',vehiclePanels.slice(0,15).filter(panel=>!present.has(panel)).map(panel=>paintRow({panel,values:[]})).join(''));}
+    if(e.target.closest('[data-paint-remove]'))e.target.closest('[data-paint-row]').remove();
+  });
+  form.addEventListener('keydown',e=>{const zone=e.target.closest?.('[data-zone]');if(zone&&(e.key==='Enter'||e.key===' ')){e.preventDefault();addDamage(zone.dataset.zone);}});
+  form.addEventListener('input',e=>{const row=e.target.closest('[data-paint-row]');if(row)row.querySelector('[data-paint-summary]').textContent=paintHint(paintValues(row));});
+  form.addEventListener('change',e=>{if(e.target.matches('[data-damage-area]'))mark();});
+}
+function paintValues(row){return [...row.querySelectorAll('[data-paint-value]')].map(i=>i.value.trim()).filter(Boolean).map(Number).filter(Number.isFinite).map(Math.round);}
+async function shrink(file){
+  // Very large camera images are reduced before upload; everything up to 15 MB stays original.
+  if(file.size<=14.5*1024*1024)return file;const bitmap=await createImageBitmap(file);try{const scale=Math.min(1,4096/Math.max(bitmap.width,bitmap.height)),canvas=document.createElement('canvas');canvas.width=Math.round(bitmap.width*scale);canvas.height=Math.round(bitmap.height*scale);canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.9));return new File([blob],'Foto.jpg',{type:'image/jpeg'});}finally{bitmap.close();}
+}
+// Reads the form, uploads new photos and returns the protocol for the server.
+export async function collectProtocol(form,upload,previous={}){
+  const f=form.elements,value=name=>f[name]?.value??'';
+  const kept=[...form.querySelectorAll('[name=keepPhoto]:checked')].map(i=>i.value);
+  const files=[];for(const fileInput of form.querySelectorAll('[data-photo-input]'))for(const file of fileInput.files)files.push(await shrink(file));
+  const added=files.length?await prepareProtocolPhotos(files,upload):{photos:[],photoPreviews:{}};
+  const damages=[];for(const row of form.querySelectorAll('[data-damage-row]')){const file=row.querySelector('[data-damage-file]').files[0];let photo=row.dataset.photo||'';if(file){const prepared=await prepareProtocolPhotos([await shrink(file)],upload);photo=prepared.photos[0];added.photos.push(photo);Object.assign(added.photoPreviews,prepared.photoPreviews);}damages.push({area:row.querySelector('[data-damage-area]').value,kind:row.querySelector('[data-damage-kind]').value,size:row.querySelector('[data-damage-size]').value,note:row.querySelector('[data-damage-note]').value,photo});}
+  const photos=[...new Set([...kept,...added.photos,...damages.map(d=>d.photo).filter(Boolean)])];
+  const photoPreviews={...Object.fromEntries(Object.entries(previous.photoPreviews??{}).filter(([id])=>photos.includes(id))),...added.photoPreviews};
+  const readings=[...form.querySelectorAll('[data-paint-row]')].map(row=>({panel:row.querySelector('[data-paint-panel]').value,values:paintValues(row)})).filter(r=>r.panel||r.values.length);
+  return {plate:value('plate'),at:value('at'),location:value('location'),delivery:value('delivery'),mileage:value('mileage'),keys:value('keys'),fuel:value('fuel'),customerName:value('customerName'),operatorName:value('operatorName'),soilingInside:value('soilingInside'),soilingOutside:value('soilingOutside'),condition:value('condition'),notes:value('notes'),checklistNote:value('checklistNote'),checklist:Object.fromEntries(intakeChecks.map(([key])=>[key,f['check-'+key]?.checked===true])),damages,paint:{device:value('paintDevice'),notes:value('paintNotes'),readings},photos,photoPreviews,...(form.dataset.kind==='return'?{services:value('services'),openPoints:value('openPoints'),workComplete:f.workComplete?.checked===true}:{})};
+}
+const pair=(label,value)=>`<div class="fieldpair"><span>${esc(label)}</span><span>${esc(value===null||value===undefined||value===''?'—':value)}</span></div>`;
+// Read-only view of a protocol, used in the panel, the Vor-Ort app and the customer's document page.
+export function protocolSummaryHTML(p,{assetUrl=id=>'/api/asset/'+encodeURIComponent(id),kind='intake'}={}){
+  if(!p)return '';const checks=intakeChecks.filter(([key])=>p.checklist?.[key]).map(([,label])=>label);
+  return `${p.replaces?`<p class="notice">Ersetzt ausdrücklich das ${p.replaces.signedAt?'am '+esc(shownDate(p.replaces.signedAt))+' ':''}unterschriebene Protokoll.</p>`:''}`+
+  pair('Kennzeichen',p.plate)+pair('Datum und Uhrzeit',p.at?shownDate(p.at):'')+pair('Ort',p.location)+pair('Übergabe',p.delivery)+pair('Kilometerstand',p.mileage===null||p.mileage===undefined||p.mileage===''?'':p.mileage+' km')+pair('Schlüssel',p.keys)+pair('Tank- bzw. Ladestand',p.fuel===null||p.fuel===undefined||p.fuel===''?'':p.fuel+' %')+pair('Verschmutzung innen',soilingLevels[p.soilingInside]??'')+pair('Verschmutzung außen',soilingLevels[p.soilingOutside]??'')+pair('Zustand / Schäden',p.condition)+pair('Checkliste',[...checks,p.checklistNote].filter(Boolean).join(' · '))+pair('Hinweise',p.notes)+
+  (kind==='return'?pair('Ausgeführte Leistungen',p.services)+pair('Offene Punkte',p.openPoints)+pair('Arbeitsabschluss',p.workComplete?'bestätigt':''):'')+
+  ((p.damages??[]).length?`<div class="sectiontitle">Schäden</div><ul class="timeline">${p.damages.map(d=>`<li><strong>${esc([d.area,d.kind,d.size].filter(Boolean).join(' · ')||'Schaden')}</strong>${d.note?'<br>'+esc(d.note):''}${d.photo?`<br><img class="damage-photo" src="${esc(assetUrl(d.photo))}" alt="Schadensfoto">`:''}</li>`).join('')}</ul>`:'')+
+  ((p.paint?.readings??[]).length?`<div class="sectiontitle">Lackschichtdicke${p.paint.device?' · '+esc(p.paint.device):''}</div><div class="tablewrap"><table><thead><tr><th>Bauteil</th><th>Messwerte (µm)</th><th>Auswertung</th></tr></thead><tbody>${p.paint.readings.map(r=>`<tr><td>${esc(r.panel||'—')}</td><td>${esc(r.values.join(' / '))}</td><td>${esc(paintHint(r.values))}</td></tr>`).join('')}</tbody></table></div>${p.paint.notes?`<p class="hint">${esc(p.paint.notes)}</p>`:''}`:'')+
+  ((p.photos??[]).length?`<div class="photos sectiongap">${p.photos.map(id=>`<img src="${esc(assetUrl(id))}" alt="Zustandsfoto">`).join('')}</div>`:'');
+}

@@ -17,7 +17,8 @@ export async function createApplication(env){
     try{
       const url=new URL(request.url);if(url.origin!==env.PANEL_ORIGIN)return errorResponse('Ungültiger Host.',400);
       if(url.pathname==='/healthz')return new Response('ok',{headers:{'Content-Type':'text/plain'}});
-      if(request.method==='GET'&&/^\/[a-zA-Z0-9_-]+\.(css|js|mjs)$/.test(url.pathname))return env.ASSETS.fetch(request);
+      // Scripts, styles, the web app manifest and icons are public; customer data never is.
+      if(request.method==='GET'&&/^\/[a-zA-Z0-9_-]+\.(css|js|mjs|webmanifest|png|svg)$/.test(url.pathname))return env.ASSETS.fetch(request);
       if(request.method==='GET'&&['/auth/login','/auth/verify'].includes(url.pathname))return loginPage();
       if(request.method==='POST'&&url.pathname==='/auth/request')return await requestLogin(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/redeem')return await redeemLogin(env,request);
@@ -25,7 +26,7 @@ export async function createApplication(env){
       if(request.method==='POST'&&url.pathname==='/auth/logout')return await logout(env,request);
       if(url.pathname==='/api/lexware/webhook')return await lexwareWebhook(request,env);
       const identity=await sessionIdentity(env,request);
-      if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/angebot\/[a-f0-9]{64}$/.test(url.pathname))login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
+      if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/(?:angebot|dokument)\/[a-f0-9]{64}$/.test(url.pathname)||url.pathname==='/vor-ort')login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
       const isOwner=digest(identity)===env.OWNER_EMAIL_SHA256;
       if(url.pathname==='/auth/password'){
         if(!isOwner)return errorResponse('Nur für den Betreiber vorgesehen.',403);
@@ -42,7 +43,7 @@ export async function createApplication(env){
         return authorization;
       }
       if(url.pathname==='/auth/calendar/callback'&&request.method==='GET')return calendarCallback(env,request,identity);
-      if(!isOwner&&!url.pathname.startsWith('/angebot/')&&!url.pathname.startsWith('/api/offer/'))return errorResponse('Dieser Zugang ist für das persönliche Angebot vorgesehen.',403);
+      if(!isOwner&&!['/angebot/','/api/offer/','/dokument/','/api/document/'].some(prefix=>url.pathname.startsWith(prefix)))return errorResponse('Dieser Zugang ist für das persönliche Angebot vorgesehen.',403);
       if(isOwner&&url.pathname==='/api/lexware/pdf'&&request.method==='GET')return await providerOperations.lexwarePDF(env,await (await import('../src/worker.mjs')).getOrder(env,url.searchParams.get('id')));
       if(isOwner&&url.pathname==='/api/protocol/pdf'&&request.method==='GET')return await providerOperations.protocolDownload(env,url.searchParams.get('id'),url.searchParams.get('kind'));
       if(isOwner&&url.pathname==='/api/check'&&request.method==='POST'){

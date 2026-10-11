@@ -51,9 +51,10 @@ test('mail configuration failure keeps a durable queue; later maintenance sends 
 test('synthetic protocols generate downloadable PDFs but never queue or send customer mail',async t=>{
   const f=await fixture(t,true);t.mock.method(globalThis,'fetch',()=>{throw Error('No test mail allowed');});const draft=await f.signed('intake'),result=await f.request('/api/action',{id:f.order.id,version:draft.version,action:'intake',input:draft.input});assert.equal(result.status,200);assert.equal((await result.json()).protocolDelivery.state,'test');assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM protocol_deliveries').first()).n,0);const saved=await getOrder(f.env,f.order.id);assert.equal((await protocolDocument(f.env,saved,'intake')).bytes.subarray(0,5).toString(),new Uint8Array([37,80,68,70,45]).toString());
 });
-test('missing signatures and failed atomic storage cannot create a mail job',async t=>{
-  const f=await fixture(t),draft=await f.signed('intake');const incomplete=await f.request('/api/action',{id:f.order.id,version:draft.version,action:'intake',input:{...draft.input,signaturesConfirmed:false}});assert.equal(incomplete.status,400);assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM protocol_deliveries').first()).n,0);
+test('unsigned protocols and failed atomic storage never create a mail job',async t=>{
+  const f=await fixture(t),draft=await f.signed('intake');
   t.mock.method(f.env.DB,'batch',()=>{throw Error('synthetic database failure');});assert.equal((await f.request('/api/action',{id:f.order.id,version:draft.version,action:'intake',input:draft.input})).status,500);assert.equal((await getOrder(f.env,f.order.id)).status,'Termin verbindlich');assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM protocol_deliveries').first()).n,0);
+  t.mock.restoreAll();const unsigned=await f.request('/api/action',{id:f.order.id,version:draft.version,action:'intake',input:{protocol:{plate:'TEST'}}});assert.equal(unsigned.status,200);assert.equal((await unsigned.json()).status,'In Arbeit');assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM protocol_deliveries').first()).n,0);
 });
 test('corrupt or foreign photos stop PDF email and anonymous/customer PDF downloads are denied',async t=>{
   const f=await fixture(t);await setting(f.env,'sendApproved',false);const draft=await f.signed('intake');await f.request('/api/action',{id:f.order.id,version:draft.version,action:'intake',input:draft.input});const saved=await getOrder(f.env,f.order.id);f.files.get(saved.intake.customerSignature).body=new Uint8Array([1,2]);await setting(f.env,'sendApproved',true);t.mock.method(globalThis,'fetch',()=>{throw Error('Corrupt PDF must not be sent');});assert.equal((await deliverProtocol(f.env,f.order.id,'intake')).state,'failed');
@@ -67,4 +68,15 @@ test('simultaneous delivery workers claim one protocol email and use the persist
 test('a queue insertion failure rolls back the signed order and its audit atomically',async t=>{
   const f=await fixture(t),draft=await f.signed('intake');await f.env.DB.prepare("CREATE TRIGGER reject_test_queue BEFORE INSERT ON protocol_deliveries BEGIN SELECT RAISE(ABORT,'synthetic queue error'); END").run();const before=(await f.env.DB.prepare('SELECT COUNT(*) n FROM audit').first()).n;
   const result=await f.request('/api/action',{id:f.order.id,version:draft.version,action:'intake',input:draft.input});assert.equal(result.status,500);assert.equal((await getOrder(f.env,f.order.id)).status,'Termin verbindlich');assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM audit').first()).n,before);assert.equal((await f.env.DB.prepare("SELECT COUNT(*) n FROM jobs WHERE kind='protocol-intake'").first()).n,0);
+});
+test('a replacement protocol signed by the customer is sent again and states which protocol it replaces',async t=>{
+  const f=await fixture(t),sent=[];t.mock.method(globalThis,'fetch',async(_url,options)=>{sent.push(JSON.parse(options.body));return new Response(JSON.stringify({id:'mail-'+sent.length}));});
+  const draft=await f.signed('intake');let order=await (await f.request('/api/action',{id:f.order.id,version:draft.version,action:'intake',input:draft.input})).json();assert.equal(sent.length,1);
+  order=await (await f.request('/api/action',{id:order.id,version:order.version,action:'replacement',input:{kind:'intake',protocol:{plate:'TEST-NEU',condition:'Nachgetragener Kratzer'}}})).json();assert.equal(sent.length,1);
+  const signature='data:image/png;base64,'+Buffer.concat([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ypcAAAAASUVORK5CYII=','base64'),Buffer.alloc(300)]).toString('base64');
+  const result=await f.request('/api/action',{id:order.id,version:order.version,action:'signReplacement',input:{kind:'intake',signature,inPerson:true}});assert.equal(result.status,200);order=await result.json();
+  assert.equal(order.protocolDelivery.state,'sent');assert.equal(sent.length,2);assert.match(sent[1].subject,/Ersatz/);assert.match(sent[1].text,/ersetzt ausdrücklich/);
+  const pdf=Buffer.from(sent[1].attachments[0].content,'base64');assert.equal(pdf.subarray(0,5).toString(),'%PDF-');
+  const download=await f.app.fetch(new Request(origin+'/api/protocol/pdf?id='+order.id+'&kind=intake',{headers:{cookie:f.cookie}}));assert.deepEqual(Buffer.from(await download.arrayBuffer()),pdf);
+  assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM protocol_deliveries').first()).n,1);assert.equal((await f.env.DB.prepare("SELECT COUNT(*) n FROM jobs WHERE kind LIKE 'protocol-intake%'").first()).n,2);
 });

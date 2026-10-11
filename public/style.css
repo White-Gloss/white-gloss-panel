@@ -9,3 +9,46 @@
 .price-line{display:grid;grid-template-columns:minmax(140px,1fr) minmax(180px,2fr) 125px auto;gap:14px;align-items:start;padding:16px 0;border-bottom:1px solid var(--line)}.price-line textarea{min-height:65px}.price-line>button{margin-top:26px}.price-breakdown>div{display:flex;justify-content:space-between;gap:20px;padding:14px 0;border-bottom:1px solid var(--line);font-size:13px}.price-breakdown small{display:block;color:var(--muted);margin-top:5px;white-space:pre-wrap}.price-breakdown strong{white-space:nowrap}@media(max-width:900px){.price-line{grid-template-columns:1fr 1fr}.price-line>button{margin-top:26px}}@media(max-width:480px){.price-line{grid-template-columns:1fr}.price-line>button{margin-top:0}}
 
 .photos video{width:min(320px,100%);max-height:220px;border-radius:8px}.photos img{width:150px;height:110px}
+/* Ergänzungen: Links als Schaltflächen, Kundenstamm, Ersatzdokumente, Protokollformular und Vor-Ort-App */
+a.button{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:white;color:var(--ink);border-radius:9px;padding:10px 15px;font-size:13px;font-weight:600;text-decoration:none}
+a.button .icon{width:16px;height:16px}
+.nav .navlink{display:flex;align-items:center;gap:12px;color:#707c8a;padding:12px;text-decoration:none;font-size:13px;font-weight:600;border-top:1px solid var(--line);margin-top:8px}
+.nav .navlink .icon{width:18px;height:18px}
+.toolbar input[type=search]{width:100%;max-width:520px}
+.pending{border-left:4px solid var(--warn)}
+.price-note{font-style:italic}
+.timeline li.cancelled{opacity:.6;text-decoration:line-through}
+.timeline .actions{margin-top:6px}
+.damage-layout{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:18px;align-items:start}
+.damage-sketch{width:100%;max-width:220px;height:auto;background:#f7f9fb;border-radius:10px;padding:6px}
+.damage-sketch .zone{fill:#eef3f8;stroke:var(--blue);stroke-width:1;cursor:pointer}
+.damage-sketch .zone:hover,.damage-sketch .zone:focus{fill:#dce6f1;outline:none}
+.damage-sketch .zone.marked{fill:#f3d6d4;stroke:var(--red)}
+.damage-sketch .sketch-label{font-size:8px;fill:var(--muted)}
+.damage-row,.paint-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;align-items:end;padding:10px;border:1px solid var(--line);border-radius:9px;margin-bottom:10px;background:white}
+.paint-row{grid-template-columns:minmax(160px,220px) 1fr minmax(160px,1fr) auto}
+.paint-values{display:grid;grid-template-columns:repeat(5,minmax(52px,1fr));gap:6px}
+.paint-values input{text-align:center;padding-left:4px;padding-right:4px}
+.keep-photos .keep-photo{display:flex;flex-direction:column;gap:4px;font-size:12px}
+.damage-photo{max-width:160px;border-radius:7px;margin-top:6px}
+.document-page{max-width:760px}
+.document-page table{width:100%}
+@media(max-width:760px){.damage-layout{grid-template-columns:1fr}.damage-sketch{max-width:200px;margin:0 auto;display:block}.paint-row{grid-template-columns:1fr}.paint-values{grid-template-columns:repeat(5,1fr)}.tabs{overflow-x:auto;white-space:nowrap}.actions{flex-wrap:wrap}}
+/* Vor-Ort-App: große Bedienelemente für Handy und Tablet */
+.vo{max-width:720px;margin:0 auto;padding:0 16px 96px;min-height:100vh}
+.vo-top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:12px 0;background:#f6f7f9}
+.vo-top h1{font-size:18px;margin:0;flex:1}
+.vo .card{padding:16px;margin-bottom:14px}
+.vo button,.vo a.button,.vo input,.vo select,.vo textarea{min-height:48px;font-size:16px}
+.vo .big{width:100%;justify-content:center;padding:16px;font-size:17px}
+.vo-steps{display:flex;gap:6px;margin:4px 0 14px}
+.vo-steps span{flex:1;height:5px;border-radius:3px;background:var(--line)}
+.vo-steps span.done{background:var(--blue)}
+.vo-list{display:flex;flex-direction:column;gap:10px}
+.vo-item{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;text-align:left;padding:14px;border:1px solid var(--line);border-radius:12px;background:white}
+.vo-item small{display:block;color:var(--muted);font-weight:500}
+.vo-choice{display:grid;grid-template-columns:1fr;gap:8px}
+.vo-choice label{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:12px;background:white}
+.vo-total{display:flex;justify-content:space-between;font-size:20px;font-weight:700;margin:12px 0}
+.vo-bar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:10px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:white;border-top:1px solid var(--line);z-index:6}
+.vo-bar button{flex:1}

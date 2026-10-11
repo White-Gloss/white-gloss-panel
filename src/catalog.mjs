@@ -1,6 +1,14 @@
 // Geprüfter Auszug aus White-Gloss/glanz-buchung-meister, src/data/site.ts, 01.10.2026.
 export const catalogCheckedAt='2026-10-01';
 function catalogNeed(ok,message){if(!ok)throw Object.assign(new Error(message),{status:400});}
+// Fester Kundenhinweis zu allen Preisen; gilt für Angebote, Vor-Ort-Annahme und PDFs.
+export const priceNote='Stellt sich der Aufwand vor Ort als höher heraus, kann sich der Preis nach Absprache mit dem Kunden noch ändern.';
+// Richtwerte für die Termindauer je Paket in Minuten (Keramikschutz ca. 2 Tage).
+export const packageMinutes={basis:180,premium:360,keramik:2880};
+export const vehiclePanels=['Motorhaube','Dach','Heckklappe / Kofferraum','Kotflügel vorne links','Kotflügel vorne rechts','Tür vorne links','Tür vorne rechts','Tür hinten links','Tür hinten rechts','Seitenteil hinten links','Seitenteil hinten rechts','Stoßfänger vorne','Stoßfänger hinten','Schweller links','Schweller rechts','A-Säule links','A-Säule rechts','Außenspiegel links','Außenspiegel rechts','Felgen','Scheiben','Innenraum'];
+export const damageKinds=['Kratzer','Delle','Steinschlag','Lackabplatzer','Riss','Swirls / Hologramme','Ätzung / Vogelkot','Wasserflecken','Rost','Fleck / Verschmutzung','Brandloch','Sonstiges'];
+export const soilingLevels=['','1 · Leicht','2 · Normal','3 · Stark','4 · Extrem'];
+export const intakeChecks=[['valuablesRemoved','Wertsachen entnommen bzw. mit Kunde geklärt'],['warningLights','Warnleuchten im Kombiinstrument aktiv'],['damageKnown','Vorschäden mit dem Kunden besprochen'],['waterAvailable','Wasser vor Ort verfügbar'],['powerAvailable','Strom vor Ort verfügbar']];
 export function extraIncluded(packageId,extraId){return packageId==='keramik'&&['glas','leder'].includes(extraId);}
 export function catalogQuote(selection){
   const pack=packages.find(p=>p.id===selection.packageId),klass=vehicleClasses.find(c=>c.id===selection.classId);
@@ -15,10 +23,11 @@ export function catalogQuote(selection){
   catalogNeed(!selection.citySlug||city,'Abholort ist unbekannt.');
   let distanceKm=null,pickupCents=0,pickupOnRequest=false,pickupIncluded=false;
   if(selection.delivery==='Abholung'){
-    distanceKm=city?city.km:Number(selection.pickupKm);
-    catalogNeed((city||(selection.pickupKm!==''&&selection.pickupKm!=null))&&Number.isFinite(distanceKm)&&distanceKm>=0&&distanceKm<=2000,'Bitte eine gültige einfache Abholentfernung in km angeben.');
-    pickupIncluded=pack.id===pickupPricing.freeWithPackageId&&distanceKm<=pickupPricing.freeUpToKm;
-    const tier=pickupPricing.tiers.find(t=>distanceKm<=t.maxKm);
+    // Without city or distance the pickup stays "on request"; a given distance must be valid.
+    const known=city||(selection.pickupKm!==''&&selection.pickupKm!=null);distanceKm=city?city.km:known?Number(selection.pickupKm):null;
+    catalogNeed(!known||Number.isFinite(distanceKm)&&distanceKm>=0&&distanceKm<=2000,'Bitte eine gültige einfache Abholentfernung in km angeben.');
+    pickupIncluded=known&&pack.id===pickupPricing.freeWithPackageId&&distanceKm<=pickupPricing.freeUpToKm;
+    const tier=known?pickupPricing.tiers.find(t=>distanceKm<=t.maxKm):null;
     pickupOnRequest=!pickupIncluded&&!tier;
     pickupCents=pickupIncluded?0:tier?.amountCents??null;
     if(pickupOnRequest&&selection.customPickupCents!==undefined&&selection.customPickupCents!==''){
@@ -33,8 +42,9 @@ export function catalogQuote(selection){
 }
 export function manualCatalogSource(selection){
   const quote=catalogQuote(selection);
-  catalogNeed(quote.totalCents!==null,'Abholung außerhalb der Staffel: Bitte einen individuellen Abholpreis festlegen.');
-  return {package:quote.packageName,packageId:quote.packageId,vehicleClass:quote.className,classId:quote.classId,extras:quote.extras.map(e=>e.name),extraIds:quote.extras.map(e=>e.id),delivery:quote.delivery,pickupKm:quote.distanceKm,amountCents:quote.totalCents,pickupCents:quote.pickupCents,...(quote.city?{city:quote.city,citySlug:quote.citySlug}:{}),catalogQuote:quote};
+  // A pickup outside the tiers without own price is recorded as "on request" with 0 € until priced.
+  const pickupCents=quote.pickupCents??0;
+  return {package:quote.packageName,packageId:quote.packageId,vehicleClass:quote.className,classId:quote.classId,extras:quote.extras.map(e=>e.name),extraIds:quote.extras.map(e=>e.id),delivery:quote.delivery,pickupKm:quote.distanceKm,amountCents:quote.packageCents+quote.extrasCents+pickupCents,pickupCents,pickupOnRequest:quote.pickupCents===null,...(quote.city?{city:quote.city,citySlug:quote.citySlug}:{}),catalogQuote:quote};
 }
 export const vehicleClasses = [
   {

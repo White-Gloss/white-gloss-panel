@@ -12,13 +12,13 @@ function useEmail(setup){
   recovery.hidden=true;authMessage.textContent='';
 }
 if(authToken){authForm.innerHTML='<button class="primary" type="submit">Persönliche Anmeldung bestätigen</button>';document.querySelector('#auth-description').textContent='Bestätige die Anmeldung. Dieser Link kann einmal verwendet werden.';recovery.hidden=true;if(authURL.searchParams.get('pin')==='required')requirePin();history.replaceState(null,'','/auth/verify');}
-else if(/^\/angebot\/[a-f0-9]{64}$/.test(authReturn))useEmail(false);
+else if(/^\/(?:angebot|dokument)\/[a-f0-9]{64}$/.test(authReturn))useEmail(false);
 else if(authURL.searchParams.get('setup')==='1')useEmail(true);
 recovery.addEventListener('click',()=>useEmail(true));
 authForm.addEventListener('submit',async event=>{
   event.preventDefault();const button=authForm.querySelector('button');button.disabled=true;authMessage.textContent='';
   try{
-    const body=authToken?{token:authToken,pin:document.querySelector('#auth-pin')?.value}:emailMode?{email:document.querySelector('#auth-email').value,returnTo:authReturn}:{email:document.querySelector('#auth-email').value,password:document.querySelector('#auth-password').value};
+    const body=authToken?{token:authToken,pin:document.querySelector('#auth-pin')?.value}:emailMode?{email:document.querySelector('#auth-email').value,returnTo:authReturn}:{email:document.querySelector('#auth-email').value,password:document.querySelector('#auth-password').value,returnTo:authReturn};
     const result=await fetch(authToken?'/auth/redeem':emailMode?'/auth/request':'/auth/password/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const data=await result.json();if(!result.ok){if(data.pinRequired)requirePin();throw Error(data.error);}
     if(data.returnTo)location.replace(data.returnTo);else authMessage.textContent=data.message;
