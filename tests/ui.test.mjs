@@ -76,6 +76,8 @@ test('panel: create, edit every step, sign on site, protocol with paint thicknes
   current=await getOrder(ui.env,o.id);assert.equal(current.payments[0].amountCents,5000);
   await ui.click('[data-payment-edit="0"]');ui.fill(ui.$('#paymenteditform'),{amount:'45,50'});await ui.submit('#paymenteditform');
   current=await getOrder(ui.env,o.id);assert.equal(current.payments[0].amountCents,4550);assert.equal(current.payments[0].history[0].amountCents,5000);
+  await ui.click('[data-payment-cancel="0"]');current=await getOrder(ui.env,o.id);assert.ok(current.payments[0].cancelledAt);
+  await ui.click('[data-payment-reactivate="0"]');current=await getOrder(ui.env,o.id);assert.equal(current.payments[0].cancelledAt,undefined);
   // Admin status change.
   await ui.click('[data-tab="notes"]');ui.fill(ui.$('#statusform'),{status:'Bezahlt',reason:'Rest bar erhalten'});await ui.submit('#statusform');
   current=await getOrder(ui.env,o.id);assert.equal(current.status,'Bezahlt');
@@ -175,5 +177,13 @@ test('Vor-Ort app: an invalid surcharge is shown and blocks the next step',async
   const form=ui.$('#s-form');form.elements.surcharge.value='12,345';form.dispatchEvent(new ui.w.Event('input',{bubbles:true}));
   assert.match(ui.$('#s-total').textContent,/höchstens zwei Nachkommastellen/);await ui.submit(form);await ui.settle();assert.ok(ui.$('#s-form'),'bleibt bei den Leistungen');
   form.elements.surcharge.value='12,50';form.dispatchEvent(new ui.w.Event('input',{bubbles:true}));await ui.submit(form);await ui.settle();assert.ok(ui.$('#a-form'));
+  assert.deepEqual(ui.errors,[]);
+});
+
+test('panel: a new order for a customer takes the vehicle class from the chosen vehicle',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});await ui.click('[data-click="test"]');await ui.click('[data-view="customers"]');
+  await ui.click('[data-click="newCustomer"]');ui.fill(ui.$('#customerform'),{name:'Klasse Kunde'});await ui.submit('#customerform');
+  const vehicleForm=ui.$('.vehicleform[data-customer]');ui.fill(vehicleForm,{plate:'TR-1',label:'Sprinter',classId:'transporter'});await ui.submit(vehicleForm);
+  await ui.click(ui.$('#modal [data-new-order]'));const create=ui.$('#createform');assert.equal(create.elements.classId.value,'transporter');assert.match(ui.$('#manual-quote').textContent,/230,95/);
   assert.deepEqual(ui.errors,[]);
 });

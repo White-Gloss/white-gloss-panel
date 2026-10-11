@@ -125,7 +125,7 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     const payments=o.payments??[];const index=input.id?payments.findIndex(p=>p.id===input.id):Number(input.index);need(Number.isInteger(index)&&payments[index],'Zahlung nicht gefunden.',404);
     const old=payments[index],{history:previous=[],...snapshot}=old,next={...old,history:[...previous,{...snapshot,changedAt:now}]};
     if(input.cancelled===true)next.cancelledAt=now;
-    else{if(input.amountCents!==undefined){next.amountCents=cents(input.amountCents);need(next.amountCents>0,'Zahlungsbetrag muss positiv sein.');}if(input.at)next.at=optionalTime(input.at);if(input.method!==undefined){next.method=text(input.method,40);need(['Überweisung','Karte','Bar'].includes(next.method),'Zahlungsart ist ungültig.');}if(input.note!==undefined)next.note=text(input.note,500);delete next.cancelledAt;}
+    else{if(input.amountCents!==undefined){next.amountCents=cents(input.amountCents);need(next.amountCents>0,'Zahlungsbetrag muss positiv sein.');}if(input.at)next.at=optionalTime(input.at);if(input.method!==undefined){next.method=text(input.method,40);need(['Überweisung','Karte','Bar'].includes(next.method),'Zahlungsart ist ungültig.');}if(input.note!==undefined)next.note=text(input.note,500);if(input.reactivate===true)delete next.cancelledAt;}
     o.payments=payments.map((p,i)=>i===index?next:p);
     need(input.allowOverpayment===true||!o.offer||paidCents(o)<=o.offer.totalCents||paidCents(o)<=paidCents(order),'Korrektur überschreitet den vereinbarten Festpreis. Bitte Betrag prüfen oder Überzahlung ausdrücklich bestätigen.',409);settle(o);
   }

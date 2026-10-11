@@ -153,3 +153,21 @@ test('on-site bookings are checked against the business calendar before they are
   assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM orders').get().n,0);assert.equal(e.files.size,0);
   assert.equal((await req(e,'onsite',{synthetic:true,source:{name:'Ohne Termin'},appointment:{skip:true}})).status,200);assert.equal(calls.length,1);
 });
+
+test('second review round: cancelled payments stay cancelled, consent opt-out wins, parallel signatures leave one file row',async t=>{
+  const {transition}=await import('../src/domain.mjs');const now='2026-10-01T12:00:00.000Z';
+  let o=transition({id:'x',status:'Erledigt',offer:{totalCents:1000},payments:[],source:{}},'payment',{amountCents:1000},now);assert.equal(o.status,'Bezahlt');
+  o=transition(o,'paymentEdit',{id:o.payments[0].id,cancelled:true},now);assert.equal(o.status,'Erledigt');
+  o=transition(o,'paymentEdit',{id:o.payments[0].id,note:'nur Notiz'},now);assert.ok(o.payments[0].cancelledAt);assert.equal(o.status,'Erledigt');
+  o=transition(o,'paymentEdit',{id:o.payments[0].id,reactivate:true},now);assert.equal(o.payments[0].cancelledAt,undefined);assert.equal(o.status,'Bezahlt');
+  const e=env(t);e.CUSTOMER_ACCESS_APPROVED='true';const c=await ok(e,'customer',{synthetic:true,customer:{name:'Einwilligung',reviewConsent:true}});
+  assert.equal((await ok(e,'create',{synthetic:true,customerId:c.id,source:{reviewConsent:false}})).source.reviewConsent,false);
+  assert.equal((await ok(e,'create',{synthetic:true,customerId:c.id,source:{}})).source.reviewConsent,false);// synthetic orders never carry consent
+  let order=await ok(e,'onsite',{synthetic:true,source:{name:'Parallel'},assessment:{lines},acceptance:{signature},appointment:{skip:true}});
+  order=await ok(e,'action',{id:order.id,version:order.version,action:'replacement',input:{kind:'offer'}});order=await ok(e,'action',{id:order.id,version:order.version,action:'documentLink',input:{kind:'offer'}});
+  const route='document/'+order.pending.offer.token,shown=await ok(e,route,undefined,'synthetisch@example.invalid'),snapshotHash=createHash('sha256').update(JSON.stringify(shown)).digest('hex');
+  const before=e.DB.sql.prepare("SELECT COUNT(*) n FROM assets WHERE kind='acceptance'").get().n;
+  const results=await Promise.all([1,2,3].map(()=>req(e,route,{signature,confirmed:true,paymentObligation:true,snapshotHash},'synthetisch@example.invalid')));
+  assert.equal(results.filter(r=>r.status===200).length,1);assert.equal(e.DB.sql.prepare("SELECT COUNT(*) n FROM assets WHERE kind='acceptance'").get().n,before+1);
+  const stored=e.DB.sql.prepare("SELECT id FROM assets WHERE kind='acceptance'").all().map(r=>r.id);for(const id of stored)assert.ok(await e.BUCKET.get(id),'Datei zur Zeile vorhanden');
+});
