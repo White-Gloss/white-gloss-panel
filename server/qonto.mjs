@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { configuration, init } from "../src/worker.mjs";
-import { AppError, need, cents } from "../src/domain.mjs";
+import { AppError, need, cents, paidCents } from "../src/domain.mjs";
+import { assertRecordOperation } from "../src/record-compat.mjs";
 
 // Qonto Business API · https://docs.qonto.com
 // Authentifizierung mit Organisations-Login und Secret Key: "Authorization: {login}:{secret}".
@@ -416,6 +417,8 @@ export function qontoClientPayload(order, billing) {
   };
 }
 export async function qontoInventory(env, order) {
+  // Gesperrte Kundenakten erreichen Qonto auch nicht über die Vorschau.
+  assertRecordOperation(order, "invoice");
   need(!order.synthetic, "Testaufträge haben keine externen Rechnungskunden.", 409);
   const config = await qontoAccess(env);
   const clients = await qontoFindClients(config, order);
@@ -430,6 +433,7 @@ export async function qontoInventory(env, order) {
     dueDate: addDays(issueDate, PAYMENT_TERM_DAYS),
     paymentTermDays: PAYMENT_TERM_DAYS,
     customerEmail: validEmail(order.source.email) ? email(order.source.email) : "",
+    paidCents: paidCents(order),
     mailReady: config.emailVerified === true && config.sendApproved === true && Boolean(config.sender),
   };
 }
@@ -493,6 +497,12 @@ export function eligibleForInvoice(order, input) {
     Object.hasOwn(VAT_OPTIONS, String(input.vatBasisPoints)) && Number.isInteger(input.vatBasisPoints),
     "Bitte den Umsatzsteuersatz auswählen.",
   );
+  if (input.mode === "invoice")
+    need(
+      paidCents(order) === 0,
+      "Für diesen Auftrag sind bereits Zahlungen erfasst. Eine Rechnung über einen Restbetrag ist nicht vorgesehen: Zahlung vollständig erfassen und als Quittung abrechnen oder die Teilzahlung im Auftrag stornieren.",
+      409,
+    );
   if (input.mode === "paid") {
     need(["Bar", "Karte", "Überweisung"].includes(input.paymentMethod), "Bitte die Zahlungsart auswählen.");
     need(validDay(input.paidAt) && input.paidAt <= berlinDay(), "Zahlungsdatum muss ein gültiger Tag bis heute sein.");

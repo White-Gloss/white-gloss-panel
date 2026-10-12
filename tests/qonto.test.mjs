@@ -653,3 +653,70 @@ test("customer portal and reminders use the issued invoice snapshot even if the 
   assert.equal(view.invoice.openCents, 34900);
   assert.equal((await invoiceInfo(env, changed)).openCents, 34900);
 });
+
+test("partial payments block a full invoice; restricted records never reach Qonto, not even for the preview", async (t) => {
+  const partial = completedOrder({ payments: [{ id: "p1", amountCents: 10000, at: "2026-10-02T15:00:00.000Z", method: "Bar" }] });
+  assert.throws(() => qontoInvoicePayload(partial, newClientInput(), randomUUID(), iban), /bereits Zahlungen erfasst/);
+  const blocked = await fixture(t, completedOrder({ recordsRestriction: { status: "blocked" } }));
+  const qonto = providers(t);
+  await assert.rejects(qontoInventory(blocked.env, blocked.order), /gesperrt/);
+  assert.equal(qonto.calls.length, 0);
+});
+
+test("a changed customer e-mail cancels a waiting invoice mail instead of sending to the old address", async (t) => {
+  const { env, order } = await fixture(t);
+  const qonto = providers(t, { attachmentReady: false });
+  await qontoInvoice(env, order, newClientInput());
+  const changed = await getOrder(env, order.id);
+  changed.source.email = "neu@example.invalid";
+  await env.DB.prepare("UPDATE orders SET data=?,version=version+1 WHERE id=?").bind(JSON.stringify(changed), order.id).run();
+  qonto.attachmentReady = true;
+  const result = await deliverInvoiceMail(env, order.id, "invoice");
+  assert.equal(result.state, "cancelled");
+  assert.equal(qonto.mails.length, 0);
+  assert.equal((await resendInvoiceMail(env, await getOrder(env, order.id))).state, "sent");
+  assert.deepEqual(qonto.mails[0].to, ["neu@example.invalid"]);
+});
+
+test("resuming onto an invoice already paid in Qonto records the payment", async (t) => {
+  const { env, order } = await fixture(t);
+  const client = existingClient(),
+    input = newClientInput({ sendMail: false });
+  providers(t, {
+    clients: [client],
+    invoices: [existingInvoice(order, client, input, "paid", { paid_at: berlinDay() })],
+  });
+  const inventory = await qontoInventory(env, order);
+  const result = await qontoInvoice(env, order, {
+    ...input,
+    billing: undefined,
+    clientId: client.id,
+    clientReviewHash: inventory.clients[0].reviewHash,
+  });
+  assert.equal(result.order.invoice.status, "paid");
+  assert.equal(result.order.status, "Bezahlt");
+  assert.equal(result.order.payments.at(-1).source, "qonto");
+});
+
+test("receipt keeps the actual earlier payment day; Qonto gets the invoice date at the earliest", async (t) => {
+  const { env, order } = await fixture(t);
+  const qonto = providers(t);
+  const yesterday = addDays(berlinDay(), -1);
+  const result = await qontoInvoice(env, order, newClientInput({ mode: "paid", paymentMethod: "Karte", paidAt: yesterday, sendMail: false }));
+  assert.equal(result.order.invoice.paidAt, yesterday);
+  assert.deepEqual(qonto.calls.find((call) => call.url.endsWith("/mark_as_paid")).body, { paid_at: berlinDay() });
+  assert.match(qonto.invoices[0].footer, /per Kartenzahlung/);
+  const synced = await syncQontoInvoice(env, result.order);
+  assert.equal(synced.invoice.paidAt, yesterday);
+});
+
+test("marking a backdated panel payment as paid in Qonto uses at least the invoice date", async (t) => {
+  const { env, order } = await fixture(t);
+  const qonto = providers(t);
+  const created = await qontoInvoice(env, order, newClientInput({ sendMail: false }));
+  const paid = { ...created.order, payments: [{ id: "p", amountCents: 34900, at: new Date(Date.now() - 5 * 86400000).toISOString(), method: "Bar" }] };
+  await env.DB.prepare("UPDATE orders SET data=?,version=version+1 WHERE id=?").bind(JSON.stringify(paid), order.id).run();
+  const saved = await qontoMarkPaid(env, await getOrder(env, order.id));
+  assert.deepEqual(qonto.calls.filter((call) => call.url.endsWith("/mark_as_paid")).at(-1).body, { paid_at: created.order.invoice.issueDate });
+  assert.equal(saved.invoice.paidAt, berlinDay(paid.payments[0].at));
+});

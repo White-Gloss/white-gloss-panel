@@ -141,12 +141,6 @@ export async function qontoInvoice(env, order, input) {
       409,
     );
   }
-  if (input.mode === "invoice")
-    need(
-      paidCents(order) < order.offer.totalCents,
-      "Der volle Betrag ist bereits als bezahlt erfasst. Bitte „Bereits bezahlt · Quittung“ wählen.",
-      409,
-    );
   let claim = await claimRow(env, order.id);
   need(
     !claim || claim.provider === "qonto",
@@ -341,6 +335,16 @@ export async function qontoInvoice(env, order, input) {
         cashConfirmed: input.paymentMethod === "Bar",
         note: "Quittung zu Rechnung " + remote.number,
       });
+    else if (remote.status === "paid" && open > 0) {
+      // Bei der Fortsetzung bereits in Qonto bezahlt: Zahlung wie beim Zahlungsabgleich übernehmen.
+      updated = transition(updated, "payment", {
+        amountCents: open,
+        at: paidMoment(summary.paidAt),
+        method: "Überweisung",
+        note: "Zahlungseingang laut Qonto · Rechnung " + summary.number,
+      });
+      updated.payments[updated.payments.length - 1].source = "qonto";
+    }
     const token = randomBytes(32).toString("hex"),
       now = new Date().toISOString(),
       operationId = randomUUID();
@@ -356,6 +360,8 @@ export async function qontoInvoice(env, order, input) {
       })),
       mode: input.mode,
       paymentMethod: input.mode === "paid" ? input.paymentMethod : null,
+      // Tatsächlicher Zahlungstag der Quittung (Qonto erhält höchstens das Rechnungsdatum).
+      ...(input.mode === "paid" ? { paidAt: input.paidAt } : {}),
       vatBasisPoints: input.vatBasisPoints,
       clientId: client.id,
       portalToken: token,
@@ -440,7 +446,7 @@ export async function syncQontoInvoice(env, order) {
   need(current.invoice?.id === remote.id, "Die Rechnungszuordnung hat sich geändert.", 409);
   let updated = structuredClone(current),
     changed = false;
-  for (const key of ["status", "paidAt", "dueDate"])
+  for (const key of updated.invoice.mode === "paid" ? ["status", "dueDate"] : ["status", "paidAt", "dueDate"])
     if (summary[key] !== null && updated.invoice[key] !== summary[key]) {
       updated.invoice[key] = summary[key];
       changed = true;
@@ -481,17 +487,18 @@ export async function qontoMarkPaid(env, order) {
   );
   const config = await qontoAccess(env),
     last = (order.payments ?? []).filter((payment) => !payment.cancelledAt).map((payment) => payment.at).sort().at(-1),
-    paidAt = last ? [berlinDay(last), berlinDay()].sort()[0] : berlinDay();
+    paidAt = last ? [berlinDay(last), berlinDay()].sort()[0] : berlinDay(),
+    providerPaidAt = validDay(order.invoice.issueDate) && paidAt < order.invoice.issueDate ? order.invoice.issueDate : paidAt;
   const remote = (
     await qontoJSON(config, "/v2/client_invoices/" + order.invoice.id + "/mark_as_paid", {
       method: "POST",
-      body: JSON.stringify({ paid_at: paidAt }),
+      body: JSON.stringify({ paid_at: providerPaidAt }),
       beforeSend: () => assertCurrentRecordOperation(env, order, "payment", order.version),
     })
   ).client_invoice;
   need(remote?.id === order.invoice.id && remote.status === "paid", "Qonto hat die Zahlung nicht bestätigt.", 502);
   const current = await getOrder(env, order.id);
-  current.invoice = { ...current.invoice, status: "paid", paidAt: invoiceSummary(remote).paidAt ?? paidAt };
+  current.invoice = { ...current.invoice, status: "paid", paidAt };
   const saved = await saveOrder(env, current, current.version, "Rechnung in Qonto als bezahlt markiert", "provider");
   await cancelOpenReminders(env, order.id, "In Qonto als bezahlt markiert – keine Mahnung.");
   return saved;
@@ -725,6 +732,19 @@ export async function deliverInvoiceMail(env, orderId, kind) {
     need(order.invoice?.provider === "qonto" && !order.synthetic, "Keine Qonto-Rechnung für diesen Versand.", 409);
     const issue = recordOperationIssue(order, "send");
     need(!issue, issue, 409);
+    if (email(order.source.email) !== record.recipient) {
+      await finishJob(
+        env,
+        record.job_id,
+        "cancelled",
+        null,
+        "Kunden-E-Mail wurde geändert – nicht an die alte Adresse versendet. Bitte erneut senden.",
+      );
+      return {
+        state: "cancelled",
+        message: "Die Kunden-E-Mail wurde geändert. Es wurde nichts an die alte Adresse gesendet; bitte erneut senden.",
+      };
+    }
     if (isReminder(kind)) {
       order = await syncQontoInvoice(env, order);
       if (
