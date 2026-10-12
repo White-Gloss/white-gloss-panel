@@ -30,7 +30,7 @@ Am Laptop bleibt das Panel (`/`) die vollständige Oberfläche. Beide nutzen die
 - Zahlungen werden in Euro erfasst und können korrigiert oder storniert werden. Die bisherige
   Angabe bleibt in der Zahlung gespeichert. Anzahlungen vor Abschluss sind möglich.
 - Weiterhin unverändert: WG-Nummernabgleich vor dem ersten echten Auftrag, Überschneidungsprüfung
-  der Termine, Lexware-Rechnung erst nach Abschluss mit ausdrücklicher Prüfung, Versand nur nach
+  der Termine, Qonto-Rechnung erst nach Abschluss mit ausdrücklicher Prüfung, Versand nur nach
   Freigabe.
 
 ## Unterschriebene Dokumente

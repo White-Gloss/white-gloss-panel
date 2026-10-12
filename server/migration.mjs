@@ -11,14 +11,14 @@ function decryptEnvelope(envelope,privateKeyPem,origin,now,purpose){
 }
 export function openMigration(envelope,privateKeyPem,origin,now=Date.now()){
   const values=decryptEnvelope(envelope,privateKeyPem,origin,now,'providers');
-  const allowed=new Set(['resendKey','sender','reviewUrl','emailVerified','lexwareKey','lexwareVerified']);need(values&&Object.keys(values).every(key=>allowed.has(key)),'Unbekannte Zugangsdaten in der Übertragung.');
-  need(values.resendKey||values.lexwareKey,'Anbieterzugang fehlt.');
+  const allowed=new Set(['resendKey','sender','reviewUrl','emailVerified','qontoKey','qontoLogin','qontoVerified']);need(values&&Object.keys(values).every(key=>allowed.has(key)),'Unbekannte Zugangsdaten in der Übertragung.');
+  need(values.resendKey||values.qontoKey,'Anbieterzugang fehlt.');
   if(values.resendKey)need(typeof values.resendKey==='string'&&values.resendKey.length>10&&typeof values.sender==='string','Resend-Zugang ist unvollständig.');
-  if(values.lexwareKey)need(typeof values.lexwareKey==='string'&&values.lexwareKey.length>10,'Lexware-Zugang ist unvollständig.');return values;
+  if(values.qontoKey)need(typeof values.qontoKey==='string'&&values.qontoKey.length>10&&typeof values.qontoLogin==='string'&&values.qontoLogin.length>0,'Qonto-Zugang ist unvollständig.');return values;
 }
 export async function applyMigration(env,envelope,privateKeyPem,now=Date.now()){
-  const values=openMigration(envelope,privateKeyPem,env.PANEL_ORIGIN,now);await init(env);const existing=await settings(env);need(!values.resendKey||!existing.resendKey,'Ein vorhandener Serverzugang wird nicht überschrieben.');need(!values.lexwareKey||!existing.lexwareKey,'Ein vorhandener Lexware-Zugang wird nicht überschrieben.');
-  const statements=await Promise.all(Object.entries(values).map(async([key,value])=>env.DB.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind(key,JSON.stringify(['emailVerified','lexwareVerified'].includes(key)?false:['resendKey','lexwareKey'].includes(key)?await protect(env,value):value))));
+  const values=openMigration(envelope,privateKeyPem,env.PANEL_ORIGIN,now);await init(env);const existing=await settings(env);need(!values.resendKey||!existing.resendKey,'Ein vorhandener Serverzugang wird nicht überschrieben.');need(!values.qontoKey||!existing.qontoKey,'Ein vorhandener Qonto-Zugang wird nicht überschrieben.');
+  const statements=await Promise.all(Object.entries(values).map(async([key,value])=>env.DB.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind(key,JSON.stringify(['emailVerified','qontoVerified'].includes(key)?false:['resendKey','qontoKey'].includes(key)?await protect(env,value):value))));
   await env.DB.batch(statements);
 }
 export function openGoogleClient(envelope,privateKeyPem,origin,now=Date.now()){

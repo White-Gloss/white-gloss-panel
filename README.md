@@ -5,14 +5,14 @@ Termine, Fahrzeugprotokolle und Kundenbetreuung.
 
 Das eigene Panel läuft auf IONOS unter panel.white-gloss.de. Dieses Repository enthält
 die eigenständige Laufzeit mit Anmeldung, SQLite, privatem Fotospeicher,
-Google-OAuth, Lexware-Rechnungsablauf und Zeitplänen sowie den bisherigen privaten Sites-Worker.
+Google-OAuth, Qonto-Rechnungsablauf mit Mahnwesen und Kundenbereich sowie Zeitplänen und den bisherigen privaten Sites-Worker.
 Jede Änderung benötigt einen eigenen geprüften IONOS-Release und einen Live-Nachweis.
 
 - [Eigenes Panel](https://panel.white-gloss.de/)
 - [Bisherige private Sites-Kopie](https://white-gloss-mein-panel.info261616.chatgpt.site/)
 - [IONOS und Google Einrichtung](docs/IONOS-und-Google.md)
 - [Passwort, Kunden-PIN und Protokoll-PDF](docs/Passwort-PIN-und-Protokoll-PDF.md)
-- [Lexware Office ersetzt Qonto](docs/Lexware-statt-Qonto.md)
+- [Qonto: Rechnungen, Quittungen und Mahnwesen](docs/Qonto-Rechnungen-und-Mahnwesen.md)
 - [Vor-Ort-App, Kundenstamm und Bearbeitung](docs/Vor-Ort-App-und-Bearbeitung.md)
 
 ## Aufbau
@@ -60,8 +60,8 @@ und der separate IONOS-Release müssen jeweils ihrem tatsächlich veröffentlich
 Commit zugeordnet werden.
 
 Website, Resend und Google wurden in der getrennten IONOS-Installation verbunden.
-Qonto war bisher verbunden; der neue Code ersetzt diese aktive Anbindung durch
-Lexware Office. Der Lexware-Zugang und die neue IONOS-Veröffentlichung benötigen
+Rechnungen laufen über Qonto (Rechnung mit 7 Tagen Zahlungsziel oder Quittung, Mahnwesen, Zahlungsabgleich, Kundenbereich).
+Der Qonto-Zugang und die neue IONOS-Veröffentlichung benötigen
 eigene tatsächliche Nachweise. Der unabhängige Dienst und die Timer sind installiert. Der vollständige
 historische WG-Nummernabgleich bleibt eine gesonderte Voraussetzung für echte neue
 Aufträge und Rechnungen. Betriebsdaten, Zugangsprüfungen und Freigaben gehören zur

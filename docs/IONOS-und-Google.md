@@ -29,9 +29,9 @@ Buchungsbilder und Videos kommen ausschließlich aus der freigegebenen Hub-Fotoa
 
 ## Vorhandene Anbieterzugänge übertragen
 
-IONOS erzeugt einen RSA-Schlüssel; nur dessen öffentlicher Teil kommt in die private Sites-Konfiguration. Sites verschlüsselt den vorhandenen geprüften Resend-Zugang und gegebenenfalls den geprüften Lexware-Zugang mit AES-GCM und RSA-OAEP für genau dieses Panel. Das Paket gilt 24 Stunden. Der private Schlüssel bleibt auf dem Server. Übertragung erfolgt erst nach ausdrücklicher Freigabe dieser Zugangsdaten und des IONOS-Ziels.
+IONOS erzeugt einen RSA-Schlüssel; nur dessen öffentlicher Teil kommt in die private Sites-Konfiguration. Sites verschlüsselt den vorhandenen geprüften Resend-Zugang und gegebenenfalls den geprüften Qonto-Zugang mit AES-GCM und RSA-OAEP für genau dieses Panel. Das Paket gilt 24 Stunden. Der private Schlüssel bleibt auf dem Server. Übertragung erfolgt erst nach ausdrücklicher Freigabe dieser Zugangsdaten und des IONOS-Ziels.
 
-Der Administrationsimport `import-connections` prüft Ziel, Fingerabdruck und Ablauf, entschlüsselt auf IONOS und speichert erneut unter dem dortigen CONFIG_KEY. Bereits vorhandene Zugänge werden nicht überschrieben. Frühere Verbindungsflags werden zurückgesetzt; tatsächliche Absenderdomain und Lexware-Organisation werden erneut lesend geprüft. Dabei wird keine Kundenmail versendet. Geheimnisse gehören weder in GitHub noch in Berichte.
+Der Administrationsimport `import-connections` prüft Ziel, Fingerabdruck und Ablauf, entschlüsselt auf IONOS und speichert erneut unter dem dortigen CONFIG_KEY. Bereits vorhandene Zugänge werden nicht überschrieben. Frühere Verbindungsflags werden zurückgesetzt; tatsächliche Absenderdomain und Qonto-Organisation werden erneut lesend geprüft. Dabei wird keine Kundenmail versendet. Geheimnisse gehören weder in GitHub noch in Berichte.
 
 ## Google-Kalender
 
@@ -47,13 +47,11 @@ Nach Verbindung und lesender Prüfung werden bestehende Google-Belegungen vor de
 
 Grundlage: [Google Ereignisse lesen](https://developers.google.com/workspace/calendar/api/v3/reference/events/list) und [Google Ereignisse anlegen](https://developers.google.com/workspace/calendar/api/v3/reference/events/insert).
 
-## Lexware Office und WG-Nummern
+## Qonto und WG-Nummern
 
-Lexware Office ersetzt auf ausdrücklichen Betreiberwunsch die aktive Qonto-Anbindung. Der API-Schlüssel bleibt verschlüsselt, die tatsächliche Organisation wird lesend geprüft. Schlussrechnung erst nach vollständigem Arbeitsabschluss und Rückgabe, ausdrücklicher Prüfung von Kunde, Anschrift, Steuer, Leistungen, Fälligkeit und Bruttofestpreis. Die lokale Vorschau wird genau einmal als fertige Rechnung erstellt; Lexware vergibt die Rechnungsnummer, WG bleibt die Auftragsreferenz.
+Qonto ist das einzige Rechnungssystem des Panels (Betreiberentscheidung 13.10.2026). Login und Secret Key bleiben verschlüsselt, die Organisation wird lesend geprüft. Abrechnung erst nach Arbeitsabschluss und Rückgabe mit ausdrücklicher Prüfung von Kunde, Anschrift, Steuer, Leistungen und Bruttofestpreis. Rechnungsnummer = WG-Nummer; Qonto lehnt doppelte Nummern ab.
 
-Unklare Kunden-/Rechnungsanlagen bleiben gegen Wiederholung gesperrt. Historische Rechnungen und frühere Rechnungsvorgänge bleiben erhalten und verhindern eine zweite Rechnung. Vor dem ersten echten Auftrag bleibt der vollständige WG-Nummernabgleich einschließlich Buchungen und bisheriger Rechnungen notwendig. Neue Lexware-Rechnungsnummern setzen keinen WG-Zähler zurück.
-
-Signierte Lexware-Änderungsmeldungen aktualisieren ausschließlich eigene zugeordnete Rechnungen. Keine periodische Abfrage aller Rechnungen, keine automatische Zahlungsbuchung und keine automatische Rechnungsmail. Annahme-/Rückgabe-PDF-Mails sind davon getrennt. Details und Voraussetzungen: [Lexware Office ersetzt Qonto](Lexware-statt-Qonto.md).
+Vor dem ersten echten Auftrag bleibt der vollständige WG-Nummernabgleich einschließlich Buchungen und vorhandener Qonto-Rechnungen notwendig. Zahlungsziel 7 Tage, Zahlungsabgleich und Mahnwesen laufen über den Hintergrunddienst; automatische Mahnungen nur nach Freigabe. Details: [Qonto: Rechnungen, Quittungen und Mahnwesen](Qonto-Rechnungen-und-Mahnwesen.md).
 
 ## Zeitplan und Sicherung
 
@@ -63,4 +61,4 @@ Die tägliche Sicherung erstellt eine konsistente SQLite-Kopie, prüft Integrit�
 
 ## Abschlussnachweise
 
-Für betriebsbereit sind zusätzlich zum geprüften Code nötig: freigegebener Panelweg, aktiver Dienst und Timer, HTTPS/DNS, Betreiberanmeldung, persistente Speicherung, isolierter Kundenablauf sowie bestätigte Resend-, Google- und Lexware-Verbindungen. Echte Kundenmails, Rechnungen, Zahlungen und Kundenannahmen werden nicht als Tests verwendet.
+Für betriebsbereit sind zusätzlich zum geprüften Code nötig: freigegebener Panelweg, aktiver Dienst und Timer, HTTPS/DNS, Betreiberanmeldung, persistente Speicherung, isolierter Kundenablauf sowie bestätigte Resend-, Google- und Qonto-Verbindungen. Echte Kundenmails, Rechnungen, Zahlungen und Kundenannahmen werden nicht als Tests verwendet.

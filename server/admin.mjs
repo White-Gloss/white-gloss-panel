@@ -19,11 +19,11 @@ if(action==='migration-public-key'){
       if(action==='import-google-client'){await applyGoogleClient(env,packet,privateKey);console.log(JSON.stringify({ok:true,provider:'Google-Webclient',callback:env.PANEL_ORIGIN+'/auth/calendar/callback'}));}
       else {await applyMigration(env,packet,privateKey);
       // Verify the actual provider after transfer instead of trusting the old Site flag.
-      const s=await settings(env);for(const [key,kind,flag] of [['resendKey','email','emailVerified'],['lexwareKey','lexware','lexwareVerified']])if(s[key]){await setting(env,flag,false);const result=await checkProvider(env,kind);console.log(JSON.stringify({ok:true,provider:kind,message:result.message}));}}
+      const s=await settings(env);for(const [key,kind,flag] of [['resendKey','email','emailVerified'],['qontoKey','qonto','qontoVerified']])if(s[key]){await setting(env,flag,false);const result=await checkProvider(env,kind);console.log(JSON.stringify({ok:true,provider:kind,message:result.message}));}}
     }else if(action==='check'){
-      const kind=process.argv[3];if(!['website','email','calendar','lexware'].includes(kind))throw Error('Unbekannter Anbieter.');console.log(JSON.stringify(await checkProvider(env,kind)));
+      const kind=process.argv[3];if(!['website','email','calendar','qonto'].includes(kind))throw Error('Unbekannter Anbieter.');console.log(JSON.stringify(await checkProvider(env,kind)));
     }else if(action==='status'){
-      const s=await settings(env);console.log(JSON.stringify({website:s.hubVerified===true,email:s.emailVerified===true,googleClientConfigured:Boolean(s.googleClientId||env.GOOGLE_CLIENT_ID),calendar:s.calendarVerified===true,calendarOAuth:s.calendarOAuth===true,lexware:s.lexwareVerified===true,numberAudit:s.numberAudit===true,lastScheduledAt:s.lastScheduledAt??null,lastScheduledError:s.lastScheduledError??null,orders:(await env.DB.prepare('SELECT COUNT(*) n FROM orders WHERE synthetic=0').first()).n}));
+      const s=await settings(env);console.log(JSON.stringify({website:s.hubVerified===true,email:s.emailVerified===true,googleClientConfigured:Boolean(s.googleClientId||env.GOOGLE_CLIENT_ID),calendar:s.calendarVerified===true,calendarOAuth:s.calendarOAuth===true,qonto:s.qontoVerified===true,numberAudit:s.numberAudit===true,lastScheduledAt:s.lastScheduledAt??null,lastScheduledError:s.lastScheduledError??null,orders:(await env.DB.prepare('SELECT COUNT(*) n FROM orders WHERE synthetic=0').first()).n}));
     }else throw Error('Unbekannter Administrationsauftrag.');
   }finally{env.DB.close();}
 }

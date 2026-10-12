@@ -8,11 +8,11 @@ function useEmail(setup){
   document.querySelector('#auth-password').disabled=true;
   document.querySelector('#auth-email').autocomplete='email';
   authForm.querySelector('button').textContent='Anmeldelink anfordern';
-  document.querySelector('#auth-description').textContent=setup?'Bestätige deinen Betreiberzugang per E-Mail. Anschließend legst du dein Passwort fest.':'Melde dich mit der E-Mail-Adresse deiner Anfrage an. Du erhältst einen persönlichen Link zu deinem Angebot.';
+  document.querySelector('#auth-description').textContent=setup?'Bestätige deinen Betreiberzugang per E-Mail. Anschließend legst du dein Passwort fest.':(authReturn.startsWith('/rechnung/')?'Melde dich mit der E-Mail-Adresse deines Auftrags an. Du erhältst einen persönlichen Link mit PIN zu deiner Rechnung.':'Melde dich mit der E-Mail-Adresse deiner Anfrage an. Du erhältst einen persönlichen Link zu deinem Angebot.');
   recovery.hidden=true;authMessage.textContent='';
 }
 if(authToken){authForm.innerHTML='<button class="primary" type="submit">Persönliche Anmeldung bestätigen</button>';document.querySelector('#auth-description').textContent='Bestätige die Anmeldung. Dieser Link kann einmal verwendet werden.';recovery.hidden=true;if(authURL.searchParams.get('pin')==='required')requirePin();history.replaceState(null,'','/auth/verify');}
-else if(/^\/(?:angebot|dokument)\/[a-f0-9]{64}$/.test(authReturn))useEmail(false);
+else if(/^\/(?:angebot|dokument|rechnung)\/[a-f0-9]{64}$/.test(authReturn))useEmail(false);
 else if(authURL.searchParams.get('setup')==='1')useEmail(true);
 recovery.addEventListener('click',()=>useEmail(true));
 authForm.addEventListener('submit',async event=>{
