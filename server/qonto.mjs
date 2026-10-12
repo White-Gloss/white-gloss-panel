@@ -603,7 +603,15 @@ export async function findQontoInvoiceByNumber(config, number, since = null) {
   need(matches.length <= 1, "Mehrere Qonto-Rechnungen mit der Nummer " + number + ". Bitte in Qonto klären.", 409);
   return matches[0] ?? null;
 }
-export function remoteInvoiceProblem(remote, order, clientId = null, number = order.invoice?.number ?? order.wg) {
+export function remoteInvoiceProblem(
+  remote,
+  order,
+  clientId = null,
+  number = order.invoice?.number ?? order.wg,
+  expectedTotal = order.invoice?.number === number && Number.isSafeInteger(order.invoice?.totalCents)
+    ? order.invoice.totalCents
+    : order.offer.totalCents,
+) {
   if (!remote || !uuid(remote.id)) return "Qonto-Rechnung fehlt.";
   if (remote.number !== number) return "Qonto-Rechnungsnummer weicht von " + number + " ab.";
   if ((remote.currency ?? remote.total_amount?.currency) !== "EUR") return "Qonto-Rechnung ist nicht in EUR.";
@@ -613,14 +621,8 @@ export function remoteInvoiceProblem(remote, order, clientId = null, number = or
   } catch {
     return "Qonto-Rechnungsbetrag ist nicht lesbar.";
   }
-  if (total !== order.offer.totalCents)
-    return (
-      "Qonto berechnet " +
-      euro(total) +
-      " statt des vereinbarten Festpreises " +
-      euro(order.offer.totalCents) +
-      "."
-    );
+  if (total !== expectedTotal)
+    return "Qonto berechnet " + euro(total) + " statt des vereinbarten Festpreises " + euro(expectedTotal) + ".";
   if (clientId && remote.client?.id && remote.client.id !== clientId)
     return "Qonto-Rechnung gehört zu einem anderen Rechnungskunden.";
   if (!["draft", "unpaid", "paid", "canceled"].includes(remote.status)) return "Unbekannter Qonto-Rechnungsstatus.";
@@ -675,4 +677,30 @@ export async function qontoNumberCheck(config) {
     at: new Date().toISOString(),
     note: "Qonto-Rechnungen einschließlich Entwürfen und importierter Rechnungen gelesen. Rechnungsnummer = WG-Nummer des Auftrags.",
   };
+}
+
+// Vergleicht eine vorhandene Qonto-Rechnung mit den gerade geprüften Angaben.
+// Entwürfe: alle rechnungsbestimmenden Felder. Ausgestellte Rechnungen: Positionen, Steuer und Art (Rechnung/Quittung).
+export function invoiceTermsProblem(remote, payload, mode) {
+  const num = (value) => (value === undefined || value === null || value === "" ? NaN : Number(value));
+  const remoteItems = Array.isArray(remote.items) ? remote.items : null;
+  if (!remoteItems || remoteItems.length !== payload.items.length) return "Positionen weichen ab.";
+  for (let index = 0; index < payload.items.length; index++) {
+    const want = payload.items[index],
+      have = remoteItems[index] ?? {};
+    const price = num(have.unit_price && typeof have.unit_price === "object" ? have.unit_price.value : have.unit_price);
+    if (String(have.title ?? "").trim() !== want.title) return "Positionstitel weichen ab.";
+    if (num(have.quantity) !== num(want.quantity)) return "Mengen weichen ab.";
+    if (Math.abs(num(have.vat_rate) - num(want.vat_rate)) > 1e-9 || Number.isNaN(num(have.vat_rate)))
+      return "Umsatzsteuersatz weicht ab.";
+    if (!(Math.abs(price - num(want.unit_price.value)) <= 0.005)) return "Positionspreise weichen ab.";
+  }
+  const footer = String(remote.footer ?? "");
+  if (/Quittung/.test(footer) !== (mode === "paid")) return "Rechnungsart (Rechnung oder Quittung) weicht ab.";
+  if (remote.status === "draft") {
+    if (remote.due_date !== payload.due_date || remote.issue_date !== payload.issue_date) return "Rechnungs- oder Fälligkeitsdatum weicht ab.";
+    if ((remote.payment_methods?.iban ?? "") !== payload.payment_methods.iban) return "Zahlungskonto weicht ab.";
+    if (footer.trim() !== payload.footer.trim()) return "Rechnungstext weicht ab.";
+  }
+  return null;
 }

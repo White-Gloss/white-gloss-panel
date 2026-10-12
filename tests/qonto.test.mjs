@@ -193,6 +193,7 @@ function providers(t, setup = {}) {
         invoice_url: "https://pay.qonto.com/invoices/synthetic",
         attachmentId: randomUUID(),
         footer: body.footer,
+        items: body.items,
       };
       state.invoices.push(invoice);
       return json({ client_invoice: invoice });
@@ -255,7 +256,8 @@ test("Qonto check stores organization and active accounts without balances", asy
   assert.equal(s.qontoOrganizationId, organizationId);
   assert.equal(s.qontoIban, iban);
   assert.deepEqual(s.qontoAccounts, [{ iban, name: "Hauptkonto", main: true }]);
-  assert.ok(!JSON.stringify(s).includes("999"));
+  assert.ok(!JSON.stringify(s.qontoAccounts).includes("balance"));
+  assert.ok(!JSON.stringify(s.qontoAccounts).includes("999"));
   await setting(env, "qontoOrganizationId", "44444444-4444-4444-8444-444444444444");
   await assert.rejects(qontoCheck(env), /anderen Organisation/);
 });
@@ -383,9 +385,8 @@ test("paid mode issues the invoice as receipt, marks it paid in Qonto and record
   assert.equal(plan.next, null);
 });
 
-test("an existing invoice number is adopted instead of creating a second invoice", async (t) => {
-  const { env, order } = await fixture(t);
-  const existingClient = {
+function existingClient() {
+  return {
     id: randomUUID(),
     kind: "individual",
     first_name: "TEST",
@@ -394,36 +395,68 @@ test("an existing invoice number is adopted instead of creating a second invoice
     currency: "EUR",
     billing_address: { street_address: "Teststraße 1", zip_code: "72160", city: "Horb", country_code: "DE" },
   };
-  const qonto = providers(t, {
-    clients: [existingClient],
-    invoices: [
-      {
-        id: randomUUID(),
-        number: "WG-000123",
-        status: "unpaid",
-        currency: "EUR",
-        total_amount: { value: "349.00", currency: "EUR" },
-        total_amount_cents: 34900,
-        issue_date: berlinDay(),
-        due_date: addDays(berlinDay(), 7),
-        client: { id: existingClient.id },
-        payment_methods: { iban },
-        attachmentId: randomUUID(),
-      },
-    ],
-  });
+}
+function existingInvoice(order, client, input, status, override = {}) {
+  const payload = qontoInvoicePayload(order, input, client.id, iban);
+  return {
+    id: randomUUID(),
+    number: "WG-000123",
+    status,
+    currency: "EUR",
+    total_amount: { value: "349.00", currency: "EUR" },
+    total_amount_cents: 34900,
+    issue_date: payload.issue_date,
+    due_date: payload.due_date,
+    client: { id: client.id },
+    payment_methods: { iban },
+    items: payload.items,
+    footer: payload.footer,
+    attachmentId: randomUUID(),
+    ...override,
+  };
+}
+test("an existing invoice number is adopted instead of creating a second invoice", async (t) => {
+  const { env, order } = await fixture(t);
+  const client = existingClient(),
+    input = newClientInput({ sendMail: false });
+  const qonto = providers(t, { clients: [client], invoices: [existingInvoice(order, client, input, "unpaid")] });
   const inventory = await qontoInventory(env, order);
   assert.equal(inventory.clients.length, 1);
   assert.equal(inventory.clients[0].complete, true);
   const result = await qontoInvoice(env, order, {
-    ...newClientInput({ sendMail: false }),
+    ...input,
     billing: undefined,
-    clientId: existingClient.id,
+    clientId: client.id,
     clientReviewHash: inventory.clients[0].reviewHash,
   });
   assert.equal(result.order.invoice.id, qonto.invoices[0].id);
   assert.equal(qonto.calls.filter((call) => call.method === "POST").length, 0);
   assert.equal(qonto.mails.length, 0);
+});
+
+test("an issued invoice with different terms is never adopted; a different draft is replaced", async (t) => {
+  const { env, order } = await fixture(t);
+  const client = existingClient(),
+    input = newClientInput({ sendMail: false });
+  // Issued with 7 % instead of the reviewed 19 %: same gross, different tax → refuse.
+  const issued = existingInvoice(order, client, { ...input, vatBasisPoints: 700 }, "unpaid");
+  const qonto = providers(t, { clients: [client], invoices: [issued] });
+  const inventory = await qontoInventory(env, order);
+  const choose = { ...input, billing: undefined, clientId: client.id, clientReviewHash: inventory.clients[0].reviewHash };
+  await assert.rejects(qontoInvoice(env, order, choose), /bereits ausgestellt, weicht aber.*Umsatzsteuersatz/);
+  assert.equal(qonto.invoices.length, 1);
+  assert.equal((await getOrder(env, order.id)).invoice, undefined);
+  // Receipt wording on an invoice request → refuse as well.
+  qonto.invoices[0] = existingInvoice(order, client, { ...input, mode: "paid", paymentMethod: "Bar", paidAt: berlinDay() }, "paid");
+  await assert.rejects(qontoInvoice(env, await getOrder(env, order.id), choose), /Rechnungsart/);
+  // A leftover draft with other terms is deleted and replaced by the reviewed one.
+  qonto.invoices[0] = existingInvoice(order, client, { ...input, vatBasisPoints: 700 }, "draft");
+  const oldDraft = qonto.invoices[0].id;
+  const result = await qontoInvoice(env, await getOrder(env, order.id), choose);
+  assert.notEqual(result.order.invoice.id, oldDraft);
+  assert.equal(qonto.invoices.length, 1);
+  assert.equal(qonto.invoices[0].items[0].vat_rate, "0.19");
+  assert.ok(qonto.calls.some((call) => call.method === "DELETE" && call.url.includes(oldDraft)));
 });
 
 test("a Qonto total that differs from the agreed price deletes the draft and stores nothing", async (t) => {
@@ -529,6 +562,9 @@ test("background sends a due reminder only with approval and re-checks Qonto fir
   // Nothing further is due on the same day.
   assert.deepEqual(await pendingInvoiceWork(env), []);
   assert.equal(qonto.mails.length, 1);
+  // The 1st notice is only due 7 days after the reminder; a manual click cannot skip the schedule.
+  await assert.rejects(sendReminderNow(env, await getOrder(env, order.id)), /erst ab/);
+  assert.equal(qonto.mails.length, 1);
   // After a payment in Qonto no further reminder is sent, also not manually.
   qonto.invoices[0].status = "paid";
   qonto.invoices[0].paid_at = berlinDay();
@@ -605,4 +641,15 @@ test("after a cancellation in Qonto a new invoice is issued with a continued num
   const info = await invoiceInfo(env, second.order);
   assert.deepEqual(info.deliveries.map((row) => row.kind), ["invoice"]);
   assert.match(qonto.invoices[1].footer, /Verwendungszweck: WG-000123-2/);
+});
+
+test("customer portal and reminders use the issued invoice snapshot even if the offer changes later", async (t) => {
+  const { env, order } = await fixture(t);
+  providers(t);
+  const created = await qontoInvoice(env, order, newClientInput({ sendMail: false }));
+  const changed = { ...created.order, offer: { totalCents: 50000, lines: [{ title: "Später geändert", amountCents: 50000 }] } };
+  const view = invoicePortalView(changed);
+  assert.deepEqual(view.lines.map((line) => line.amountCents), [29900, 5000]);
+  assert.equal(view.invoice.openCents, 34900);
+  assert.equal((await invoiceInfo(env, changed)).openCents, 34900);
 });

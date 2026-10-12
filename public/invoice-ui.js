@@ -231,7 +231,7 @@ export function invoiceInput(form, currentOrder) {
 function invoiceView(order) {
   const inv = order.invoice,
     info = order.invoiceInfo ?? null,
-    open = info?.openCents ?? Math.max(0, (order.offer?.totalCents ?? 0) - paidCents(order)),
+    open = info?.openCents ?? Math.max(0, (inv.totalCents ?? order.offer?.totalCents ?? 0) - paidCents(order)),
     overdue = inv.status === "unpaid" && validDay(inv.dueDate) && invoiceToday() > inv.dueDate,
     status = inv.status === "unpaid" && open === 0 ? "paid" : overdue ? "overdue" : inv.status;
   return { inv, info, open, overdue, status };
@@ -259,7 +259,7 @@ export function invoiceResultHTML(order) {
     inv.url ? `<a class="button" href="${invoiceEsc(inv.url)}" target="_blank" rel="noreferrer">In Qonto ansehen</a>` : "",
     inv.status === "unpaid" ? '<button data-click="invoiceSync">Zahlstatus abgleichen</button>' : "",
     order.source?.email ? `<button data-click="invoiceMail">${(info?.deliveries ?? []).some((row) => !row.kind.startsWith("reminder-")) ? "Rechnung erneut senden" : "Rechnung per E-Mail senden"}</button>` : "",
-    overdue && open > 0 && order.source?.email && (info?.next || info?.pending)
+    overdue && open > 0 && order.source?.email && (info?.next?.due || info?.pending)
       ? `<button data-click="invoiceReminder">${invoiceEsc(info.pending?.label ?? info.next.label)} jetzt senden</button>`
       : "",
     inv.status === "unpaid" && open === 0 ? '<button data-click="invoiceMarkPaid">In Qonto als bezahlt markieren</button>' : "",

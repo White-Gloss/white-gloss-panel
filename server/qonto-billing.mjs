@@ -25,6 +25,7 @@ import {
   remoteInvoiceProblem,
   invoiceSummary,
   invoiceNumberFor,
+  invoiceTermsProblem,
   limitedBytes,
   berlinDay,
   addDays,
@@ -218,37 +219,67 @@ export async function qontoInvoice(env, order, input) {
       client = validateQontoClient(created, order);
     }
     // 2. Rechnung über die eindeutige WG-Nummer finden oder als Entwurf anlegen
-    let remote = await findQontoInvoiceByNumber(config, number, claim.created_at),
-      createdNow = false;
-    if (!remote) {
-      let payload = qontoInvoicePayload(order, input, client.id, config.qontoIban, undefined, 6, number);
+    const reviewedPayload = (decimals = 6) =>
+      qontoInvoicePayload(order, input, client.id, config.qontoIban, undefined, decimals, number);
+    const create = (body) =>
+      qontoJSON(config, "/v2/client_invoices", {
+        method: "POST",
+        body: JSON.stringify(body),
+        beforeSend: guardWrite,
+      });
+    const createDraft = async () => {
+      let payload = reviewedPayload();
       await setStage(env, order.id, "draft-attempt", { clientId: client.id, payload });
-      const create = (body) =>
-        qontoJSON(config, "/v2/client_invoices", {
-          method: "POST",
-          body: JSON.stringify(body),
-          beforeSend: guardWrite,
-        });
       try {
-        remote = (await create(payload)).client_invoice;
-        createdNow = true;
+        return { remote: (await create(payload)).client_invoice, createdNow: true };
       } catch (error) {
         if (error instanceof QontoError && error.providerStatus === 409) {
-          remote = await findQontoInvoiceByNumber(config, number);
-          need(remote, error.message, 409);
-        } else if (
+          const found = await findQontoInvoiceByNumber(config, number);
+          need(found, error.message, 409);
+          return { remote: found, createdNow: false };
+        }
+        if (
           error instanceof QontoError &&
           error.providerStatus === 422 &&
           payload.items.some((item) => /\.\d{3,}$/.test(item.unit_price.value))
         ) {
           // Falls Qonto nur centgenaue Nettopreise annimmt: einmal mit centgenauen Preisen anlegen und Summe prüfen.
-          payload = qontoInvoicePayload(order, input, client.id, config.qontoIban, undefined, 2, number);
+          payload = reviewedPayload(2);
           await setStage(env, order.id, "draft-attempt", { payload });
-          remote = (await create(payload)).client_invoice;
-          createdNow = true;
-        } else throw error;
+          return { remote: (await create(payload)).client_invoice, createdNow: true };
+        }
+        throw error;
       }
-      need(remote && uuid(remote.id), "Qonto-Rechnungsentwurf wurde nicht eindeutig bestätigt.", 502);
+    };
+    // Eine vorhandene Rechnung wird nur übernommen, wenn sie den gerade geprüften Angaben entspricht.
+    const termsProblem = (candidate) => {
+      const exact = invoiceTermsProblem(candidate, reviewedPayload(), input.mode);
+      return exact && invoiceTermsProblem(candidate, reviewedPayload(2), input.mode);
+    };
+    let remote = await findQontoInvoiceByNumber(config, number, claim.created_at),
+      createdNow = false;
+    if (!remote) ({ remote, createdNow } = await createDraft());
+    need(remote && uuid(remote.id), "Qonto-Rechnungsentwurf wurde nicht eindeutig bestätigt.", 502);
+    if (!createdNow) {
+      const terms = termsProblem(remote);
+      if (terms && remote.status === "draft") {
+        await qontoJSON(config, "/v2/client_invoices/" + remote.id, { method: "DELETE", beforeSend: guardWrite });
+        ({ remote, createdNow } = await createDraft());
+        need(
+          createdNow && remote && uuid(remote.id),
+          "Ein abweichender Qonto-Entwurf " + number + " konnte nicht ersetzt werden. Bitte in Qonto löschen.",
+          409,
+        );
+      } else
+        need(
+          !terms,
+          "Die Rechnung " +
+            number +
+            " ist in Qonto bereits ausgestellt, weicht aber von deinen Angaben ab: " +
+            terms +
+            " Bitte im Dialog dieselben Angaben wählen oder die Rechnung in Qonto stornieren.",
+          409,
+        );
     }
     const problem = remoteInvoiceProblem(remote, order, client.id, number);
     if (problem) {
@@ -300,7 +331,8 @@ export async function qontoInvoice(env, order, input) {
     );
     need(sameOffer(current, order), "Leistungen wurden während der Abrechnung geändert. Bitte prüfen.", 409);
     let updated = structuredClone(current);
-    const open = updated.offer.totalCents - paidCents(updated);
+    const summary = invoiceSummary(remote),
+      open = summary.totalCents - paidCents(updated);
     if (input.mode === "paid" && open > 0)
       updated = transition(updated, "payment", {
         amountCents: open,
@@ -315,7 +347,13 @@ export async function qontoInvoice(env, order, input) {
     if (reissue && updated.invoice?.id === order.invoice.id)
       updated.invoiceHistory = [...(Array.isArray(updated.invoiceHistory) ? updated.invoiceHistory : []), updated.invoice];
     updated.invoice = {
-      ...invoiceSummary(remote),
+      ...summary,
+      // Unveränderliche Kopie der ausgestellten Positionen für Kundenbereich und Mahnungen.
+      lines: invoiceLines(order).map((line) => ({
+        title: String(line.title),
+        description: String(line.description ?? ""),
+        amountCents: line.amountCents,
+      })),
       mode: input.mode,
       paymentMethod: input.mode === "paid" ? input.paymentMethod : null,
       vatBasisPoints: input.vatBasisPoints,
@@ -411,7 +449,7 @@ export async function syncQontoInvoice(env, order) {
     updated.invoice.url = summary.url;
     changed = true;
   }
-  const open = updated.offer.totalCents - paidCents(updated);
+  const open = updated.invoice.totalCents - paidCents(updated);
   let action = "Qonto-Rechnungsstatus übernommen: " + summary.status;
   if (summary.status === "paid" && open > 0 && !recordOperationIssue(updated, "payment")) {
     updated = transition(updated, "payment", {
@@ -437,7 +475,7 @@ export async function qontoMarkPaid(env, order) {
   need(order.invoice?.provider === "qonto" && uuid(order.invoice.id), "Keine Qonto-Rechnung zugeordnet.", 409);
   need(order.invoice.status === "unpaid", "Die Rechnung ist in Qonto nicht mehr offen.", 409);
   need(
-    paidCents(order) >= order.offer.totalCents,
+    paidCents(order) >= order.invoice.totalCents,
     "Im Panel ist noch nicht der volle Betrag als bezahlt erfasst. Bitte zuerst die Zahlung erfassen.",
     409,
   );
@@ -565,7 +603,7 @@ function paymentBlock(order) {
 }
 export function invoiceMail(env, order, kind, today = berlinDay()) {
   const inv = order.invoice,
-    open = Math.max(0, order.offer.totalCents - paidCents(order)),
+    open = Math.max(0, inv.totalCents - paidCents(order)),
     name = order.source.name || "",
     portal = env.PANEL_ORIGIN && inv.portalToken ? env.PANEL_ORIGIN + "/rechnung/" + inv.portalToken : "",
     links =
@@ -692,7 +730,7 @@ export async function deliverInvoiceMail(env, orderId, kind) {
       if (
         order.invoice.status !== "unpaid" ||
         order.status === "Bezahlt" ||
-        paidCents(order) >= order.offer.totalCents
+        paidCents(order) >= order.invoice.totalCents
       ) {
         await finishJob(env, record.job_id, "cancelled", null, "Zahlung eingegangen oder Rechnung erledigt – keine Mahnung.");
         return { state: "cancelled", message: label + " entfällt: Zahlung eingegangen oder Rechnung erledigt." };
@@ -814,7 +852,7 @@ export function reminderPlan(order, deliveries, today = berlinDay()) {
     !validDay(inv.dueDate) ||
     order.synthetic ||
     order.status === "Bezahlt" ||
-    paidCents(order) >= (order.offer?.totalCents ?? 0)
+    paidCents(order) >= (Number.isSafeInteger(inv.totalCents) ? inv.totalCents : (order.offer?.totalCents ?? 0))
   )
     return none;
   let previous = null;
@@ -851,12 +889,12 @@ export async function sendReminderNow(env, order) {
   }
   need(plan.next, "Keine weitere Mahnstufe offen (bezahlt, storniert oder Mahnverfahren abgeschlossen).", 409);
   need(
-    berlinDay() > fresh.invoice.dueDate,
-    "Die Rechnung ist noch nicht fällig (Zahlungsziel " + germanDay(fresh.invoice.dueDate) + ").",
+    plan.due,
+    plan.next.label + " ist erst ab " + germanDay(plan.next.on) + " fällig (Zahlungsziel " + germanDay(fresh.invoice.dueDate) + ").",
     409,
   );
-  await env.DB.batch(invoiceDeliveryStatements(env, fresh, plan.next.kind));
-  return deliverInvoiceMail(env, fresh.id, plan.next.kind);
+  await env.DB.batch(invoiceDeliveryStatements(env, fresh, plan.due.kind));
+  return deliverInvoiceMail(env, fresh.id, plan.due.kind);
 }
 // Hintergrundlauf: wartende Mails, Zahlstatus und fällige Mahnungen.
 export async function pendingInvoiceWork(env, now = Date.now()) {
@@ -938,7 +976,7 @@ export async function invoiceInfo(env, order) {
     pending: plan.pending ? { label: plan.pending.label, state: plan.pending.state } : null,
     finished: plan.finished,
     overdue: inv.status === "unpaid" && validDay(inv.dueDate) && berlinDay() > inv.dueDate,
-    openCents: Math.max(0, order.offer.totalCents - paidCents(order)),
+    openCents: Math.max(0, inv.totalCents - paidCents(order)),
     pdfStored: Boolean(stored),
     portalUrl: env.PANEL_ORIGIN && inv.portalToken ? env.PANEL_ORIGIN + "/rechnung/" + inv.portalToken : null,
     dunningApproved: config.dunningApproved === true,
@@ -949,7 +987,7 @@ export async function invoiceInfo(env, order) {
 export function invoicePortalView(order, ownerPreview = false) {
   const inv = order.invoice;
   need(inv?.provider === "qonto", "Für diesen Auftrag liegt keine Rechnung vor.", 404);
-  const open = Math.max(0, order.offer.totalCents - paidCents(order)),
+  const open = Math.max(0, inv.totalCents - paidCents(order)),
     status =
       inv.status === "canceled"
         ? "canceled"
@@ -973,7 +1011,7 @@ export function invoicePortalView(order, ownerPreview = false) {
       openCents: status === "paid" || status === "canceled" ? 0 : open,
       paidAt: inv.paidAt ?? null,
     },
-    lines: invoiceLines(order).map((line) => ({
+    lines: (Array.isArray(inv.lines) && inv.lines.length ? inv.lines : invoiceLines(order)).map((line) => ({
       title: String(line.title),
       description: String(line.description ?? ""),
       amountCents: line.amountCents,
