@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {setTimeout as delay} from 'node:timers/promises';
 import {configuration,settings,getOrder,saveOrder,claimJob,init} from '../src/worker.mjs';
 import {AppError,need,cents} from '../src/domain.mjs';
+import {assertRecordOperation,assertCurrentRecordOperation} from '../src/record-compat.mjs';
 
 const base='https://api.lexware.io';
 const uuid=value=>typeof value==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value);
@@ -23,16 +24,16 @@ async function sharedRate(config,key){
 /**
  * @param {{lexwareKey?:string,lexwareVerified?:boolean,lexwareOrganizationId?:string,[key:string]:any}} config
  * @param {string} path
- * @param {RequestInit & {beforeSend?:()=>Promise<void>|void}} options
+ * @param {RequestInit & {beforeSend?:()=>Promise<void>|void,beforeWrite?:()=>void}} options
  */
 export async function lexwareRequest(config,path,options={}){
   need(typeof config.lexwareKey==='string'&&config.lexwareKey.length>0,'Lexware-API-Schlüssel fehlt.',409);
   need(typeof path==='string'&&path.startsWith('/v1/')&&!path.includes('://'),'Ungültiger Lexware-Endpunkt.');
   const key=hash(config.lexwareKey),queue=queues.get(key)??{tail:Promise.resolve(),next:0};queues.set(key,queue);
-  const {beforeSend,...requestOptions}=options;
+  const {beforeSend,beforeWrite,...requestOptions}=options;
   const result=queue.tail.then(async()=>{
     const wait=queue.next-Date.now();if(wait>0)await delay(wait);await sharedRate(config,key);
-    if(beforeSend)await beforeSend();queue.next=Date.now()+550;
+    if(beforeSend)await beforeSend();queue.next=Date.now()+550;if(beforeWrite)beforeWrite();
     return fetch(base+path,{...requestOptions,headers:{Authorization:'Bearer '+config.lexwareKey,Accept:'application/json',...(requestOptions.body?{'Content-Type':'application/json'}:{}),...requestOptions.headers},redirect:'manual',signal:AbortSignal.timeout(35000)});
   });queue.tail=result.then(()=>{},()=>{});return result;
 }
@@ -45,7 +46,7 @@ async function limitedBytes(response,max){
 /**
  * @param {{lexwareKey?:string,lexwareVerified?:boolean,lexwareOrganizationId?:string,[key:string]:any}} config
  * @param {string} path
- * @param {RequestInit & {beforeSend?:()=>Promise<void>|void}} options
+ * @param {RequestInit & {beforeSend?:()=>Promise<void>|void,beforeWrite?:()=>void}} options
  */
 export async function lexwareJSON(config,path,options={}){
   const response=await lexwareRequest(config,path,options);need(response.ok,'Lexware-Anfrage nicht bestätigt: HTTP '+response.status,502);
@@ -92,6 +93,7 @@ async function inventory(config,profile,order){
 export async function lexwareInventory(env,order){need(!order.synthetic,'Testaufträge haben keine externen Rechnungskunden.',409);const {config,profile}=await access(env);return inventory(config,profile,order);}
 export const lexwareMarker=order=>'[White-Gloss-Auftrag '+bounded(order.wg,80,'WG-Nummer fehlt.')+' | Panel '+bounded(order.id,80,'Panel-Auftrags-ID fehlt.')+']';
 function eligible(order,input){
+  assertRecordOperation(order,'invoice');
   need(input.provider==='lexware','Bitte Lexware Office als Rechnungsanbieter auswählen.',409);
   need(!order.synthetic&&['Erledigt','Bezahlt'].includes(order.status)&&order.completedAt&&order.offer,'Rechnung erst nach Arbeitsabschluss mit festgelegtem Preis.',409);
   need(input.reviewed===true,'Bitte Rechnungskunde, Leistungen, Steuer und Gesamtbetrag ausdrücklich prüfen.');
@@ -121,7 +123,7 @@ function validateClient(client,order,org){
 }
 function contactSnapshot(client){const address=client.addresses?.billing?.[0]??{};return {companyName:client.company?.name??'',firstName:client.person?.firstName??'',lastName:client.person?.lastName??'',street:address.street??'',city:address.city??'',zip:address.zip??'',countryCode:address.countryCode??'',emails:Object.values(client.emailAddresses??{}).flat().map(email).sort()};}
 async function finishJob(env,id,state,providerId,detail){await env.DB.prepare('UPDATE jobs SET state=?,provider_id=?,detail=?,updated_at=? WHERE id=?').bind(state,providerId??null,detail??null,new Date().toISOString(),id).run();}
-async function currentVersion(env,order){const current=await getOrder(env,order.id);need(current.version===order.version&&!current.invoice&&hash(current.offer)===hash(order.offer)&&['Erledigt','Bezahlt'].includes(current.status)&&current.completedAt&&current.completedAt===order.completedAt,'Auftrag oder Rechnung wurde inzwischen verändert. Bitte neu öffnen.',409);return current;}
+async function currentVersion(env,order){const current=await getOrder(env,order.id);assertRecordOperation(current,'invoice');need(current.version===order.version&&!current.invoice&&hash(current.offer)===hash(order.offer)&&['Erledigt','Bezahlt'].includes(current.status)&&current.completedAt&&current.completedAt===order.completedAt,'Auftrag oder Rechnung wurde inzwischen verändert. Bitte neu öffnen.',409);return current;}
 async function sameAccess(env,config){const current=await configuration(env,['lexwareKey']);need(current.lexwareVerified===true&&current.lexwareKey===config.lexwareKey&&current.lexwareOrganizationId===config.lexwareOrganizationId,'Lexware-Verbindung wurde inzwischen verändert. Bitte erneut prüfen.',409);}
 async function readInvoice(config,id){need(uuid(id),'Lexware-Rechnungs-ID fehlt.',409);const remote=await lexwareJSON(config,'/v1/invoices/'+id);need(remote.id===id,'Lexware-Rechnungs-ID stimmt nicht.',502);return remote;}
 function lineSnapshot(invoice){return (invoice.lineItems??[]).filter(line=>line.type!=='text').map(line=>({name:line.name,description:line.description??'',quantity:line.quantity,unitName:line.unitName,currency:line.unitPrice?.currency,amountCents:amount(invoice.taxConditions?.taxType==='gross'?line.unitPrice?.grossAmount:line.unitPrice?.netAmount),taxRatePercentage:line.unitPrice?.taxRatePercentage,discountPercentage:line.discountPercentage??0}));}
@@ -164,11 +166,11 @@ export async function lexwareInvoice(env,order,input){
   claim=await env.DB.prepare('SELECT * FROM invoice_claims WHERE order_id=?').bind(order.id).first();need(claim.provider==='lexware'&&claim.org_id===profile.organizationId,'Rechnung ist anderweitig gesperrt.',409);
   const job=await claimJob(env,order,'invoice');need(job,'Rechnungsergebnis bereits gespeichert oder ungeklärt. Zuerst Anbieterabgleich durchführen.',409);await env.DB.prepare('UPDATE invoice_claims SET job_id=? WHERE order_id=?').bind(job,order.id).run();let attempted=false;
   try{
-    if(!client){const payload=lexwareClientPayload(order,input.billing);await env.DB.prepare('UPDATE invoice_claims SET payload=?,payload_hash=? WHERE order_id=?').bind(JSON.stringify(payload),hash(payload),order.id).run();const created=await lexwareJSON(config,'/v1/contacts',{method:'POST',body:JSON.stringify(payload),beforeSend:async()=>{await sameAccess(env,config);await currentVersion(env,order);await env.DB.prepare("UPDATE invoice_claims SET stage='contact-attempt' WHERE order_id=?").bind(order.id).run();attempted=true;}});need(uuid(created.id),'Lexware-Kundenanlage nicht eindeutig bestätigt.',502);await env.DB.prepare("UPDATE invoice_claims SET client_id=?,stage='client-ready' WHERE order_id=?").bind(created.id,order.id).run();client=validateClient(await lexwareJSON(config,'/v1/contacts/'+created.id),order,profile.organizationId);need(hash(contactSnapshot(client))===hash(contactSnapshot(payload)),'Angelegter Lexware-Kunde weicht von den geprüften Rechnungsdaten ab.',409);}
+    if(!client){const payload=lexwareClientPayload(order,input.billing);await env.DB.prepare('UPDATE invoice_claims SET payload=?,payload_hash=? WHERE order_id=?').bind(JSON.stringify(payload),hash(payload),order.id).run();const created=await lexwareJSON(config,'/v1/contacts',{method:'POST',body:JSON.stringify(payload),beforeSend:async()=>{await sameAccess(env,config);await currentVersion(env,order);await env.DB.prepare("UPDATE invoice_claims SET stage='contact-attempt' WHERE order_id=?").bind(order.id).run();},beforeWrite:()=>{assertCurrentRecordOperation(env,order,'invoice',order.version);attempted=true;}});need(uuid(created.id),'Lexware-Kundenanlage nicht eindeutig bestätigt.',502);await env.DB.prepare("UPDATE invoice_claims SET client_id=?,stage='client-ready' WHERE order_id=?").bind(created.id,order.id).run();client=validateClient(await lexwareJSON(config,'/v1/contacts/'+created.id),order,profile.organizationId);need(hash(contactSnapshot(client))===hash(contactSnapshot(payload)),'Angelegter Lexware-Kunde weicht von den geprüften Rechnungsdaten ab.',409);}
     const payload=lexwareInvoicePayload(order,input,client.id);payload.address={contactId:client.id,...lexwareInvoiceAddress(client)};await env.DB.prepare("UPDATE invoice_claims SET client_id=?,payload=?,payload_hash=?,stage='preflight' WHERE order_id=?").bind(client.id,JSON.stringify(payload),hash(payload),order.id).run();
     const matches=await matchingInvoices(config,claim.marker);need(matches.length===0,'Für diesen Auftrag ist bereits eine Lexware-Rechnung vorhanden. Anbieterabgleich verwenden.',409);
     const freshClient=validateClient(await lexwareJSON(config,'/v1/contacts/'+client.id),order,profile.organizationId);need(lexwareClientReviewHash(freshClient,order)===lexwareClientReviewHash(client,order),'Lexware-Kundendaten wurden während der Rechnungsprüfung verändert. Bitte neu prüfen.',409);
-    const created=await lexwareJSON(config,'/v1/invoices?finalize=true',{method:'POST',body:JSON.stringify(payload),beforeSend:async()=>{await sameAccess(env,config);await currentVersion(env,order);await env.DB.prepare("UPDATE invoice_claims SET stage='invoice-attempt' WHERE order_id=?").bind(order.id).run();attempted=true;}});
+    const created=await lexwareJSON(config,'/v1/invoices?finalize=true',{method:'POST',body:JSON.stringify(payload),beforeSend:async()=>{await sameAccess(env,config);await currentVersion(env,order);await env.DB.prepare("UPDATE invoice_claims SET stage='invoice-attempt' WHERE order_id=?").bind(order.id).run();},beforeWrite:()=>{assertCurrentRecordOperation(env,order,'invoice',order.version);attempted=true;}});
     need(uuid(created.id),'Lexware-Rechnungsergebnis ohne eindeutige ID. Keine automatische Wiederholung.',502);await env.DB.prepare('UPDATE invoice_claims SET provider_id=? WHERE order_id=?').bind(created.id,order.id).run();await finishJob(env,job,'unknown',created.id,'Lexware hat eine ID geliefert; Rechnungsinhalt wird noch geprüft.');
     claim=await env.DB.prepare('SELECT * FROM invoice_claims WHERE order_id=?').bind(order.id).first();const remote=validateInvoice(await readInvoice(config,created.id),claim,order);
     const current=await getOrder(env,order.id);need(!current.invoice||current.invoice.provider==='lexware'&&current.invoice.id===remote.id,'Eine andere Rechnung ist bereits zugeordnet.',409);need(hash(current.offer)===hash(order.offer),'Auftragsleistungen wurden nach der Rechnungsanlage verändert.',409);

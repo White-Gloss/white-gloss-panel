@@ -1,5 +1,5 @@
 import {normalizeAssessment} from './assessment.mjs';
-import {immediateStartNotice} from './catalog.mjs';
+import {immediateStartNotice,priceNote} from './catalog.mjs';
 export const STATES = ['Preise prüfen','Angebot offen','Angenommen','Termin verbindlich','In Arbeit','Erledigt','Bezahlt','Abgelehnt','Storniert','Abgelaufen'];
 const BEFORE_ACCEPT=['Preise prüfen','Angebot offen','Abgelaufen'],BEFORE_WORK=[...BEFORE_ACCEPT,'Angenommen','Termin verbindlich'];
 export const CLOSED_STATES=['Abgelehnt','Storniert','Abgelaufen'];
@@ -60,14 +60,17 @@ function settle(o){const total=o.offer?.totalCents,paid=paidCents(o),open=(o.pay
 const history=(o,key,entry)=>{o[key]=[...(o[key]??[]),entry];};
 // Consent texts the customer actually saw are stored with the acceptance as evidence.
 const consents=input=>({paymentObligation:input.paymentObligation===true,immediateStart:input.immediateStart===true,immediateStartText:input.immediateStart===true?immediateStartNotice:'',withdrawalNotice:input.withdrawalNotice===true,withdrawalText:text(input.withdrawalText,8000)});
+const acceptanceSnapshot=(order,offer,acceptance)=>({...acceptance,confirmationId:crypto.randomUUID(),snapshot:{source:structuredClone(order.source),offer:structuredClone(offer),priceNote}});
 const emptyAssessment=()=>({condition:'',lines:[],totalCents:0,pickupCents:0,services:'',pricesReviewed:false});
 const SOURCE_FIELDS={name:180,phone:80,email:180,vehicle:180,plate:80,address:600,city:180,note:2000,desiredDate:80,timeWindow:100,company:180};
 function applyDocument(o,kind,content,acceptance,now){
-  if(kind==='offer'){if(o.offer||o.acceptance)history(o,'offerHistory',{offer:o.offer??null,acceptance:o.acceptance??null,replacedAt:now});o.offer=content;o.acceptance=acceptance;return;}
+  if(kind==='offer'){if(o.offer||o.acceptance)history(o,'offerHistory',{offer:o.offer??null,acceptance:o.acceptance??null,replacedAt:now});o.acceptance=acceptanceSnapshot(o,content,acceptance);o.offer=content;return;}
   if(o[kind])history(o,kind+'History',{...o[kind],replacedAt:now});o[kind]=content;
 }
 export function transition(order,action,input,now=new Date().toISOString(),role='owner') {
   const o=structuredClone(order); const status=o.status; input=input??{};
+  // Freeze legacy accepted data before the first edit can change its document.
+  if(o.acceptance&&!o.acceptance.snapshot)o.acceptance.snapshot={source:structuredClone(o.source),offer:structuredClone(o.offer),priceNote};
   if(action==='price') {
     if(input.lines!==undefined){try{o.assessment=normalizeAssessment(input);}catch(error){throw new AppError(error.message,400);}}
     else{const totalCents=cents(input.totalCents??0),pickupCents=cents(input.pickupCents??0);need(totalCents>=pickupCents,'Gesamtfestpreis darf nicht niedriger als die Abholung sein.');o.assessment={condition:text(input.condition),services:text(input.services),totalCents,pickupCents};}
@@ -75,7 +78,7 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     if(o.offer&&!offerSigned(o)){history(o,'offerHistory',{offer:o.offer,acceptance:o.acceptance??null,replacedAt:now});o.offer={...structuredClone(o.assessment),createdAt:o.offer.createdAt,expiresAt:o.offer.expiresAt,editedAt:now};}
   }
   else if(action==='confirm') { need(['Preise prüfen','Abgelaufen'].includes(status)&&!o.acceptance,'Das Angebot ist bereits freigegeben.',409); if(o.offer)history(o,'offerHistory',{offer:o.offer,acceptance:null,replacedAt:now}); o.offer={...structuredClone(o.assessment??emptyAssessment()),createdAt:now,expiresAt:new Date(Date.parse(now)+14*86400000).toISOString()}; o.status='Angebot offen'; }
-  else if(action==='accept') { need(role==='customer','Annahme ist ausschließlich dem Kunden vorbehalten.',403); if(status==='Angenommen') return o; need(status==='Angebot offen'&&!o.acceptance&&Date.parse(o.offer.expiresAt)>Date.parse(now),'Angebot geschlossen oder abgelaufen.',409); need(input.signature&&input.snapshotHash&&input.paymentObligation===true,'Eigene Unterschrift und zahlungspflichtige Annahme sind erforderlich.'); o.acceptance={signature:input.signature,snapshotHash:input.snapshotHash,at:now,mode:'online',...consents(input)}; o.status='Angenommen'; }
+  else if(action==='accept') { need(role==='customer','Annahme ist ausschließlich dem Kunden vorbehalten.',403); if(status==='Angenommen') return o; need(status==='Angebot offen'&&!o.acceptance&&Date.parse(o.offer.expiresAt)>Date.parse(now),'Angebot geschlossen oder abgelaufen.',409); need(input.signature&&input.snapshotHash&&input.paymentObligation===true,'Eigene Unterschrift und zahlungspflichtige Annahme sind erforderlich.'); o.acceptance=acceptanceSnapshot(o,o.offer,{signature:input.signature,snapshotHash:input.snapshotHash,at:now,mode:'online',...consents(input)}); o.status='Angenommen'; }
   else if(action==='onsiteAccept') {
     // The customer signs in person on the operator's device. A signed offer is only replaced by a new signature.
     const signature=text(input.signature,100)||null;
