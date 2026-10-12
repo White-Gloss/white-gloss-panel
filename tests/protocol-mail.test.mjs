@@ -51,7 +51,7 @@ test('mail configuration failure keeps a durable queue; later maintenance sends 
 test('a current record restriction cancels queued protocol mail instead of retrying it',async t=>{
   const f=await fixture(t);await setting(f.env,'sendApproved',false);t.mock.method(globalThis,'fetch',()=>{throw Error('Restricted protocol mail must not be sent');});
   const draft=await f.signed('intake');await f.request('/api/action',{id:f.order.id,version:draft.version,action:'intake',input:draft.input});
-  await f.env.DB.prepare("UPDATE orders SET data=json_set(data,'$.recordsRestriction.status','blocked') WHERE id=?").bind(f.order.id).run();await setting(f.env,'sendApproved',true);
+  await f.env.DB.prepare("UPDATE orders SET data=json_set(data,'$.recordsRestriction.status','blocked'),version=version+1 WHERE id=?").bind(f.order.id).run();await setting(f.env,'sendApproved',true);
   assert.equal((await deliverProtocol(f.env,f.order.id,'intake')).state,'cancelled');assert.equal((await f.env.DB.prepare("SELECT state FROM jobs WHERE kind='protocol-intake'").first()).state,'cancelled');assert.deepEqual(await pendingProtocolMails(f.env),[]);
 });
 test('synthetic protocols generate downloadable PDFs but never queue or send customer mail',async t=>{
