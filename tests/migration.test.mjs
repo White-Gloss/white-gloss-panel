@@ -18,12 +18,12 @@ test('provider migration is encrypted for one server and expires after one day',
   const corrupted=Buffer.from(envelope.ciphertext,'base64');corrupted[10]^=1;assert.throws(()=>openMigration({...envelope,ciphertext:corrupted.toString('base64')},privatePem,origin,now));
   await assert.rejects(sealMigration(values,publicBase64,'https://wrong.example.invalid',now));
 });
-test('Lexware and Resend transfer atomically while all verification flags reset',async t=>{
+test('Qonto and Resend transfer atomically while all verification flags reset',async t=>{
   const env={DB:new PanelDatabase(':memory:'),PANEL_ORIGIN:origin,CONFIG_KEY:Buffer.alloc(32,3).toString('base64')};t.after(()=>env.DB.close());
-  const both={...values,lexwareKey:'synthetic-lexware-secret',lexwareVerified:true};
+  const both={...values,qontoKey:'synthetic-qonto-secret',qontoLogin:'synthetic-org-1234',qontoVerified:true};
   await applyMigration(env,await sealMigration(both,publicBase64,origin),privatePem);const config=await settings(env);
-  assert.equal(await unprotect(env,config.lexwareKey),both.lexwareKey);assert.equal(config.lexwareVerified,false);assert.equal(config.emailVerified,false);
-  await assert.rejects(applyMigration(env,await sealMigration({lexwareKey:both.lexwareKey},publicBase64,origin),privatePem),/überschrieben/);
+  assert.equal(await unprotect(env,config.qontoKey),both.qontoKey);assert.equal(config.qontoLogin,both.qontoLogin);assert.equal(config.qontoVerified,false);assert.equal(config.emailVerified,false);
+  await assert.rejects(applyMigration(env,await sealMigration({qontoKey:both.qontoKey,qontoLogin:both.qontoLogin},publicBase64,origin),privatePem),/überschrieben/);
 });
 test('Google webclient purpose and callback bind credentials to the intended server',async t=>{
   const env={DB:new PanelDatabase(':memory:'),PANEL_ORIGIN:origin,CONFIG_KEY:Buffer.alloc(32,4).toString('base64'),OWNER_EMAIL_SHA256:digest('owner@example.invalid')};t.after(()=>env.DB.close());

@@ -17,6 +17,6 @@ export async function backupData(dataDirectory,backupRoot,configurationFiles=[],
   await writeFile(resolve(temporary,'manifest.json'),JSON.stringify({version:1,createdAt:new Date().toISOString(),files},null,2),{mode:0o600,flag:'wx'});await rename(temporary,target);return {path:target,assets:assets.length,files:files.length};
 }
 if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])){
-  const env=Object.fromEntries(['NODE_ENV','PANEL_BIND','PANEL_PORT','PANEL_DATA_DIR','PANEL_ASSETS_DIR','PANEL_ORIGIN','OWNER_EMAIL_SHA256','CONFIG_KEY','CALENDAR_OWNER_EMAIL','CALENDAR_ID','EMAIL_SENDER','HUB_SYNC_TOKEN','GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','RESEND_API_KEY','LEXWARE_API_KEY','REVIEW_URL'].filter(key=>process.env[key]!==undefined).map(key=>[key,process.env[key]]));
+  const env=Object.fromEntries(['NODE_ENV','PANEL_BIND','PANEL_PORT','PANEL_DATA_DIR','PANEL_ASSETS_DIR','PANEL_ORIGIN','OWNER_EMAIL_SHA256','CONFIG_KEY','CALENDAR_OWNER_EMAIL','CALENDAR_ID','EMAIL_SENDER','HUB_SYNC_TOKEN','GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','RESEND_API_KEY','REVIEW_URL'].filter(key=>process.env[key]!==undefined).map(key=>[key,process.env[key]]));
   assertIonosRuntime(env);process.umask(0o077);console.log(JSON.stringify(await backupData(env.PANEL_DATA_DIR,'/var/lib/white-gloss-panel/backups',[],env)));
 }

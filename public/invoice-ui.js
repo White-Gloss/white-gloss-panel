@@ -1,114 +1,287 @@
-const invoiceEsc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const invoiceMoney=cents=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(cents/100);
-const invoiceDay=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-const mountedInvoices=new WeakMap();
-const invoiceStatusLabels={draft:'Entwurf',open:'Offen',unpaid:'Offen',paid:'Bezahlt',paidoff:'Bezahlt',voided:'Storniert',cancelled:'Storniert',canceled:'Storniert',overdue:'Überfällig',openRevenue:'Offen',balanced:'Ausgeglichen'};
-const invoiceStatusLabel=status=>Object.hasOwn(invoiceStatusLabels,status)?invoiceStatusLabels[status]:'Unbekannter Anbieterstatus';
+// Abrechnung mit Qonto: Rechnung (Zahlungsziel 7 Tage) oder Quittung für bereits bezahlte Aufträge.
+const invoiceEsc = (value) =>
+  String(value ?? "").replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+  );
+const invoiceMoney = (cents) =>
+  new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(cents / 100);
+export const invoiceToday = () =>
+  new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+const validDay = (value) =>
+  typeof value === "string" &&
+  /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+  !Number.isNaN(Date.parse(value + "T00:00:00Z")) &&
+  new Date(value + "T00:00:00Z").toISOString().slice(0, 10) === value;
+export const invoicePlusDays = (day, days) =>
+  new Date(Date.parse(day + "T00:00:00Z") + days * 86400000).toISOString().slice(0, 10);
+export const invoiceGermanDay = (day) =>
+  validDay(day) ? day.slice(8, 10) + "." + day.slice(5, 7) + "." + day.slice(0, 4) : "—";
+export const PAYMENT_TERM_DAYS = 7;
+const VAT = { 1900: "19 % Umsatzsteuer", 700: "7 % Umsatzsteuer", 0: "0 % · Kleinunternehmer (§ 19 UStG)" };
+const mountedInvoices = new WeakMap();
+const statusLabels = {
+  draft: "Entwurf",
+  unpaid: "Offen",
+  open: "Offen",
+  overdue: "Überfällig",
+  paid: "Bezahlt",
+  canceled: "Storniert",
+  cancelled: "Storniert",
+  voided: "Storniert",
+};
+const deliveryStates = {
+  queued: "wartet auf Versand",
+  pending: "wird gesendet",
+  sent: "gesendet",
+  failed: "nicht gesendet",
+  unknown: "Ergebnis offen",
+  cancelled: "entfällt",
+};
+export const invoiceStatusLabel = (status) =>
+  Object.hasOwn(statusLabels, status) ? statusLabels[status] : "Unbekannter Status";
 
-function invoiceLines(order){
-  const lines=order.offer?.lines??[{title:'Fahrzeugaufbereitung',description:order.offer?.services??'',amountCents:order.offer?.totalCents}];
-  if(!lines.length||lines.some(line=>!Number.isSafeInteger(line.amountCents)||line.amountCents<0)||lines.reduce((sum,line)=>sum+line.amountCents,0)!==order.offer?.totalCents)throw Error('Die gespeicherten Leistungen stimmen nicht mit dem vereinbarten Festpreis überein.');
+export function invoiceLines(order) {
+  const lines = order.offer?.lines?.length
+    ? order.offer.lines
+    : [{ title: "Fahrzeugaufbereitung", description: order.offer?.services ?? "", amountCents: order.offer?.totalCents }];
+  if (
+    !lines.length ||
+    lines.some((line) => !Number.isSafeInteger(line.amountCents) || line.amountCents < 0) ||
+    lines.reduce((sum, line) => sum + line.amountCents, 0) !== order.offer?.totalCents
+  )
+    throw Error("Die gespeicherten Leistungen stimmen nicht mit dem vereinbarten Festpreis überein.");
   return lines;
 }
-
-export function invoiceTotals(order,vatBasisPoints){
+export function invoiceTotals(order, vatBasisPoints) {
   invoiceLines(order);
-  if(![0,700,1900].includes(vatBasisPoints))throw Error('Bitte einen von Lexware unterstützten Umsatzsteuersatz auswählen: 0 %, 7 % oder 19 %.');
-  const grossCents=order.offer.totalCents,denominator=BigInt(10000+vatBasisPoints);
-  const taxCents=Number((BigInt(grossCents)*BigInt(vatBasisPoints)+denominator/2n)/denominator);
-  return {grossCents,netCents:grossCents-taxCents,taxCents};
+  if (![0, 700, 1900].includes(vatBasisPoints)) throw Error("Bitte den Umsatzsteuersatz auswählen.");
+  const grossCents = order.offer.totalCents,
+    denominator = BigInt(10000 + vatBasisPoints);
+  const taxCents = Number((BigInt(grossCents) * BigInt(vatBasisPoints) + denominator / 2n) / denominator);
+  return { grossCents, netCents: grossCents - taxCents, taxCents };
 }
+const paidCents = (order) =>
+  (order.payments ?? []).filter((payment) => !payment.cancelledAt).reduce((sum, payment) => sum + payment.amountCents, 0);
+const addressLines = (address = {}) =>
+  [address.street_address, [address.zip_code, address.city].filter(Boolean).join(" "), address.country_code].filter(
+    Boolean,
+  );
 
-function addressParts(address={}){
-  return [address.street_address,[address.zip_code,address.city].filter(Boolean).join(' '),address.country_code].filter(Boolean);
-}
-
-function readInvoiceFields(form){
-  const data=Object.fromEntries([...new FormData(form)].map(([key,value])=>[key,typeof value==='string'?value:'']));
-  if(!/^\d{1,2}(?:[,.]\d{1,2})?$/.test(String(data.vatPercent??'')))throw Error('Steuersatz mit höchstens zwei Nachkommastellen eingeben.');
-  const [whole,fraction='']=data.vatPercent.replace(',','.').split('.');
-  const vatBasisPoints=Number(whole)*100+Number(fraction.padEnd(2,'0'));
-  if(![0,700,1900].includes(vatBasisPoints))throw Error('Bitte einen von Lexware unterstützten Umsatzsteuersatz auswählen: 0 %, 7 % oder 19 %.');
-  const vatExemptionReason=String(data.vatExemptionReason??'').trim();
-  if(vatBasisPoints===0&&!vatExemptionReason)throw Error('Bei 0 % Umsatzsteuer bitte den Steuerbefreiungsgrund angeben.');
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(data.dueDate??'')||Number.isNaN(Date.parse(data.dueDate))||new Date(data.dueDate).toISOString().slice(0,10)!==data.dueDate||data.dueDate<invoiceDay())throw Error('Fälligkeit muss ein gültiges Datum ab heute sein.');
-  const billing={kind:data.billingKind,firstName:String(data.billingFirstName??'').trim(),lastName:String(data.billingLastName??'').trim(),name:String(data.billingName??'').trim(),street:String(data.billingStreet??'').trim(),zip:String(data.billingZip??'').trim(),city:String(data.billingCity??'').trim(),country:String(data.billingCountry??'').trim().toUpperCase()};
-  return {provider:'lexware',clientId:data.clientId??'',vatBasisPoints,vatExemptionReason,dueDate:data.dueDate,billing};
-}
-
-function reviewedClient(input,inventory){
-  const clients=inventory.clients??[];
-  if(clients.length){
-    const client=clients.find(item=>item.id===input.clientId);
-    if(!client)throw Error('Bitte den passenden Lexware-Rechnungskunden auswählen.');
-    if(!client.billing_address?.street_address||!client.billing_address?.zip_code||!client.billing_address?.city||!client.billing_address?.country_code)throw Error('Die Rechnungsadresse in Lexware ist unvollständig. Bitte dort ergänzen und den Rechnungsdialog neu öffnen.');
-    return {name:client.name,email:client.email,address:addressParts(client.billing_address),existing:true};
+function readInvoiceFields(form, inventory) {
+  const data = Object.fromEntries(
+    [...new FormData(form)].map(([key, value]) => [key, typeof value === "string" ? value : ""]),
+  );
+  const mode = data.mode === "paid" ? "paid" : data.mode === "invoice" ? "invoice" : "";
+  if (!mode) throw Error("Bitte auswählen: Rechnung senden oder bereits bezahlt.");
+  const vatBasisPoints = Number(data.vatBasisPoints);
+  if (![0, 700, 1900].includes(vatBasisPoints)) throw Error("Bitte den Umsatzsteuersatz auswählen.");
+  const input = {
+    mode,
+    vatBasisPoints,
+    clientId: data.clientId ?? "",
+    sendMail: form.elements.sendMail?.checked === true && !form.elements.sendMail.disabled,
+    billing: {
+      kind: data.billingKind ?? "",
+      firstName: String(data.billingFirstName ?? "").trim(),
+      lastName: String(data.billingLastName ?? "").trim(),
+      name: String(data.billingName ?? "").trim(),
+      street: String(data.billingStreet ?? "").trim(),
+      zip: String(data.billingZip ?? "").trim(),
+      city: String(data.billingCity ?? "").trim(),
+      country: String(data.billingCountry ?? "")
+        .trim()
+        .toUpperCase(),
+    },
+  };
+  if (mode === "paid") {
+    if (!["Bar", "Karte", "Überweisung"].includes(data.paymentMethod)) throw Error("Bitte die Zahlungsart auswählen.");
+    if (!validDay(data.paidAt) || data.paidAt > invoiceToday())
+      throw Error("Zahlungsdatum muss ein gültiger Tag bis heute sein.");
+    input.paymentMethod = data.paymentMethod;
+    input.paidAt = data.paidAt;
   }
-  const billing=input.billing;
-  if(!['individual','company'].includes(billing.kind))throw Error('Bitte Privatkunde oder Firmenkunde auswählen.');
-  if(billing.kind==='individual'?(!billing.firstName||!billing.lastName):!billing.name)throw Error('Bitte den vollständigen Rechnungskunden angeben.');
-  if(!billing.street||!billing.zip||!billing.city||!/^[A-Z]{2}$/.test(billing.country))throw Error('Bitte die vollständige Rechnungsadresse prüfen.');
-  return {name:billing.kind==='company'?billing.name:billing.firstName+' '+billing.lastName,address:[billing.street,billing.zip+' '+billing.city,billing.country],existing:false};
+  reviewedClient(input, inventory);
+  return input;
+}
+function reviewedClient(input, inventory) {
+  const clients = inventory.clients ?? [];
+  if (input.clientId) {
+    const client = clients.find((item) => item.id === input.clientId);
+    if (!client) throw Error("Bitte den passenden Qonto-Kunden auswählen.");
+    if (!client.complete) throw Error(client.problem || "Der Qonto-Kunde ist unvollständig. Bitte in Qonto ergänzen.");
+    return { name: client.name, email: client.email, address: addressLines(client.billing_address), existing: true };
+  }
+  if (clients.length && inventory.customerEmail)
+    throw Error("Für diese E-Mail gibt es bereits einen Qonto-Kunden. Bitte auswählen.");
+  const billing = input.billing;
+  if (!["individual", "company"].includes(billing.kind)) throw Error("Bitte Privatkunde oder Firmenkunde auswählen.");
+  if (billing.kind === "individual" ? !billing.firstName || !billing.lastName : !billing.name)
+    throw Error("Bitte den vollständigen Namen des Rechnungskunden angeben.");
+  if (!billing.street || !billing.zip || !billing.city) throw Error("Bitte die vollständige Rechnungsadresse angeben.");
+  if (billing.country !== "DE") throw Error("Rechnungen in diesem Ablauf gehen an deutsche Adressen (Land DE).");
+  return {
+    name: billing.kind === "company" ? billing.name : billing.firstName + " " + billing.lastName,
+    email: inventory.customerEmail ?? "",
+    address: [billing.street, billing.zip + " " + billing.city, "DE"],
+    existing: false,
+  };
 }
 
-export function invoiceReview(order,input,inventory){
-  const client=reviewedClient(input,inventory),totals=invoiceTotals(order,input.vatBasisPoints),vat=(input.vatBasisPoints/100).toLocaleString('de-DE',{maximumFractionDigits:2});
-  return `<div class="sectiontitle">Deine Schlussrechnung vor der Freigabe</div><div class="fieldpair"><span>Auftragsreferenz</span><strong>${invoiceEsc(order.wg)}</strong></div><div class="fieldpair"><span>Rechnungskunde</span><span>${invoiceEsc(client.name)}<br>${invoiceEsc(client.email??order.source.email)}<br>${client.address.map(invoiceEsc).join('<br>')}</span></div><div class="fieldpair"><span>Fälligkeit</span><span>${invoiceEsc(input.dueDate)}</span></div><div class="tablewrap"><table><thead><tr><th>Vereinbarte Leistung</th><th>Brutto</th></tr></thead><tbody>${invoiceLines(order).map(line=>`<tr><td>${invoiceEsc(line.title)}${line.description?'<span class="sub">'+invoiceEsc(line.description)+'</span>':''}</td><td class="money">${invoiceMoney(line.amountCents)}</td></tr>`).join('')}</tbody></table></div><div class="fieldpair"><span>Nettobetrag · Vorschau</span><span class="money">${invoiceMoney(totals.netCents)}</span></div><div class="fieldpair"><span>Enthaltene Umsatzsteuer · ${invoiceEsc(vat)} % · Vorschau</span><span class="money">${invoiceMoney(totals.taxCents)}</span></div>${input.vatBasisPoints===0?'<div class="fieldpair"><span>Steuerbefreiungsgrund</span><span>'+invoiceEsc(input.vatExemptionReason)+'</span></div>':''}<div class="fieldpair"><strong>Verbindlicher Gesamtfestpreis</strong><strong class="money">${invoiceMoney(totals.grossCents)}</strong></div><p class="hint">${client.existing?'Der geprüfte vorhandene Lexware-Kunde wird verwendet.':'Der neue Rechnungskunde wird mit diesen Angaben in Lexware angelegt.'} Lexware vergibt die Rechnungsnummer; ${invoiceEsc(order.wg)} bleibt als Auftragsreferenz erhalten. Bankdaten und Rechnungsdesign kommen aus deinen Lexware-Einstellungen.</p>`;
+export function invoiceReview(order, input, inventory) {
+  const client = reviewedClient(input, inventory),
+    totals = invoiceTotals(order, input.vatBasisPoints),
+    issue = inventory.issueDate ?? invoiceToday(),
+    due = inventory.dueDate ?? invoicePlusDays(issue, PAYMENT_TERM_DAYS),
+    paid = input.mode === "paid",
+    number = inventory.number ?? order.wg;
+  const pair = (label, value) => `<div class="fieldpair"><span>${label}</span><span>${value}</span></div>`;
+  return `<div class="sectiontitle">${paid ? "Vorschau · Rechnung mit Quittungsvermerk" : "Vorschau · Rechnung"}</div>${pair("Rechnungsnummer", "<strong>" + invoiceEsc(number) + "</strong>")}${pair("Rechnungsdatum", invoiceGermanDay(issue))}${paid ? pair("Bezahlt", invoiceEsc(input.paymentMethod) + " am " + invoiceGermanDay(input.paidAt)) : pair("Zahlbar bis", "<strong>" + invoiceGermanDay(due) + "</strong> · " + PAYMENT_TERM_DAYS + " Tage")}${pair("Rechnungskunde", invoiceEsc(client.name) + (client.email ? "<br>" + invoiceEsc(client.email) : "") + "<br>" + client.address.map(invoiceEsc).join("<br>"))}<div class="tablewrap"><table><thead><tr><th>Leistung</th><th>Brutto</th></tr></thead><tbody>${invoiceLines(
+    order,
+  )
+    .map(
+      (line) =>
+        `<tr><td>${invoiceEsc(line.title)}${line.description ? '<span class="sub">' + invoiceEsc(line.description) + "</span>" : ""}</td><td class="money">${invoiceMoney(line.amountCents)}</td></tr>`,
+    )
+    .join(
+      "",
+    )}</tbody></table></div>${pair("Netto", '<span class="money">' + invoiceMoney(totals.netCents) + "</span>")}${pair(invoiceEsc(VAT[input.vatBasisPoints]), '<span class="money">' + invoiceMoney(totals.taxCents) + "</span>")}<div class="fieldpair"><strong>Gesamtbetrag</strong><strong class="money">${invoiceMoney(totals.grossCents)}</strong></div><p class="hint">${client.existing ? "Der vorhandene Qonto-Kunde wird verwendet." : "Der Rechnungskunde wird mit diesen Angaben in Qonto angelegt."} Qonto stellt die Rechnung mit der Nummer ${invoiceEsc(number)} aus – eine doppelte Rechnung ist ausgeschlossen.${order.invoice?.status === "canceled" ? " Sie ersetzt die in Qonto stornierte Rechnung " + invoiceEsc(order.invoice.number) + "." : ""}${paid ? " Die Rechnung wird in Qonto sofort als bezahlt markiert und die Zahlung im Auftrag erfasst." : " Ohne Zahlungseingang folgen Zahlungserinnerung und Mahnungen nach deiner Freigabe."}${input.sendMail ? " Die PDF-Rechnung geht per E-Mail an den Kunden, Kopie an dich." : " Es wird keine E-Mail versendet."}</p>`;
 }
 
-export function invoiceForm(order,inventory){
+export function invoiceForm(order, inventory) {
   invoiceLines(order);
-  const clients=inventory.clients??[];
-  const field=(label,name,value='',extra='')=>`<label>${label}<input name="${name}" value="${invoiceEsc(value)}" ${extra}></label>`;
-  return `<p>${invoiceEsc(order.wg)} · ${invoiceEsc(order.source.name)} · Festpreis ${invoiceMoney(order.offer.totalCents)} brutto</p><form id="invoiceform"><label>Lexware-Rechnungskunde<select name="clientId" ${clients.length?'required':''}><option value="">${clients.length?'Bitte den passenden vorhandenen Kunden auswählen':'Neuen Rechnungskunden mit den geprüften Angaben anlegen'}</option>${clients.map(client=>`<option value="${invoiceEsc(client.id)}">${invoiceEsc(client.name)} · ${invoiceEsc(client.email)}</option>`).join('')}</select></label>${clients.length?'':`<fieldset class="catalog-options"><legend>Neue Rechnungsadresse</legend><label>Rechnungskunde<select name="billingKind"><option value="individual">Privatkunde</option><option value="company">Firmenkunde</option></select></label><div class="grid2">${field('Vorname','billingFirstName','','autocomplete="given-name" maxlength="100"')}${field('Nachname','billingLastName','','autocomplete="family-name" maxlength="100"')}${field('Firma','billingName','','autocomplete="organization" maxlength="180"')}${field('Straße und Hausnummer','billingStreet','','autocomplete="street-address" maxlength="180" required')}${field('Postleitzahl','billingZip','','autocomplete="postal-code" maxlength="20" required')}${field('Ort','billingCity','','autocomplete="address-level2" maxlength="100" required')}${field('Land als Länderkürzel','billingCountry','DE','maxlength="2" required')}</div><p class="hint">Die Rechnungsadresse ausdrücklich prüfen. Der neue Kunde wird erst mit der Rechnungsfreigabe in Lexware gespeichert.</p></fieldset>`}<div class="grid2"><label>Umsatzsteuer in Prozent<input name="vatPercent" inputmode="decimal" required placeholder="0, 7 oder 19" maxlength="5"></label>${field('Steuerbefreiungsgrund, nur bei 0 %','vatExemptionReason','','maxlength="500"')}${field('Fälligkeit','dueDate','','type="date" min="'+invoiceDay()+'" required')}</div><section class="sectiongap" data-invoice-review aria-live="polite"><p class="hint">Rechnungskunde, Steuerangaben und Fälligkeit vervollständigen, um die Vorschau zu prüfen.</p></section><label class="check"><input type="checkbox" name="reviewed" required disabled>Ich habe den Rechnungskunden, die Anschrift, die Steuerangaben, alle Leistungen und den Festpreis in dieser Vorschau geprüft. Die Schlussrechnung soll jetzt bei Lexware erstellt werden.</label><p class="hint">Die endgültige Rechnung wird einmal erstellt. Eine Zahlung oder Rechnungs-E-Mail wird dadurch nicht ausgelöst.</p><button class="primary" type="submit" disabled>Geprüfte Lexware-Schlussrechnung erstellen</button><div id="modal-error" class="error"></div></form>`;
+  const clients = inventory.clients ?? [],
+    today = inventory.issueDate ?? invoiceToday(),
+    due = inventory.dueDate ?? invoicePlusDays(today, PAYMENT_TERM_DAYS),
+    alreadyPaid = paidCents(order) >= order.offer.totalCents,
+    canMail = Boolean(inventory.customerEmail) && inventory.mailReady === true,
+    field = (label, name, value = "", extra = "") =>
+      `<label>${label}<input name="${name}" value="${invoiceEsc(value)}" ${extra}></label>`;
+  const clientChoice = clients.length
+    ? `<label>Qonto-Rechnungskunde<select name="clientId" ${inventory.customerEmail ? "required" : ""}><option value="">${inventory.customerEmail ? "Bitte den passenden Kunden auswählen" : "Neuen Rechnungskunden anlegen"}</option>${clients.map((client) => `<option value="${invoiceEsc(client.id)}">${invoiceEsc(client.name)}${client.email ? " · " + invoiceEsc(client.email) : ""}${client.complete ? "" : " · unvollständig"}</option>`).join("")}</select></label>`
+    : '<input type="hidden" name="clientId" value="">';
+  const newClient = `<fieldset class="catalog-options" data-new-client ${clients.length && inventory.customerEmail ? "hidden" : ""}><legend>Rechnungsadresse</legend><label>Kundenart<select name="billingKind"><option value="individual">Privatkunde</option><option value="company"${order.source.company ? " selected" : ""}>Firmenkunde</option></select></label><div class="grid2">${field("Vorname", "billingFirstName", String(order.source.name ?? "").split(" ").slice(0, -1).join(" "), 'autocomplete="given-name" maxlength="60"')}${field("Nachname", "billingLastName", String(order.source.name ?? "").split(" ").slice(-1).join(""), 'autocomplete="family-name" maxlength="60"')}${field("Firma", "billingName", order.source.company ?? "", 'autocomplete="organization" maxlength="180"')}${field("Straße und Hausnummer", "billingStreet", "", 'autocomplete="street-address" maxlength="180"')}${field("Postleitzahl", "billingZip", "", 'autocomplete="postal-code" inputmode="numeric" maxlength="20"')}${field("Ort", "billingCity", "", 'autocomplete="address-level2" maxlength="50"')}<input type="hidden" name="billingCountry" value="DE"></div><p class="hint">Die Adresse wird erst mit deiner Freigabe als Qonto-Kunde gespeichert.</p></fieldset>`;
+  return `<p>${invoiceEsc(order.wg)} · ${invoiceEsc(order.source.name)} · Festpreis ${invoiceMoney(order.offer.totalCents)} brutto</p><form id="invoiceform"><fieldset class="catalog-options"><legend>Wie rechnest du ab?</legend><label class="check"><input type="radio" name="mode" value="invoice" ${alreadyPaid ? "disabled" : "checked"}>Rechnung senden · zahlbar in ${PAYMENT_TERM_DAYS} Tagen bis ${invoiceGermanDay(due)}</label><label class="check"><input type="radio" name="mode" value="paid" ${alreadyPaid ? "checked" : ""}>Bereits bezahlt · Rechnung gilt als Quittung</label></fieldset><div class="grid2" data-paid-fields hidden><label>Zahlungsart<select name="paymentMethod"><option>Bar</option><option>Karte</option><option>Überweisung</option></select></label>${field("Bezahlt am", "paidAt", today, 'type="date" max="' + today + '"')}</div>${clientChoice}${newClient}<label>Umsatzsteuer<select name="vatBasisPoints"><option value="1900" selected>${VAT[1900]}</option><option value="700">${VAT[700]}</option><option value="0">${VAT[0]}</option></select></label><label class="check"><input type="checkbox" name="sendMail" ${canMail ? "checked" : "disabled"}>PDF-Rechnung per E-Mail an ${invoiceEsc(inventory.customerEmail || "den Kunden")} senden (Kopie an dich)</label>${canMail ? "" : '<p class="hint">' + (inventory.customerEmail ? "E-Mail-Versand ist in den Einstellungen noch nicht geprüft und freigegeben." : "Keine Kunden-E-Mail hinterlegt. Das PDF kannst du nach dem Ausstellen herunterladen.") + "</p>"}<section class="sectiongap" data-invoice-review aria-live="polite"><p class="hint">Angaben vervollständigen, dann erscheint die Vorschau.</p></section><label class="check"><input type="checkbox" name="reviewed" required disabled>Ich habe Kunde, Adresse, Leistungen, Steuer und Betrag geprüft. Die Rechnung ${invoiceEsc(inventory.number ?? order.wg)} soll jetzt in Qonto ausgestellt werden.</label><button class="primary" type="submit" disabled>Rechnung ausstellen</button><div id="modal-error" class="error"></div></form>`;
 }
 
-export function mountInvoiceForm(form,order,inventory){
-  if(!form)return;
-  const context={order:structuredClone(order),inventory:structuredClone(inventory),reviewedInput:null};
-  mountedInvoices.set(form,context);
-  const update=()=>{
-    const kind=form.elements.billingKind?.value;
-    for(const name of ['billingFirstName','billingLastName','billingName'])if(form.elements[name]){
-      const needed=name==='billingName'?kind==='company':kind==='individual';
-      form.elements[name].required=needed;
-      form.elements[name].closest('label').hidden=!needed;
-    }
-    const review=form.querySelector('[data-invoice-review]'),submit=form.querySelector('[type="submit"]');
-    form.elements.reviewed.checked=false;
-    try{
-      const input=readInvoiceFields(form);
-      review.innerHTML=invoiceReview(context.order,input,context.inventory);
-      context.reviewedInput=JSON.stringify(input);
-      form.elements.reviewed.disabled=false;submit.disabled=false;
-    }catch(error){
-      context.reviewedInput=null;
-      review.innerHTML='<p class="hint">'+invoiceEsc(error.message)+'</p>';
-      form.elements.reviewed.disabled=true;submit.disabled=true;
+export function mountInvoiceForm(form, order, inventory) {
+  if (!form) return;
+  const context = { order: structuredClone(order), inventory: structuredClone(inventory), reviewedInput: null };
+  mountedInvoices.set(form, context);
+  const update = () => {
+    const kind = form.elements.billingKind?.value,
+      mode = [...(form.querySelectorAll?.('[name="mode"]') ?? [])].find((item) => item.checked)?.value,
+      paidFields = form.querySelector("[data-paid-fields]"),
+      newClient = form.querySelector("[data-new-client]");
+    if (paidFields) paidFields.hidden = mode !== "paid";
+    if (newClient && form.elements.clientId?.tagName === "SELECT") newClient.hidden = Boolean(form.elements.clientId.value);
+    for (const name of ["billingFirstName", "billingLastName", "billingName"])
+      if (form.elements[name]?.closest) form.elements[name].closest("label").hidden = name === "billingName" ? kind !== "company" : kind !== "individual";
+    const review = form.querySelector("[data-invoice-review]"),
+      submit = form.querySelector('[type="submit"]');
+    form.elements.reviewed.checked = false;
+    try {
+      const input = readInvoiceFields(form, context.inventory);
+      review.innerHTML = invoiceReview(context.order, input, context.inventory);
+      context.reviewedInput = JSON.stringify(input);
+      form.elements.reviewed.disabled = false;
+      submit.disabled = false;
+      submit.textContent = input.mode === "paid" ? "Quittung ausstellen" : "Rechnung ausstellen";
+    } catch (error) {
+      context.reviewedInput = null;
+      review.innerHTML = '<p class="hint">' + invoiceEsc(error.message) + "</p>";
+      form.elements.reviewed.disabled = true;
+      submit.disabled = true;
     }
   };
-  form.addEventListener('input',event=>{if(event.target.name!=='reviewed')update();});
-  form.addEventListener('change',event=>{if(event.target.name!=='reviewed')update();});
+  form.addEventListener("input", (event) => {
+    if (event.target.name !== "reviewed") update();
+  });
+  form.addEventListener("change", (event) => {
+    if (event.target.name !== "reviewed") update();
+  });
   update();
 }
 
-export function invoiceInput(form,currentOrder){
-  const context=mountedInvoices.get(form),input=readInvoiceFields(form);
-  if(!context||!currentOrder||currentOrder.id!==context.order.id||currentOrder.version!==context.order.version)throw Error('Der Auftrag hat sich seit der Vorschau geändert. Bitte den Rechnungsdialog erneut öffnen und prüfen.');
-  if(!context||context.reviewedInput!==JSON.stringify(input)||form.elements.reviewed.checked!==true)throw Error('Bitte die aktuelle Rechnungsvorschau vollständig prüfen und ausdrücklich freigeben.');
-  reviewedClient(input,context.inventory);invoiceTotals(context.order,input.vatBasisPoints);
-  const selectedClient=(context.inventory.clients??[]).find(client=>client.id===input.clientId);
-  if(selectedClient&&!/^[a-f0-9]{64}$/i.test(selectedClient.reviewHash??''))throw Error('Der geprüfte Kundenabgleich fehlt. Bitte den Rechnungsdialog erneut öffnen.');
-  return {...input,clientReviewHash:selectedClient?.reviewHash??null,reviewed:true};
+export function invoiceInput(form, currentOrder) {
+  const context = mountedInvoices.get(form);
+  if (!context || !currentOrder || currentOrder.id !== context.order.id || currentOrder.version !== context.order.version)
+    throw Error("Der Auftrag hat sich seit der Vorschau geändert. Bitte den Dialog erneut öffnen.");
+  const input = readInvoiceFields(form, context.inventory);
+  if (context.reviewedInput !== JSON.stringify(input) || form.elements.reviewed.checked !== true)
+    throw Error("Bitte die aktuelle Vorschau prüfen und ausdrücklich bestätigen.");
+  invoiceTotals(context.order, input.vatBasisPoints);
+  const client = (context.inventory.clients ?? []).find((item) => item.id === input.clientId);
+  if (client && !/^[a-f0-9]{64}$/i.test(client.reviewHash ?? ""))
+    throw Error("Der geprüfte Kundenabgleich fehlt. Bitte den Dialog erneut öffnen.");
+  const { billing, ...rest } = input;
+  return {
+    ...rest,
+    ...(input.clientId ? {} : { billing }),
+    clientReviewHash: client?.reviewHash ?? null,
+    reviewed: true,
+  };
 }
 
-export function invoiceResultHTML(order){
-  const invoice=order.invoice;
-  if(!invoice)return '';
-  const lexware=invoice.provider==='lexware',label=lexware?'Lexware-Schlussrechnung':'Bestehende Rechnung';
-  let link='';
-  if(lexware&&/^[a-f0-9-]{36}$/i.test(invoice.id??''))link=`<a href="https://app.lexware.de/permalink/invoices/view/${invoiceEsc(invoice.id)}" target="_blank" rel="noreferrer">Rechnung in Lexware ansehen →</a>`;
-  else if(!lexware&&invoice.url){try{const url=new URL(invoice.url);if(url.protocol==='https:')link='<a href="'+invoiceEsc(url.href)+'" target="_blank" rel="noreferrer">Bestehende Rechnung ansehen →</a>';}catch{/* Historische Rechnungsdaten bleiben ohne ungültigen Link sichtbar. */}}
-  const remote=invoice.remotePayment;
-  return `<p><strong>${label} ${invoiceEsc(invoice.number??'')}</strong> · ${invoiceStatusLabel(invoice.status)}</p><div class="actions">${lexware?'<a href="/api/lexware/pdf?id='+encodeURIComponent(order.id)+'">Original-Rechnung als PDF herunterladen</a>':''}${link}</div>${lexware&&remote?'<p>Lexware-Zahlstatus: '+invoiceStatusLabel(remote.status??remote.paymentStatus)+'</p><p class="hint">Der Lexware-Zahlstatus ist ein externer Stand. Tatsächliche Zahlungseingänge im Auftrag mit Nachweis erfassen.</p>':''}`;
+function invoiceView(order) {
+  const inv = order.invoice,
+    info = order.invoiceInfo ?? null,
+    open = info?.openCents ?? Math.max(0, (order.offer?.totalCents ?? 0) - paidCents(order)),
+    overdue = inv.status === "unpaid" && validDay(inv.dueDate) && invoiceToday() > inv.dueDate,
+    status = inv.status === "unpaid" && open === 0 ? "paid" : overdue ? "overdue" : inv.status;
+  return { inv, info, open, overdue, status };
+}
+export function invoiceResultHTML(order) {
+  const invoice = order.invoice;
+  if (!invoice) return "";
+  if (invoice.provider !== "qonto") {
+    let link = "";
+    try {
+      const url = new URL(invoice.url ?? "");
+      if (url.protocol === "https:")
+        link = '<a href="' + invoiceEsc(url.href) + '" target="_blank" rel="noreferrer">Bestehende Rechnung ansehen →</a>';
+    } catch {
+      /* Historische Rechnungsdaten bleiben ohne ungültigen Link sichtbar. */
+    }
+    return `<p><strong>Bestehende Rechnung ${invoiceEsc(invoice.number ?? "")}</strong> · ${invoiceStatusLabel(invoice.status)}</p><p class="hint">Früherer Rechnungsvorgang (${invoiceEsc(invoice.provider ?? "unbekannt")}). Zahlungen erfasst du wie gewohnt im Auftrag.</p>${link ? '<div class="actions">' + link + "</div>" : ""}`;
+  }
+  const { inv, info, open, overdue, status } = invoiceView(order),
+    paidMode = inv.mode === "paid",
+    badge = status === "paid" ? "good" : status === "overdue" ? "bad" : status === "canceled" ? "bad" : "warn",
+    pair = (label, value) => `<div class="fieldpair"><span>${label}</span><span>${value}</span></div>`;
+  const actions = [
+    `<a class="button" href="/api/invoice/pdf?id=${encodeURIComponent(order.id)}">PDF herunterladen</a>`,
+    inv.url ? `<a class="button" href="${invoiceEsc(inv.url)}" target="_blank" rel="noreferrer">In Qonto ansehen</a>` : "",
+    inv.status === "unpaid" ? '<button data-click="invoiceSync">Zahlstatus abgleichen</button>' : "",
+    order.source?.email ? `<button data-click="invoiceMail">${(info?.deliveries ?? []).some((row) => !row.kind.startsWith("reminder-")) ? "Rechnung erneut senden" : "Rechnung per E-Mail senden"}</button>` : "",
+    overdue && open > 0 && order.source?.email && (info?.next || info?.pending)
+      ? `<button data-click="invoiceReminder">${invoiceEsc(info.pending?.label ?? info.next.label)} jetzt senden</button>`
+      : "",
+    inv.status === "unpaid" && open === 0 ? '<button data-click="invoiceMarkPaid">In Qonto als bezahlt markieren</button>' : "",
+    info?.portalUrl ? `<button data-click="invoicePortal" data-url="${invoiceEsc(info.portalUrl)}">Kundenlink kopieren</button>` : "",
+  ].filter(Boolean);
+  const deliveries = (info?.deliveries ?? [])
+    .map(
+      (row) =>
+        `<li>${invoiceEsc(row.label)} · ${invoiceEsc(deliveryStates[row.state] ?? row.state)}<small>${row.at ? invoiceEsc(new Date(row.at).toLocaleString("de-DE", { timeZone: "Europe/Berlin", dateStyle: "medium", timeStyle: "short" })) : ""}${row.detail && row.state !== "sent" ? " · " + invoiceEsc(row.detail) : ""}</small></li>`,
+    )
+    .join("");
+  if (inv.status === "canceled")
+    return `<div class="sectiontitle">Qonto-Rechnung</div><p><strong>${invoiceEsc(inv.number)}</strong> <span class="badge bad">Storniert</span></p><p class="hint">Diese Rechnung ist in Qonto storniert. Du kannst für den Auftrag eine neue Rechnung mit fortlaufender Nummer ausstellen.</p><div class="actions"><a class="button" href="/api/invoice/pdf?id=${encodeURIComponent(order.id)}">Stornierte Rechnung als PDF</a><button class="primary" data-click="invoice">Neue Rechnung ausstellen</button></div>`;
+  const dunning =
+    paidMode || inv.status !== "unpaid" || open === 0
+      ? ""
+      : info?.finished
+        ? '<p class="hint"><strong>Mahnverfahren abgeschlossen.</strong> Alle drei Stufen sind versendet. Weitere Schritte (z. B. gerichtliches Mahnverfahren) entscheidest du selbst.</p>'
+        : info?.pending
+          ? `<p class="hint">${invoiceEsc(info.pending.label)}: ${invoiceEsc(deliveryStates[info.pending.state] ?? info.pending.state)}.</p>`
+          : info?.next
+            ? `<p class="hint">Nächste Stufe: <strong>${invoiceEsc(info.next.label)}</strong> ab ${invoiceGermanDay(info.next.on)} · ${info.dunningApproved ? "wird automatisch gesendet" : "automatischer Versand ist in den Einstellungen noch nicht freigegeben – du kannst sie hier manuell senden"}.</p>`
+            : "";
+  return `<div class="sectiontitle">Qonto-Rechnung</div><p><strong>${invoiceEsc(inv.number)}</strong> <span class="badge ${badge}">${invoiceStatusLabel(status)}</span>${paidMode ? ' <span class="badge good">Quittung</span>' : ""}</p>${pair("Rechnungsdatum", invoiceGermanDay(inv.issueDate))}${paidMode ? pair("Bezahlt", invoiceEsc(inv.paymentMethod ?? "") + (inv.paidAt ? " am " + invoiceGermanDay(inv.paidAt) : "")) : pair("Zahlbar bis", invoiceGermanDay(inv.dueDate))}${pair("Betrag", invoiceMoney(inv.totalCents))}${paidMode ? "" : pair("Noch offen", invoiceMoney(open))}<div class="actions">${actions.join("")}</div>${dunning}${deliveries ? '<div class="sectiontitle">Versand & Mahnwesen</div><ul class="timeline">' + deliveries + "</ul>" : ""}`;
 }

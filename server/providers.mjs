@@ -1,13 +1,13 @@
-import {lexwareSchema,lexwareInventory,lexwareInvoice,lexwareReconcile,lexwarePDF,lexwareCheck,lexwareNumberCheck} from './lexware.mjs';
-import {lexwareWebhookSchema,pendingLexwareEvents,lexwareSubscriptions} from './lexware-webhooks.mjs';
-import {configuration,settings,setting,getOrder,saveOrder,claimJob,importWebsite,documentLinkUpdate} from '../src/worker.mjs';
+import {qontoSchema,qontoInventory,qontoCheck,qontoNumberCheck} from './qonto.mjs';
+import {qontoInvoice,syncQontoInvoice,qontoMarkPaid,resendInvoiceMail,sendReminderNow,pendingInvoiceWork,invoiceInfo,invoiceDownload,invoicePDF,invoicePortalView,pdfResponse} from './qonto-billing.mjs';
+import {configuration,settings,setting,getOrder,saveOrder,claimJob,importWebsite,documentLinkUpdate,orderDetail} from '../src/worker.mjs';
 import {AppError,need,berlin,berlinISO} from '../src/domain.mjs';
 import {calendarAccessToken} from './calendar-oauth.mjs';
 import {digest,issueCustomerAccess} from './auth.mjs';
 import {bookingPhotos,syncBookingPhotos,bookingPhotoSchema} from './booking-photos.mjs';
 import {protocolMailSchema,protocolQueueStatements,deliverProtocol,pendingProtocolMails,protocolDownload} from './protocol-mail.mjs';
 import {recordOperationIssue,assertRecordOperation,assertCurrentRecordOperation} from '../src/record-compat.mjs';
-export async function providerSchema(env){await bookingPhotoSchema(env);await protocolMailSchema(env);await lexwareSchema(env);await lexwareWebhookSchema(env);await env.DB.prepare('CREATE TABLE IF NOT EXISTS runtime_locks(name TEXT PRIMARY KEY,owner TEXT NOT NULL,expires_at INTEGER NOT NULL)').run();}
+export async function providerSchema(env){await bookingPhotoSchema(env);await protocolMailSchema(env);await qontoSchema(env);await env.DB.prepare('CREATE TABLE IF NOT EXISTS runtime_locks(name TEXT PRIMARY KEY,owner TEXT NOT NULL,expires_at INTEGER NOT NULL)').run();}
 /** @param {RequestInit & {beforeSend?:()=>void}} options */
 async function providerJSON(url,options={}){const {beforeSend,...requestOptions}=options;if(beforeSend)beforeSend();const result=await fetch(url,{...requestOptions,redirect:'manual',signal:AbortSignal.timeout(20000)});const data=await result.json().catch(()=>null);if(!result.ok)throw new AppError('Anbieteranfrage nicht bestätigt: HTTP '+result.status,502);need(data&&typeof data==='object','Anbieterergebnis ist nicht lesbar.',502);return data;}
 async function finishJob(env,job,state,providerId,detail=null){await env.DB.prepare('UPDATE jobs SET state=?,provider_id=?,detail=?,updated_at=? WHERE id=?').bind(state,providerId??null,detail,new Date().toISOString(),job).run();}
@@ -59,7 +59,7 @@ async function syncCalendar(env,order){assertRecordOperation(order,'calendarSync
   let attempted=false;try{await calendarAvailability(env,order);const existing=await fetch(url+'/'+payload.id,{headers,redirect:'manual',signal:AbortSignal.timeout(20000)});need(existing.ok||existing.status===404,'Google-Termin konnte nicht sicher geprüft werden.',502);let result;if(existing.ok){const remote=await existing.json();need(remote.extendedProperties?.private?.whiteGlossOrder===order.id,'Google-Termin gehört nicht eindeutig zu diesem Auftrag.',409);need(remote.etag,'Google-Terminversion fehlt.',502);result=await providerJSON(url+'/'+payload.id+'?sendUpdates=none',{method:'PATCH',beforeSend:()=>{assertCurrentRecordOperation(env,order,'calendarSync',order.version);attempted=true;},headers:{...headers,'If-Match':remote.etag},body:JSON.stringify(payload)});}else{result=await providerJSON(url+'?sendUpdates=none',{method:'POST',beforeSend:()=>{assertCurrentRecordOperation(env,order,'calendarSync',order.version);attempted=true;},headers,body:JSON.stringify(payload)});}need(result.id===payload.id&&result.start?.dateTime&&Date.parse(result.start.dateTime)===Date.parse(order.appointment.start)&&Date.parse(result.end?.dateTime)===Date.parse(order.appointment.end),'Google hat den Termin nicht eindeutig bestätigt.',502);await finishJob(env,job,'sent',result.id);const current=await getOrder(env,order.id);current.calendar={eventId:result.id,snapshot:payload.extendedProperties.private.whiteGlossSnapshot,at:new Date().toISOString()};return saveOrder(env,current,current.version,'Verbindlicher Google-Termin abgeglichen','provider');}catch(error){await finishJob(env,job,attempted?'unknown':'failed',attempted?payload.id:null,attempted?'Kalenderergebnis ungeklärt. Kein automatischer Neuversuch.':'Kalenderprüfung angehalten; keine Anbieteränderung.');throw error;}}
 async function reconcile(env,order){
   need(!order.synthetic,'Testaufträge haben keine externen Anbieterresultate.',409);
-  const jobs=await env.DB.prepare("SELECT * FROM jobs WHERE order_id=? AND state IN ('unknown','pending','draft','sent') ORDER BY created_at").bind(order.id).all();let current=await lexwareReconcile(env,order);
+  const jobs=await env.DB.prepare("SELECT * FROM jobs WHERE order_id=? AND state IN ('unknown','pending','draft','sent') ORDER BY created_at").bind(order.id).all();let current=order.invoice?.provider==='qonto'?await syncQontoInvoice(env,order):order;
   for(const job of jobs.results){
     if(job.kind==='calendar-cancel'&&['unknown','pending'].includes(job.state)){
       const config=await settings(env),access=await calendarAccessToken(env),eventId=digest('white-gloss-panel:'+current.id);const response=await fetch('https://www.googleapis.com/calendar/v3/calendars/'+encodeURIComponent(config.calendarId)+'/events/'+eventId,{headers:{Authorization:'Bearer '+access},redirect:'manual',signal:AbortSignal.timeout(20000)});
@@ -79,16 +79,24 @@ async function reconcile(env,order){
   return current;
 }
 export const providerOperations={
-  lexwareCheck,lexwareNumberCheck,lexwareSubscriptions,lexwarePDF,
+  qontoCheck,qontoNumberCheck,invoiceInfo,invoiceDownload,invoicePDF,invoicePortalView,pdfResponse,
   protocolQueue:protocolQueueStatements,
   protocolDelivery:deliverProtocol,
   protocolDownload,
   validateAppointment:calendarAvailability,
-  async action(env,order,action,input){assertRecordOperation(order,action==='calendarSync'&&order.status==='Storniert'?'calendarCancel':action);if(action==='sendOffer')return sendOffer(env,order);if(action==='sendDocument')return sendDocument(env,order,input);if(action==='calendarSync')return order.status==='Storniert'?cancelCalendar(env,order):syncCalendar(env,order);if(action==='invoice')return lexwareInvoice(env,order,input);if(action==='reconcile')return reconcile(env,order);throw new AppError('Unbekannte Anbieteraktion.');},
+  async action(env,order,action,input){assertRecordOperation(order,action==='calendarSync'&&order.status==='Storniert'?'calendarCancel':action);if(action==='sendOffer')return sendOffer(env,order);if(action==='sendDocument')return sendDocument(env,order,input);if(action==='calendarSync')return order.status==='Storniert'?cancelCalendar(env,order):syncCalendar(env,order);if(action==='reconcile')return reconcile(env,order);
+    // Qonto-Abrechnung: Antwort enthält die vollständige Auftragsansicht und eine Versandmeldung.
+    const withDetail=async(saved,message)=>({...(await orderDetail(env,saved.id)),...(message?{invoiceMessage:message}:{})});
+    if(action==='invoice'){const result=await qontoInvoice(env,order,input);return withDetail(result.order,result.delivery?.message??null);}
+    if(action==='invoiceSync')return withDetail(await syncQontoInvoice(env,order),'Zahlstatus mit Qonto abgeglichen.');
+    if(action==='invoiceMarkPaid')return withDetail(await qontoMarkPaid(env,order),'Rechnung in Qonto als bezahlt markiert.');
+    if(action==='invoiceMail'){const result=await resendInvoiceMail(env,order);return withDetail(order,result.message);}
+    if(action==='invoiceReminder'){const result=await sendReminderNow(env,order);return withDetail(order,result.message);}
+    throw new AppError('Unbekannte Anbieteraktion.');},
   async background(env){
     const config=await settings(env),errors=[];const safe=async(label,fn)=>{try{return await fn();}catch(error){errors.push(label+': '+error.message);return null;}};
-    errors.push(...await pendingLexwareEvents(env));
     if(config.emailVerified&&config.sendApproved)errors.push(...await pendingProtocolMails(env));
+    errors.push(...await pendingInvoiceWork(env).catch(error=>['Rechnungen & Mahnwesen: '+error.message]));
     if(config.hubVerified&&config.numberAudit&&config.autoImportApproved)await safe('Website-Import',()=>importWebsite(env));
     if(config.hubVerified&&config.autoImportApproved){
       const rows=await env.DB.prepare("SELECT o.id FROM orders o LEFT JOIN booking_photo_checks c ON c.order_id=o.id WHERE o.website_id IS NOT NULL AND o.synthetic=0 ORDER BY COALESCE(c.checked_at,''),o.updated_at LIMIT 2").all();
@@ -97,5 +105,5 @@ export const providerOperations={
     if(config.calendarVerified&&config.calendarOAuth&&config.calendarSyncApproved){const rows=await env.DB.prepare("SELECT id FROM orders WHERE synthetic=0 AND json_extract(data,'$.appointment.start') IS NOT NULL AND (status='Termin verbindlich' OR (status='Storniert' AND json_extract(data,'$.calendar.eventId') IS NOT NULL AND json_extract(data,'$.calendar.cancelled') IS NOT 1))").all();let remaining=3;for(const row of rows.results){const order=await getOrder(env,row.id);if(!order.appointment)continue;const cancelled=order.status==='Storniert',snapshot=digest(JSON.stringify(order.appointment));if(recordOperationIssue(order,cancelled?'calendarCancel':'calendarSync'))continue;if(cancelled?order.calendar?.cancelled:order.calendar?.snapshot===snapshot)continue;const previous=await env.DB.prepare('SELECT state FROM jobs WHERE order_id=? AND kind=?').bind(order.id,cancelled?'calendar-cancel':'calendar-'+snapshot).first();if(previous)continue;await safe('Google-Termin',()=>cancelled?cancelCalendar(env,order):syncCalendar(env,order));if(--remaining===0)break;}}
     return {errors};
   },
-  async endpoint(env,url){if(url.pathname==='/api/bookingphotos'){const order=await getOrder(env,url.searchParams.get('id'));return bookingPhotos(env,order.id,!recordOperationIssue(order,'bookingphotos'));}if(url.pathname==='/api/lexware/clients')return lexwareInventory(env,await getOrder(env,url.searchParams.get('id')));throw new AppError('Funktion nicht gefunden.',404);}
+  async endpoint(env,url){if(url.pathname==='/api/bookingphotos'){const order=await getOrder(env,url.searchParams.get('id'));return bookingPhotos(env,order.id,!recordOperationIssue(order,'bookingphotos'));}if(url.pathname==='/api/qonto/clients')return qontoInventory(env,await getOrder(env,url.searchParams.get('id')));throw new AppError('Funktion nicht gefunden.',404);}
 };

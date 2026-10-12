@@ -6,7 +6,7 @@ import {createApplication} from '../server/application.mjs';
 import {digest} from '../server/auth.mjs';
 import {getOrder,setting,protect,background} from '../src/worker.mjs';
 import {providerOperations} from '../server/providers.mjs';
-import {lexwareInvoice} from '../server/lexware.mjs';
+import {qontoInvoice} from '../server/qonto-billing.mjs';
 import {assertCurrentRecordOperation} from '../src/record-compat.mjs';
 
 const owner='owner@example.invalid',customer='customer@example.invalid',origin='https://panel.example.invalid';
@@ -26,7 +26,7 @@ test('blocked and anonymized legacy records remain readable but reject operation
     const f=await fixture(t,{recordsRestriction:{status}});t.mock.method(globalThis,'fetch',()=>{throw Error('No provider calls for restricted records');});
     assert.equal((await f.app.fetch(new Request(origin+'/api/order/'+f.order.id,{headers:{cookie:f.cookie}}))).status,200);
     for(const action of ['price','payment','onsiteAccept','sendOffer','invoice'])assert.equal((await f.post('/api/action',{id:f.order.id,version:1,action,input:{}})).status,409,action);
-    await assert.rejects(lexwareInvoice(f.env,f.order,{}),/Kundenakte ist gesperrt/);
+    await assert.rejects(qontoInvoice(f.env,f.order,{}),/Kundenakte ist gesperrt/);
     const note=await f.post('/api/action',{id:f.order.id,version:1,action:'note',input:{note:'TEST · interne Aktennotiz'}});assert.equal(note.status,200);
     assert.equal((await getOrder(f.env,f.order.id)).recordsRestriction.status,status);
     t.mock.restoreAll();
