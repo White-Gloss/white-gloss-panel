@@ -48,6 +48,12 @@ test('mail configuration failure keeps a durable queue; later maintenance sends 
   const draft=await f.signed('intake'),result=await f.request('/api/action',{id:f.order.id,version:draft.version,action:'intake',input:draft.input});assert.equal(result.status,200);assert.equal((await result.json()).protocolDelivery.state,'failed');assert.equal(sent.length,0);
   await setting(f.env,'sendApproved',true);assert.equal((await maintenance(f.env)).ok,true);assert.equal(sent.length,1);await maintenance(f.env);assert.equal(sent.length,1);
 });
+test('a current record restriction cancels queued protocol mail instead of retrying it',async t=>{
+  const f=await fixture(t);await setting(f.env,'sendApproved',false);t.mock.method(globalThis,'fetch',()=>{throw Error('Restricted protocol mail must not be sent');});
+  const draft=await f.signed('intake');await f.request('/api/action',{id:f.order.id,version:draft.version,action:'intake',input:draft.input});
+  await f.env.DB.prepare("UPDATE orders SET data=json_set(data,'$.recordsRestriction.status','blocked') WHERE id=?").bind(f.order.id).run();await setting(f.env,'sendApproved',true);
+  assert.equal((await deliverProtocol(f.env,f.order.id,'intake')).state,'cancelled');assert.equal((await f.env.DB.prepare("SELECT state FROM jobs WHERE kind='protocol-intake'").first()).state,'cancelled');assert.deepEqual(await pendingProtocolMails(f.env),[]);
+});
 test('synthetic protocols generate downloadable PDFs but never queue or send customer mail',async t=>{
   const f=await fixture(t,true);t.mock.method(globalThis,'fetch',()=>{throw Error('No test mail allowed');});const draft=await f.signed('intake'),result=await f.request('/api/action',{id:f.order.id,version:draft.version,action:'intake',input:draft.input});assert.equal(result.status,200);assert.equal((await result.json()).protocolDelivery.state,'test');assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM protocol_deliveries').first()).n,0);const saved=await getOrder(f.env,f.order.id);assert.equal((await protocolDocument(f.env,saved,'intake')).bytes.subarray(0,5).toString(),new Uint8Array([37,80,68,70,45]).toString());
 });
