@@ -5,12 +5,13 @@ import {passwordLogin,savePassword,passwordPage} from './password-auth.mjs';
 import {calendarOAuthSchema,calendarAuthorize,calendarCallback,calendarAccessToken} from './calendar-oauth.mjs';
 import {createStorage} from './storage.mjs';
 import {providerOperations,providerSchema} from './providers.mjs';
+import {chatSchema,handleChat,chatBackground,CUSTOMER_CHAT_PREFIXES} from './chat.mjs';
 const lockedHeaders={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Strict-Transport-Security':'max-age=31536000','Permissions-Policy':'camera=(), microphone=(), geolocation=()','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com"};
 function errorResponse(message,status=500){return new Response(JSON.stringify({error:message}),{status,headers:{'Content-Type':'application/json'}});}
 export async function createApplication(env){
   const origin=new URL(env.PANEL_ORIGIN);if(origin.protocol!=='https:'||origin.origin!==env.PANEL_ORIGIN||origin.username||origin.password)throw Error('PANEL_ORIGIN muss ein eindeutiger HTTPS-Ursprung sein.');
   if(!/^[a-f0-9]{64}$/.test(env.OWNER_EMAIL_SHA256??''))throw Error('Betreiberidentität fehlt.');
-  await init(env);await authSchema(env);await calendarOAuthSchema(env);await providerSchema(env);
+  await init(env);await authSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await chatSchema(env);
   env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=providerOperations;
   const handle=async request=>{
     try{
@@ -24,7 +25,7 @@ export async function createApplication(env){
       if(request.method==='POST'&&url.pathname==='/auth/password/login')return await passwordLogin(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/logout')return await logout(env,request);
       const identity=await sessionIdentity(env,request);
-      if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/(?:angebot|dokument|rechnung)\/[a-f0-9]{64}$/.test(url.pathname)||url.pathname==='/vor-ort')login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
+      if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/(?:angebot|dokument|rechnung|chat)\/[a-f0-9]{64}$/.test(url.pathname)||url.pathname==='/vor-ort')login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
       const isOwner=digest(identity)===env.OWNER_EMAIL_SHA256;
       if(url.pathname==='/auth/password'){
         if(!isOwner)return errorResponse('Nur für den Betreiber vorgesehen.',403);
@@ -41,7 +42,8 @@ export async function createApplication(env){
         return authorization;
       }
       if(url.pathname==='/auth/calendar/callback'&&request.method==='GET')return calendarCallback(env,request,identity);
-      if(!isOwner&&!['/angebot/','/api/offer/','/dokument/','/api/document/','/rechnung/','/api/rechnung/'].some(prefix=>url.pathname.startsWith(prefix)))return errorResponse('Dieser Zugang ist für das persönliche Angebot vorgesehen.',403);
+      if(!isOwner&&!['/angebot/','/api/offer/','/dokument/','/api/document/','/rechnung/','/api/rechnung/',...CUSTOMER_CHAT_PREFIXES].some(prefix=>url.pathname.startsWith(prefix)))return errorResponse('Dieser Zugang ist für das persönliche Angebot vorgesehen.',403);
+      if(url.pathname.startsWith('/api/chats')||url.pathname.startsWith('/api/kundenchat/')){const chat=await handleChat(env,request,identity,isOwner);if(chat)return chat;}
       if(isOwner&&url.pathname==='/api/invoice/pdf'&&request.method==='GET')return await providerOperations.invoiceDownload(env,await (await import('../src/worker.mjs')).getOrder(env,url.searchParams.get('id')));
       if(isOwner&&url.pathname==='/api/protocol/pdf'&&request.method==='GET')return await providerOperations.protocolDownload(env,url.searchParams.get('id'),url.searchParams.get('kind'));
       if(isOwner&&url.pathname==='/api/check'&&request.method==='POST'){
@@ -63,6 +65,7 @@ export async function maintenance(env,now=Date.now()){
     await setting(env,'lastScheduledAttempt',new Date(now).toISOString());await pruneAuth(env,now);
     await env.DB.prepare('DELETE FROM calendar_oauth_states WHERE expires_at<?').bind(now).run();
     let errors=[];try{errors=(await providerOperations.background(env)).errors;}catch(error){errors.push('Anbieterabgleich: '+error.message);}
+    try{errors.push(...await chatBackground(env,now));}catch(error){errors.push('Kundenchat: '+error.message);}
     let result;try{result=await background(env);if(result.deliveryError)errors.push(result.deliveryError);}catch(error){errors.push('Fälligkeitsprüfung: '+error.message);result={ok:false};}
     const deliveryError=errors.length?errors.join(' · '):null;await setting(env,'lastScheduledError',deliveryError);
     if(!deliveryError)await setting(env,'lastScheduledAt',new Date().toISOString());
