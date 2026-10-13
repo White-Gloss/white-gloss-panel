@@ -110,8 +110,10 @@ test('panel inbox: unread badge, open the chat from an order and reply',async t=
   // Chat files are listed as assets and therefore part of the daily backup.
   const uploaded=await (await call(f.app,f.customerCookie,'/api/kundenchat/'+token+'/file?name=foto.png',{method:'POST',headers:{'Content-Type':'image/png','content-length':String(png.length)},body:png})).json();
   await call(f.app,f.customerCookie,'/api/kundenchat/'+token+'/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({files:[uploaded.id]})});
+  const draft=await (await call(f.app,f.customerCookie,'/api/kundenchat/'+token+'/file?name=entwurf.png',{method:'POST',headers:{'Content-Type':'image/png','content-length':String(png.length)},body:png})).json();
   const backup=await backupData(join(dir,'data'),join(dir,'backups'));
   assert.ok(readdirSync(join(backup.path,'uploads')).includes(uploaded.id),'chat photo is in the backup');
+  assert.ok(!readdirSync(join(backup.path,'uploads')).includes(draft.id),'unsent drafts stay out of the backup');
   const part=await call(f.app,f.customerCookie,'/api/kundenchat/'+token+'/file/'+uploaded.id,{headers:{range:'bytes=1-3'}});
   assert.equal(part.status,206);assert.deepEqual(Buffer.from(await part.arrayBuffer()),png.subarray(1,4),'byte range streamed from disk');
   const whole=await call(f.app,f.customerCookie,'/api/kundenchat/'+token+'/file/'+uploaded.id);

@@ -9,7 +9,7 @@ import {COMPANY} from '../src/company.mjs';
 import {configuration,getOrder,init,protect,setting,unprotect} from '../src/worker.mjs';
 import {digest,issueCustomerAccess,limited} from './auth.mjs';
 
-export const CHAT_LIMITS=Object.freeze({text:4000,filesPerMessage:10,fileBytes:15*1024*1024,pendingFiles:20,filesPerThread:1000,history:300,waitSeconds:25});
+export const CHAT_LIMITS=Object.freeze({text:4000,filesPerMessage:10,fileBytes:15*1024*1024,pendingFiles:20,filesPerThread:1000,history:1000,waitSeconds:25});
 const LINK_DAYS=365,UNSENT_HOURS=24;
 const LIMIT_SQL="SELECT COALESCE(SUM(CASE WHEN sender=? AND message_id IS NULL AND created_at>? THEN 1 ELSE 0 END),0) AS pending,(SELECT COUNT(*) FROM chat_attachments WHERE thread_id=?) AS total FROM chat_attachments WHERE thread_id=?";
 const OWNER_NOTIFY_PAUSE=10*60000,CUSTOMER_NOTIFY_PAUSE=30*60000,PRESENCE=60000;
@@ -148,10 +148,10 @@ async function storeFile(env,thread,sender,request,now){
   try{
     // The limits are checked again inside the transaction, so parallel uploads cannot exceed them.
     const [stored]=await env.DB.batch([
-      env.DB.prepare(`INSERT INTO assets(id,order_id,kind,mime,hash,size,created_at) SELECT ?,?,?,?,?,?,? WHERE (SELECT pending<? AND total<? FROM (${LIMIT_SQL}))`).bind(id,thread.order_id,'chat',mime,sha256(bytes),bytes.byteLength,at,CHAT_LIMITS.pendingFiles,CHAT_LIMITS.filesPerThread,sender,iso(now-UNSENT_HOURS*3600000),thread.id,thread.id),
+      env.DB.prepare(`INSERT INTO assets(id,order_id,kind,mime,hash,size,created_at) SELECT ?,?,?,?,?,?,? WHERE (SELECT pending<? AND total<? FROM (${LIMIT_SQL})) AND EXISTS(SELECT 1 FROM chat_threads WHERE id=? AND closed=0)`).bind(id,thread.order_id,'chat',mime,sha256(bytes),bytes.byteLength,at,CHAT_LIMITS.pendingFiles,CHAT_LIMITS.filesPerThread,sender,iso(now-UNSENT_HOURS*3600000),thread.id,thread.id,thread.id),
       env.DB.prepare('INSERT INTO chat_attachments(asset_id,thread_id,sender,name,message_id,created_at) SELECT ?,?,?,?,NULL,? WHERE EXISTS(SELECT 1 FROM assets WHERE id=?)').bind(id,thread.id,sender,name,at,id)
     ]);
-    need(stored.meta.changes===1,'Zu viele vorbereitete Dateien. Bitte zuerst senden.',409);
+    need(stored.meta.changes===1,(await threadById(env,thread.id)).closed?'Dieser Chat ist beendet. Es können keine Dateien mehr gesendet werden.':'Zu viele vorbereitete Dateien. Bitte zuerst senden.',409);
   }catch(error){await env.BUCKET.delete(id);throw error;}
   return {id,name,mime,size:bytes.byteLength};
 }
@@ -180,7 +180,7 @@ async function postMessage(env,thread,sender,request,now,fileUrl,notify=true){
   let inserted;
   try{
     [inserted]=await env.DB.batch([
-      env.DB.prepare(`INSERT INTO chat_messages(thread_id,sender,body,client_id,created_at) SELECT ?,?,?,?,? WHERE ${unsent}=?`).bind(thread.id,sender,text,clientId,at,thread.id,sender,...files,files.length),
+      env.DB.prepare(`INSERT INTO chat_messages(thread_id,sender,body,client_id,created_at) SELECT ?,?,?,?,? WHERE ${unsent}=? AND EXISTS(SELECT 1 FROM chat_threads WHERE id=? AND closed=0)`).bind(thread.id,sender,text,clientId,at,thread.id,sender,...files,files.length,thread.id),
       ...(files.length?[env.DB.prepare(`UPDATE chat_attachments SET message_id=${created} WHERE thread_id=? AND sender=? AND message_id IS NULL AND asset_id IN (${list}) AND EXISTS${created}`).bind(thread.id,clientId,thread.id,sender,...files,thread.id,clientId)]:[]),
       env.DB.prepare(`UPDATE chat_threads SET last_at=?,${column}_read_id=${created},${column}_seen_at=? WHERE id=? AND EXISTS${created}`).bind(at,thread.id,clientId,now,thread.id,thread.id,clientId)
     ]);
@@ -191,6 +191,7 @@ async function postMessage(env,thread,sender,request,now,fileUrl,notify=true){
   }
   if(!inserted.meta.changes){
     const again=await env.DB.prepare('SELECT id FROM chat_messages WHERE thread_id=? AND client_id=?').bind(thread.id,clientId).first();
+    need(again||!(await threadById(env,thread.id)).closed,'Dieser Chat ist beendet. Bitte telefonisch oder per E-Mail Kontakt aufnehmen.',409);
     need(again,'Eine Datei gehört nicht zu diesem Chat oder wurde bereits gesendet.',409);
   }
   const row=await env.DB.prepare('SELECT id FROM chat_messages WHERE thread_id=? AND client_id=?').bind(thread.id,clientId).first();
