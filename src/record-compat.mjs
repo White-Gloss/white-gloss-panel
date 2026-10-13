@@ -1,7 +1,10 @@
 import {need} from './domain.mjs';
+import {isTrashedOrder} from './order-trash.mjs';
 
 // Preserve the active release's restrictions without changing its retained originals.
 export function recordOperationIssue(order,action='operate'){
+  if(['deleteOrder','restoreOrder'].includes(action))return null;
+  if(isTrashedOrder(order)&&!['read','read-original'].includes(action))return 'Dieser Auftrag liegt im Papierkorb. Kundenlinks, Änderungen und Versand sind gesperrt. Bitte zuerst wiederherstellen; aufbewahrte Originale bleiben lesbar.';
   if(['read','read-original','reconcile','note','vehicleCare','followUpDone','cancel','calendarCancel'].includes(action))return null;
   if(['blocked','anonymized'].includes(order.recordsRestriction?.status))return 'Diese Kundenakte ist gesperrt. Neue Vorgänge, Kundenkommunikation und finanzielle Aktionen sind gesperrt; aufbewahrte Originale bleiben lesbar.';
   if((order.documentCancellations??[]).length)return 'Ein bestätigtes Dokument dieses Vorgangs wurde storniert. Folgeaktionen benötigen einen geprüften Ersatzvorgang; Originale und Zahlungen bleiben erhalten.';

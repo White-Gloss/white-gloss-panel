@@ -20,6 +20,7 @@ import {
   qontoInvoicePayload,
   eligibleForInvoice,
   invoiceLines,
+  invoiceDraftReviewHash,
   readQontoInvoice,
   findQontoInvoiceByNumber,
   remoteInvoiceProblem,
@@ -82,6 +83,7 @@ export function paidMoment(day) {
   return optionalTime(day + "T12:00");
 }
 const sameOffer = (a, b) => hash(a?.offer ?? null) === hash(b?.offer ?? null);
+const sameBilling = (a, b) => sameOffer(a, b) && invoiceDraftReviewHash(a) === invoiceDraftReviewHash(b);
 const reissuable = (order) => order.invoice?.provider === "qonto" && order.invoice.status === "canceled";
 async function currentVersion(env, order) {
   const current = await getOrder(env, order.id);
@@ -89,11 +91,57 @@ async function currentVersion(env, order) {
   need(
     current.version === order.version &&
       (!current.invoice || (reissuable(current) && current.invoice.id === order.invoice?.id)) &&
-      sameOffer(current, order),
+      sameBilling(current, order),
     "Auftrag wurde inzwischen verändert. Bitte neu öffnen und erneut abrechnen.",
     409,
   );
   return current;
+}
+
+// Separater, bearbeitbarer Rechnungsentwurf. Unterschriebene Angebote bleiben unverändert.
+export async function saveInvoiceDraft(env, order, input) {
+  assertRecordOperation(order, "invoice");
+  need(["Erledigt", "Bezahlt"].includes(order.status) && order.completedAt && order.offer,
+    "Rechnungsentwurf erst nach Arbeitsabschluss mit vereinbartem Angebot.", 409);
+  need(!order.invoice || reissuable(order),
+    "Diese Rechnung ist bereits ausgestellt. Auch vor dem E-Mail-Versand bleibt sie unverändert; Korrekturen erfolgen über Storno und Neuausstellung in Qonto.", 409);
+  need(Array.isArray(input?.lines) && input.lines.length > 0 && input.lines.length <= 100,
+    "Bitte 1 bis 100 Rechnungspositionen angeben.");
+  const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+  need(reason.length > 0 && reason.length <= 2000, "Bitte den Grund der Rechnungsänderung angeben (höchstens 2000 Zeichen).");
+  const lines = input.lines.map((line) => {
+    need(line && typeof line.title === "string" && line.title.trim().length > 0 && line.title.trim().length <= 180,
+      "Jede Rechnungsposition benötigt einen Titel (höchstens 180 Zeichen).");
+    need(line.description === undefined || (typeof line.description === "string" && line.description.trim().length <= 2000),
+      "Die Positionsbeschreibung darf höchstens 2000 Zeichen haben.");
+    need(Number.isSafeInteger(line.amountCents) && line.amountCents >= 0 && line.amountCents <= 100000000,
+      "Positionsbetrag muss ein nicht negativer Centbetrag sein.");
+    return { title: line.title.trim(), description: String(line.description ?? "").trim(), amountCents: line.amountCents };
+  });
+  const totalCents = lines.reduce((sum, line) => sum + line.amountCents, 0);
+  need(Number.isSafeInteger(totalCents) && totalCents > 0 && totalCents <= 100000000,
+    "Der Rechnungsbetrag muss positiv sein und darf 1.000.000 € nicht überschreiten.");
+  need(totalCents >= paidCents(order), "Der Rechnungsbetrag darf nicht niedriger als die bereits erfassten Zahlungen sein.", 409);
+  // Ein laufender oder unklarer Ausstellungsvorgang darf keine konkurrierende Änderung erhalten.
+  const job = await env.DB.prepare("SELECT state FROM jobs WHERE order_id=? AND kind='invoice'").bind(order.id).first();
+  need(!job || job.state !== "pending", "Die Rechnung wird gerade ausgestellt. Bitte nach Abschluss erneut öffnen.", 409);
+  const claim = await claimRow(env, order.id);
+  if (claim && claim.marker === invoiceNumberFor(order)) {
+    const config = await qontoAccess(env);
+    const remote = await findQontoInvoiceByNumber(config, claim.marker, claim.created_at);
+    need(!remote || remote.status === "draft", "Die Rechnung ist in Qonto bereits ausgestellt oder storniert. Bitte zuerst den Rechnungsstatus abgleichen; Korrekturen erfolgen in Qonto.", 409);
+  }
+  const current = await getOrder(env, order.id);
+  assertRecordOperation(current, "invoice");
+  need(current.version === order.version && sameBilling(current, order) && (!current.invoice || reissuable(current)),
+    "Der Auftrag wurde inzwischen verändert. Bitte erneut öffnen.", 409);
+  const updated = structuredClone(current), now = new Date().toISOString();
+  if (updated.invoiceDraft) updated.invoiceDraftHistory = [...(updated.invoiceDraftHistory ?? []), { ...updated.invoiceDraft, replacedAt: now }];
+  updated.invoiceDraft = { lines, totalCents, reason, offerHash: hash(current.offer), createdAt: current.invoiceDraft?.createdAt ?? now, updatedAt: now };
+  // Mehrarbeit kann einen zuvor bezahlten Auftrag wieder teilweise offen machen.
+  if (updated.status === "Bezahlt" && !updated.paidManually && paidCents(updated) < totalCents) updated.status = "Erledigt";
+  updated.updatedAt = now;
+  return saveOrder(env, updated, current.version, "Rechnungsentwurf vor Ausstellung bearbeitet: " + reason.slice(0, 150), "owner");
 }
 
 // Nach einer Stornierung in Qonto: bisherigen Vorgang archivieren, damit eine neue Rechnung ausgestellt werden kann.
@@ -120,6 +168,8 @@ async function archiveCanceledInvoice(env, order, number) {
 export async function qontoInvoice(env, order, input) {
   assertRecordOperation(order, "invoice");
   eligibleForInvoice(order, input);
+  need(!order.invoiceDraft || input.draftReviewHash === invoiceDraftReviewHash(order),
+    "Der gespeicherte Rechnungsentwurf wurde seit der Vorschau geändert. Bitte den Dialog erneut öffnen und prüfen.", 409);
   const reissue = reissuable(order),
     number = invoiceNumberFor(order);
   need(!order.invoice || reissue, "Für diesen Auftrag ist bereits eine Rechnung zugeordnet.", 409);
@@ -257,13 +307,22 @@ export async function qontoInvoice(env, order, input) {
     if (!createdNow) {
       const terms = termsProblem(remote);
       if (terms && remote.status === "draft") {
-        await qontoJSON(config, "/v2/client_invoices/" + remote.id, { method: "DELETE", beforeSend: guardWrite });
-        ({ remote, createdNow } = await createDraft());
-        need(
-          createdNow && remote && uuid(remote.id),
-          "Ein abweichender Qonto-Entwurf " + number + " konnte nicht ersetzt werden. Bitte in Qonto löschen.",
-          409,
-        );
+        const id = remote.id;
+        const updateDraft = async (payload) => {
+          const { status: _status, currency: _currency, ...patch } = payload;
+          await setStage(env, order.id, "draft-update-attempt", { payload });
+          return (await qontoJSON(config, "/v2/client_invoices/" + id, {
+            method: "PATCH", body: JSON.stringify(patch), beforeSend: guardWrite,
+          })).client_invoice;
+        };
+        const payload = reviewedPayload();
+        try { remote = await updateDraft(payload); }
+        catch (error) {
+          if (!(error instanceof QontoError && error.providerStatus === 422 && payload.items.some((item) => /\.\d{3,}$/.test(item.unit_price.value)))) throw error;
+          remote = await updateDraft(reviewedPayload(2));
+        }
+        need(remote?.id === id && remote.status === "draft" && !termsProblem(remote),
+          "Der vorhandene Qonto-Entwurf konnte nicht eindeutig aktualisiert werden. Bitte in Qonto prüfen; es wurde keine Rechnung ausgestellt.", 409);
       } else
         need(
           !terms,
@@ -323,10 +382,14 @@ export async function qontoInvoice(env, order, input) {
       "Eine andere Rechnung ist bereits zugeordnet.",
       409,
     );
-    need(sameOffer(current, order), "Leistungen wurden während der Abrechnung geändert. Bitte prüfen.", 409);
+    need(sameBilling(current, order), "Rechnungspositionen wurden während der Abrechnung geändert. Bitte prüfen.", 409);
     let updated = structuredClone(current);
     const summary = invoiceSummary(remote),
       open = summary.totalCents - paidCents(updated);
+    if (reissue && updated.invoice?.id === order.invoice.id)
+      updated.invoiceHistory = [...(Array.isArray(updated.invoiceHistory) ? updated.invoiceHistory : []), updated.invoice];
+    // Die tatsächliche Rechnungssumme ist bereits vor dem Erfassen der Zahlung maßgeblich.
+    updated.invoice = { ...summary };
     if (input.mode === "paid" && open > 0)
       updated = transition(updated, "payment", {
         amountCents: open,
@@ -348,8 +411,6 @@ export async function qontoInvoice(env, order, input) {
     const token = randomBytes(32).toString("hex"),
       now = new Date().toISOString(),
       operationId = randomUUID();
-    if (reissue && updated.invoice?.id === order.invoice.id)
-      updated.invoiceHistory = [...(Array.isArray(updated.invoiceHistory) ? updated.invoiceHistory : []), updated.invoice];
     updated.invoice = {
       ...summary,
       // Unveränderliche Kopie der ausgestellten Positionen für Kundenbereich und Mahnungen.
@@ -358,6 +419,7 @@ export async function qontoInvoice(env, order, input) {
         description: String(line.description ?? ""),
         amountCents: line.amountCents,
       })),
+      ...(order.invoiceDraft ? { changeReason: order.invoiceDraft.reason, draftReviewHash: invoiceDraftReviewHash(order), agreedTotalCents: order.offer.totalCents } : {}),
       mode: input.mode,
       paymentMethod: input.mode === "paid" ? input.paymentMethod : null,
       // Tatsächlicher Zahlungstag der Quittung (Qonto erhält höchstens das Rechnungsdatum).
@@ -579,6 +641,35 @@ export async function invoiceDownload(env, order) {
   return pdfResponse(pdf);
 }
 
+async function activeInvoiceToken(env, order) {
+  const token = order.invoice?.portalToken;
+  if (!/^[a-f0-9]{64}$/.test(token ?? "")) return false;
+  const row = await env.DB.prepare("SELECT expires_at FROM invoice_tokens WHERE hash=? AND order_id=? AND revoked=0")
+    .bind(digest(token), order.id).first();
+  return Boolean(row && Date.parse(row.expires_at) > Date.now());
+}
+// Gesperrte/abgelaufene Rechnungslinks werden erst beim autorisierten Versand neu ausgestellt.
+export async function ensureInvoiceToken(env, order) {
+  assertRecordOperation(order, "send");
+  need(order.invoice?.provider === "qonto" && !order.synthetic, "Keine Qonto-Rechnung vorhanden.", 409);
+  if (await activeInvoiceToken(env, order)) return order;
+  const current = await getOrder(env, order.id);
+  assertRecordOperation(current, "send");
+  need(current.version === order.version && current.invoice?.id === order.invoice.id,
+    "Der Auftrag wurde während der Erstellung des Rechnungslinks verändert. Bitte erneut öffnen.", 409);
+  const updated = structuredClone(current), token = randomBytes(32).toString("hex"),
+    now = new Date().toISOString(), operationId = randomUUID();
+  updated.invoice.portalToken = token;
+  updated.operationId = operationId;
+  updated.updatedAt = now;
+  const guard = { sql: guardSQL, params: [order.id, current.version + 1, operationId] };
+  return saveOrder(env, updated, current.version, "Neuen Rechnungszugang für freigegebenen Versand erstellt", "provider", [
+    env.DB.prepare("UPDATE invoice_tokens SET revoked=1 WHERE order_id=? AND " + guard.sql).bind(order.id, ...guard.params),
+    env.DB.prepare("INSERT INTO invoice_tokens(hash,order_id,expires_at,created_at) SELECT ?,?,?,? WHERE " + guard.sql)
+      .bind(digest(token), order.id, new Date(Date.now() + PORTAL_DAYS * 86400000).toISOString(), now, ...guard.params),
+  ]);
+}
+
 // ---------- E-Mail-Versand ----------
 export function invoiceDeliveryStatements(env, order, kind, guard = null) {
   const recipient = email(order.source.email);
@@ -775,6 +866,7 @@ export async function deliverInvoiceMail(env, orderId, kind) {
       }
       throw new AppError("Qonto hat nach 6 Stunden noch kein Rechnungs-PDF bereitgestellt. Bitte in Qonto prüfen.", 502);
     }
+    order = await ensureInvoiceToken(env, order);
     const mail = invoiceMail(env, order, kind);
     const reserved = await env.DB.prepare(
       "UPDATE jobs SET state='pending',detail='Versand wird angefordert',updated_at=? WHERE id=? AND state IN ('queued','failed') AND EXISTS(SELECT 1 FROM invoice_deliveries WHERE job_id=? AND lease_owner=?)",
@@ -813,7 +905,7 @@ export async function deliverInvoiceMail(env, orderId, kind) {
         ? "Versandergebnis ungeklärt. „Erneut senden“ nutzt denselben Versandschlüssel (innerhalb von 24 Stunden kein Doppelversand)."
         : label + " noch nicht versendet: " + String(error?.message ?? "").slice(0, 300);
     await env.DB.prepare(
-      "UPDATE jobs SET state=?,detail=?,updated_at=? WHERE id=? AND EXISTS(SELECT 1 FROM invoice_deliveries WHERE job_id=? AND lease_owner=?)",
+      "UPDATE jobs SET state=?,detail=?,updated_at=? WHERE id=? AND state<>'paused' AND EXISTS(SELECT 1 FROM invoice_deliveries WHERE job_id=? AND lease_owner=?)",
     )
       .bind(state, detail, new Date().toISOString(), record.job_id, record.job_id, leaseOwner)
       .run();
@@ -841,8 +933,8 @@ export async function resendInvoiceMail(env, order) {
   const existing = await deliveryRecord(env, order.id, "invoice");
   let kind = "invoice";
   if (!existing) await env.DB.batch(invoiceDeliveryStatements(env, order, "invoice"));
-  else if (existing.state === "unknown")
-    await env.DB.prepare("UPDATE jobs SET state='failed',updated_at=? WHERE id=? AND state='unknown'")
+  else if (["unknown", "paused"].includes(existing.state))
+    await env.DB.prepare("UPDATE jobs SET state='failed',updated_at=? WHERE id=? AND state IN ('unknown','paused')")
       .bind(new Date().toISOString(), existing.job_id)
       .run();
   else if (["sent", "cancelled"].includes(existing.state)) {
@@ -899,9 +991,9 @@ export async function sendReminderNow(env, order) {
   const fresh = await syncQontoInvoice(env, order);
   const plan = reminderPlan(fresh, await deliveryStates(env, fresh.id));
   if (plan.pending) {
-    if (plan.pending.state === "unknown")
+    if (["unknown", "paused"].includes(plan.pending.state))
       await env.DB.prepare(
-        "UPDATE jobs SET state='failed',updated_at=? WHERE order_id=? AND kind=? AND state='unknown'",
+        "UPDATE jobs SET state='failed',updated_at=? WHERE order_id=? AND kind=? AND state IN ('unknown','paused')",
       )
         .bind(new Date().toISOString(), fresh.id, jobKindOf(plan.pending.kind))
         .run();
@@ -925,7 +1017,7 @@ export async function pendingInvoiceWork(env, now = Date.now()) {
   const mail = config.emailVerified === true && config.sendApproved === true;
   if (mail) {
     const rows = await env.DB.prepare(
-      "SELECT d.order_id,d.kind FROM invoice_deliveries d JOIN jobs j ON j.id=d.job_id WHERE j.state IN ('queued','failed') AND d.processing_until<=? ORDER BY d.created_at LIMIT 3",
+      "SELECT d.order_id,d.kind FROM invoice_deliveries d JOIN jobs j ON j.id=d.job_id JOIN orders o ON o.id=d.order_id WHERE json_extract(o.data,'$.trash.deletedAt') IS NULL AND j.state IN ('queued','failed') AND d.processing_until<=? ORDER BY d.created_at LIMIT 3",
     )
       .bind(now)
       .all();
@@ -938,7 +1030,7 @@ export async function pendingInvoiceWork(env, now = Date.now()) {
     }
   }
   const open = await env.DB.prepare(
-    "SELECT o.id FROM orders o LEFT JOIN invoice_checks c ON c.order_id=o.id WHERE o.synthetic=0 AND json_extract(o.data,'$.invoice.provider')='qonto' AND json_extract(o.data,'$.invoice.status')='unpaid' AND (c.checked_at IS NULL OR c.checked_at<?) ORDER BY COALESCE(c.checked_at,'') LIMIT 5",
+    "SELECT o.id FROM orders o LEFT JOIN invoice_checks c ON c.order_id=o.id WHERE o.synthetic=0 AND json_extract(o.data,'$.trash.deletedAt') IS NULL AND json_extract(o.data,'$.invoice.provider')='qonto' AND json_extract(o.data,'$.invoice.status')='unpaid' AND (c.checked_at IS NULL OR c.checked_at<?) ORDER BY COALESCE(c.checked_at,'') LIMIT 5",
   )
     .bind(new Date(now - 3600000).toISOString())
     .all();
@@ -952,7 +1044,7 @@ export async function pendingInvoiceWork(env, now = Date.now()) {
   }
   if (config.dunningApproved === true && mail) {
     const due = await env.DB.prepare(
-      "SELECT id FROM orders WHERE synthetic=0 AND status='Erledigt' AND json_extract(data,'$.invoice.provider')='qonto' AND json_extract(data,'$.invoice.mode')='invoice' AND json_extract(data,'$.invoice.status')='unpaid' ORDER BY updated_at LIMIT 100",
+      "SELECT id FROM orders WHERE synthetic=0 AND json_extract(data,'$.trash.deletedAt') IS NULL AND status='Erledigt' AND json_extract(data,'$.invoice.provider')='qonto' AND json_extract(data,'$.invoice.mode')='invoice' AND json_extract(data,'$.invoice.status')='unpaid' ORDER BY updated_at LIMIT 100",
     ).all();
     let remaining = 3;
     for (const row of due.results) {
@@ -998,7 +1090,7 @@ export async function invoiceInfo(env, order) {
     overdue: inv.status === "unpaid" && validDay(inv.dueDate) && berlinDay() > inv.dueDate,
     openCents: Math.max(0, inv.totalCents - paidCents(order)),
     pdfStored: Boolean(stored),
-    portalUrl: env.PANEL_ORIGIN && inv.portalToken ? env.PANEL_ORIGIN + "/rechnung/" + inv.portalToken : null,
+    portalUrl: env.PANEL_ORIGIN && await activeInvoiceToken(env, order) ? env.PANEL_ORIGIN + "/rechnung/" + inv.portalToken : null,
     dunningApproved: config.dunningApproved === true,
     mailReady: config.emailVerified === true && config.sendApproved === true,
     paymentTermDays: PAYMENT_TERM_DAYS,

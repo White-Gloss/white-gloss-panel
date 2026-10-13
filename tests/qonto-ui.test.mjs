@@ -10,6 +10,10 @@ import {
   invoiceTotals,
   invoiceToday,
   invoicePlusDays,
+  invoiceDraftForm,
+  mountInvoiceDraftForm,
+  invoiceDraftInput,
+  invoiceDraftSummaryHTML,
 } from "../public/invoice-ui.js";
 
 const order = () => ({
@@ -198,4 +202,43 @@ test("review escapes customer input", () => {
   );
   assert.doesNotMatch(html, /<script>/);
   assert.doesNotMatch(html, /<b>/);
+});
+
+test("draft editor adds and edits extra work, validates cents and requires an explicit change reason", (t) => {
+  const dom = new JSDOM('<!doctype html><body><div id="modal"></div></body>');
+  t.after(() => dom.window.close());
+  dom.window.document.querySelector("#modal").innerHTML = invoiceDraftForm(order());
+  const form = dom.window.document.querySelector("#invoiceDraftform");
+  mountInvoiceDraftForm(form);
+  form.querySelector("[data-invoice-add]").click();
+  const rows = [...form.querySelectorAll("[data-invoice-draft-line]")];
+  assert.equal(rows.length, 3);
+  rows[2].querySelector("[data-draft-title]").value = "Mehrarbeit";
+  rows[2].querySelector("[data-draft-amount]").value = "50,00";
+  assert.throws(() => invoiceDraftInput(form), /Grund/);
+  form.elements.reason.value = "Zusatzreinigung vor Ort vereinbart";
+  form.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  assert.match(form.querySelector("[data-invoice-draft-total]").textContent, /169,00/);
+  assert.equal(invoiceDraftInput(form).lines[2].amountCents, 5000);
+  rows[2].querySelector("[data-draft-amount]").value = "50,001";
+  assert.throws(() => invoiceDraftInput(form), /Nachkommastellen/);
+  rows[2].querySelector("[data-invoice-remove]").click();
+  assert.equal(invoiceDraftInput(form).lines.length, 2);
+  assert.throws(() => invoiceDraftForm({ ...order(), invoice: { status: "unpaid" } }), /bereits ausgestellt/);
+  assert.doesNotMatch(invoiceDraftSummaryHTML({ ...order(), invoice: { status: "unpaid" } }), /data-click="invoiceDraft"/);
+});
+
+test("final review uses stored draft total and must be reconfirmed after changes", (t) => {
+  const o = order();
+  o.invoiceDraft = { lines: [...o.offer.lines, { title: "Mehrarbeit", amountCents: 5000 }], totalCents: 16900, reason: "Kunde stimmte Zusatzreinigung zu" };
+  const { form, change, review } = mount(t, o, inventory({ clients: [client], draftReviewHash: "d".repeat(64) }));
+  change("clientId", client.id);
+  assert.match(review.textContent, /169,00/);
+  assert.match(review.textContent, /119,00/);
+  assert.match(review.textContent, /Kunde stimmte Zusatzreinigung zu/);
+  form.elements.reviewed.checked = true;
+  assert.equal(invoiceInput(form, o).draftReviewHash, "d".repeat(64));
+  change("vatBasisPoints", "700");
+  assert.equal(form.elements.reviewed.checked, false);
+  assert.throws(() => invoiceInput(form, o), /ausdrücklich bestätigen/);
 });

@@ -8,6 +8,8 @@ import {AppError,need} from '../src/domain.mjs';
 import {COMPANY} from '../src/company.mjs';
 import {configuration,getOrder,init,protect,setting,unprotect} from '../src/worker.mjs';
 import {digest,issueCustomerAccess,limited} from './auth.mjs';
+import {recordOperationIssue,assertRecordOperation,assertCurrentRecordOperation} from '../src/record-compat.mjs';
+import {isTrashedOrder} from '../src/order-trash.mjs';
 
 export const CHAT_LIMITS=Object.freeze({text:4000,filesPerMessage:10,fileBytes:15*1024*1024,pendingFiles:20,filesPerThread:1000,history:1000,waitSeconds:25});
 const LINK_DAYS=365,UNSENT_HOURS=24;
@@ -131,6 +133,7 @@ function contentMatches(bytes,mime){
 }
 
 async function storeFile(env,thread,sender,request,now){
+  const order=await getOrder(env,thread.order_id);assertRecordOperation(order,'chat');
   sameOrigin(env,request);need(env.BUCKET,'Geschützter Dateispeicher ist nicht gebunden.',503);
   need(!thread.closed,'Dieser Chat ist beendet. Es können keine Dateien mehr gesendet werden.',409);
   const mime=(request.headers.get('content-type')??'').split(';')[0].trim().toLowerCase();
@@ -146,6 +149,7 @@ async function storeFile(env,thread,sender,request,now){
   const id=randomUUID(),at=iso(now),name=fileName(new URL(request.url).searchParams.get('name'),mime);
   await env.BUCKET.put(id,bytes,{httpMetadata:{contentType:mime}});
   try{
+    assertCurrentRecordOperation(env,order,'chat');
     // The limits are checked again inside the transaction, so parallel uploads cannot exceed them.
     const [stored]=await env.DB.batch([
       env.DB.prepare(`INSERT INTO assets(id,order_id,kind,mime,hash,size,created_at) SELECT ?,?,?,?,?,?,? WHERE (SELECT pending<? AND total<? FROM (${LIMIT_SQL})) AND EXISTS(SELECT 1 FROM chat_threads WHERE id=? AND closed=0)`).bind(id,thread.order_id,'chat',mime,sha256(bytes),bytes.byteLength,at,CHAT_LIMITS.pendingFiles,CHAT_LIMITS.filesPerThread,sender,iso(now-UNSENT_HOURS*3600000),thread.id,thread.id,thread.id),
@@ -157,6 +161,7 @@ async function storeFile(env,thread,sender,request,now){
 }
 
 async function postMessage(env,thread,sender,request,now,fileUrl,notify=true){
+  assertRecordOperation(await getOrder(env,thread.order_id),'chat');
   const input=await readJSON(env,request);
   need(!thread.closed,'Dieser Chat ist beendet. Bitte telefonisch oder per E-Mail Kontakt aufnehmen.',409);
   const text=String(input.text??'').replace(/\r\n?/g,'\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g,'').trim();
@@ -229,7 +234,8 @@ async function createLink(env,thread,renew,now){
   return linkInfo(env,await threadById(env,thread.id));
 }
 
-async function sendMail(config,{to,subject,text,key}){
+async function sendMail(config,{to,subject,text,key,beforeSend}){
+  if(beforeSend)beforeSend();
   const response=await fetch('https://api.resend.com/emails',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(20000),headers:{Authorization:'Bearer '+config.resendKey,'Content-Type':'application/json','Idempotency-Key':key},body:JSON.stringify({from:config.sender,to:[to],reply_to:COMPANY.email,subject,text})});
   const result=await response.json().catch(()=>null);
   need(response.ok&&typeof result?.id==='string','E-Mail-Versand wurde nicht bestätigt.',502);
@@ -241,6 +247,7 @@ function customerMailAllowed(order){return order&&!order.synthetic&&emailPattern
 
 async function invite(env,thread,now){
   const order=await getOrder(env,thread.order_id);
+  assertRecordOperation(order,'send');
   need(!order.synthetic,'Im Testbereich wird keine Kunden-E-Mail versendet.',409);
   need(customerMailAllowed(order),'Für diesen Auftrag ist keine gültige Kunden-E-Mail hinterlegt.',409);
   need(!thread.closed,'Der Chat ist beendet. Bitte zuerst wieder öffnen.',409);
@@ -249,7 +256,7 @@ async function invite(env,thread,now){
   need(!await limited(env,'chat-invite:'+thread.id,now,5),'Bitte später erneut einladen.',429);
   const link=await createLink(env,thread,false,now),token=link.url.slice(link.url.lastIndexOf('/')+1);
   const access=await issueCustomerAccess(env,order.source.email,'/chat/'+token,now,now+86400000);
-  const id=await sendMail(config,{to:order.source.email,key:'wg-chat-invite-'+access.hash,subject:'Ihr direkter Chat mit White Gloss · '+order.wg,
+  const id=await sendMail(config,{to:order.source.email,key:'wg-chat-invite-'+access.hash,beforeSend:()=>assertCurrentRecordOperation(env,order,'send'),subject:'Ihr direkter Chat mit White Gloss · '+order.wg,
     text:'Guten Tag '+(order.source.name||'')+',\n\nfür Ihren Auftrag '+order.wg+' können Sie uns ab sofort direkt schreiben und Fotos, Videos oder PDF-Dateien senden – ganz ohne Telefon-Warteschleife.\n\nZum Chat:\n'+access.url+'\n\nIhre persönliche einmalige PIN: '+access.pin+'\n\nDer Link gilt 24 Stunden und kann einmal verwendet werden. Danach erreichen Sie Ihren Chat jederzeit hier und erhalten mit Ihrer E-Mail-Adresse einen neuen Zugang:\n'+link.url+signature});
   return {ok:true,message:'Einladung mit persönlichem Link und PIN an '+order.source.email+' versendet.',providerId:id,link};
 }
@@ -259,6 +266,7 @@ export async function notifyThread(env,threadId,now=Date.now()){
   const config=await configuration(env,['resendKey']);
   if(!config.resendKey||!config.emailVerified||!config.sender)return {owner:false,customer:false};
   const thread=await threadById(env,threadId),order=await getOrder(env,thread.order_id),sent={owner:false,customer:false};
+  if(recordOperationIssue(order,'send'))return sent;
   const preview=async(sender,afterId)=>{
     const rows=(await env.DB.prepare('SELECT m.body,(SELECT COUNT(*) FROM chat_attachments c WHERE c.message_id=m.id) AS files FROM chat_messages m WHERE m.thread_id=? AND m.sender=? AND m.id>? ORDER BY m.id').bind(thread.id,sender,afterId).all()).results;
     const files=rows.reduce((sum,row)=>sum+Number(row.files),0),texts=rows.map(row=>row.body).filter(Boolean);
@@ -273,7 +281,7 @@ export async function notifyThread(env,threadId,now=Date.now()){
     const claimed=await env.DB.prepare('UPDATE chat_threads SET owner_notified_id=?,owner_notified_at=? WHERE id=? AND owner_notified_id=?').bind(customerLatest,now,thread.id,thread.owner_notified_id).run();
     if(claimed.meta.changes)try{
       const text=await preview('customer',Math.max(Number(thread.owner_read_id),Number(thread.owner_notified_id)));
-      await sendMail(config,{to:ownerAddress,key:'wg-chat-owner-'+thread.id+'-'+customerLatest,subject:'Neue Kundennachricht · '+order.wg+' · '+(order.source?.name||'Kunde'),
+      await sendMail(config,{to:ownerAddress,key:'wg-chat-owner-'+thread.id+'-'+customerLatest,beforeSend:()=>assertCurrentRecordOperation(env,order,'send'),subject:'Neue Kundennachricht · '+order.wg+' · '+(order.source?.name||'Kunde'),
         text:(order.source?.name||'Ein Kunde')+' hat dir im Kundenchat geschrieben:\n\n'+text+'\n\nIm Panel antworten:\n'+env.PANEL_ORIGIN+'/#chat='+thread.id});
       sent.owner=true;
     }catch(error){await release('owner',customerLatest,thread.owner_notified_id,thread.owner_notified_at);throw error;}
@@ -285,7 +293,7 @@ export async function notifyThread(env,threadId,now=Date.now()){
       const token=await unprotect(env,thread.token_sealed),chatUrl=env.PANEL_ORIGIN+'/chat/'+token;
       const access=await issueCustomerAccess(env,order.source.email,'/chat/'+token,now,now+86400000);
       const text=await preview('owner',Math.max(Number(thread.customer_read_id),Number(thread.customer_notified_id)));
-      await sendMail(config,{to:order.source.email,key:'wg-chat-customer-'+thread.id+'-'+ownerLatest,subject:'Neue Nachricht von White Gloss · '+order.wg,
+      await sendMail(config,{to:order.source.email,key:'wg-chat-customer-'+thread.id+'-'+ownerLatest,beforeSend:()=>assertCurrentRecordOperation(env,order,'send'),subject:'Neue Nachricht von White Gloss · '+order.wg,
         text:'Guten Tag '+(order.source.name||'')+',\n\nSie haben eine neue Nachricht zu Ihrem Auftrag '+order.wg+':\n\n'+text+'\n\nZum Chat:\n'+access.url+'\n\nIhre persönliche einmalige PIN: '+access.pin+'\n\nDer Link gilt 24 Stunden und kann einmal verwendet werden. Ihren Chat erreichen Sie jederzeit hier:\n'+chatUrl+signature});
       sent.customer=true;
     }catch(error){await release('customer',ownerLatest,thread.customer_notified_id,thread.customer_notified_at);throw error;}
@@ -298,8 +306,8 @@ export async function notifyThread(env,threadId,now=Date.now()){
 // First they are marked (message_id=-1) so no send can claim them any more; the records stay until
 // the file itself is gone, so a failed deletion is retried in the next run.
 export async function pruneUnsentUploads(env,now=Date.now()){
-  await env.DB.prepare('UPDATE chat_attachments SET message_id=-1 WHERE message_id IS NULL AND created_at<?').bind(iso(now-UNSENT_HOURS*3600000)).run();
-  const rows=(await env.DB.prepare('SELECT asset_id FROM chat_attachments WHERE message_id=-1 LIMIT 200').all()).results;
+  await env.DB.prepare("UPDATE chat_attachments SET message_id=-1 WHERE message_id IS NULL AND created_at<? AND EXISTS(SELECT 1 FROM chat_threads t JOIN orders o ON o.id=t.order_id WHERE t.id=chat_attachments.thread_id AND json_extract(o.data,'$.trash.deletedAt') IS NULL)").bind(iso(now-UNSENT_HOURS*3600000)).run();
+  const rows=(await env.DB.prepare("SELECT c.asset_id FROM chat_attachments c JOIN chat_threads t ON t.id=c.thread_id JOIN orders o ON o.id=t.order_id WHERE c.message_id=-1 AND json_extract(o.data,'$.trash.deletedAt') IS NULL LIMIT 200").all()).results;
   for(const row of rows){
     await env.BUCKET?.delete(row.asset_id);
     await env.DB.batch([env.DB.prepare("DELETE FROM assets WHERE id=? AND kind='chat'").bind(row.asset_id),env.DB.prepare('DELETE FROM chat_attachments WHERE asset_id=? AND message_id=-1').bind(row.asset_id)]);
@@ -310,7 +318,7 @@ export async function pruneUnsentUploads(env,now=Date.now()){
 export async function chatBackground(env,now=Date.now()){
   await chatSchema(env);const errors=[];
   try{await pruneUnsentUploads(env,now);}catch(error){errors.push('Kundenchat-Aufräumen: '+(error?.message??'fehlgeschlagen'));}
-  const rows=(await env.DB.prepare(`SELECT t.id FROM chat_threads t WHERE t.last_at>? AND (
+  const rows=(await env.DB.prepare(`SELECT t.id FROM chat_threads t JOIN orders o ON o.id=t.order_id WHERE json_extract(o.data,'$.trash.deletedAt') IS NULL AND t.last_at>? AND (
       (SELECT COALESCE(MAX(id),0) FROM chat_messages m WHERE m.thread_id=t.id AND m.sender='customer')>MAX(t.owner_read_id,t.owner_notified_id)
       OR (SELECT COALESCE(MAX(id),0) FROM chat_messages m WHERE m.thread_id=t.id AND m.sender='owner')>MAX(t.customer_read_id,t.customer_notified_id))
     ORDER BY t.last_at ASC LIMIT 100`).bind(iso(now-14*86400000)).all()).results;
@@ -323,11 +331,11 @@ async function threadList(env,synthetic){
   const rows=(await env.DB.prepare(`SELECT t.id,t.order_id,t.closed,t.last_at,t.token_hash IS NOT NULL AND t.token_expires_at>? AS linked,o.wg,o.data,
       (SELECT COUNT(*) FROM chat_messages m WHERE m.thread_id=t.id AND m.sender='customer' AND m.id>t.owner_read_id) AS unread,
       (SELECT json_object('id',m.id,'sender',m.sender,'text',substr(m.body,1,160),'at',m.created_at,'files',(SELECT COUNT(*) FROM chat_attachments c WHERE c.message_id=m.id AND c.thread_id=t.id)) FROM chat_messages m WHERE m.thread_id=t.id ORDER BY m.id DESC LIMIT 1) AS last
-    FROM chat_threads t JOIN orders o ON o.id=t.order_id WHERE o.synthetic=? ORDER BY t.last_at DESC LIMIT 500`).bind(iso(Date.now()),synthetic?1:0).all()).results;
+    FROM chat_threads t JOIN orders o ON o.id=t.order_id WHERE o.synthetic=? AND json_extract(o.data,'$.trash.deletedAt') IS NULL ORDER BY t.last_at DESC LIMIT 500`).bind(iso(Date.now()),synthetic?1:0).all()).results;
   return rows.map(row=>{const data=JSON.parse(row.data);return {id:row.id,...orderSummary({...data,id:row.order_id,wg:row.wg}),closed:Boolean(row.closed),linked:Boolean(row.linked),lastAt:row.last_at,unread:Number(row.unread),last:row.last?JSON.parse(row.last):null};});
 }
 async function unreadCount(env,synthetic){
-  const row=await env.DB.prepare("SELECT COUNT(*) AS n FROM chat_messages m JOIN chat_threads t ON t.id=m.thread_id JOIN orders o ON o.id=t.order_id WHERE m.sender='customer' AND m.id>t.owner_read_id AND o.synthetic=?").bind(synthetic?1:0).first();
+  const row=await env.DB.prepare("SELECT COUNT(*) AS n FROM chat_messages m JOIN chat_threads t ON t.id=m.thread_id JOIN orders o ON o.id=t.order_id WHERE m.sender='customer' AND m.id>t.owner_read_id AND o.synthetic=? AND json_extract(o.data,'$.trash.deletedAt') IS NULL").bind(synthetic?1:0).first();
   return Number(row.n);
 }
 
@@ -337,6 +345,7 @@ export async function handleChat(env,request,identity,isOwner){
   if(path.startsWith('/api/kundenchat/')){
     const [token,...rest]=path.slice('/api/kundenchat/'.length).split('/');
     const thread=await threadByToken(env,token),order=await getOrder(env,thread.order_id);
+    assertRecordOperation(order,'customer-document');
     const email=String(identity??'').trim().toLowerCase();
     need(isOwner||(!order.synthetic&&email&&email===String(order.source?.email??'').trim().toLowerCase()),'Dieser Chat gehört zu einem anderen Kundenkonto.',403);
     const fileUrl=id=>'/api/kundenchat/'+token+'/file/'+id;
@@ -357,6 +366,7 @@ export async function handleChat(env,request,identity,isOwner){
   if(request.method==='GET'&&path==='/api/chats/summary')return json({unread:await unreadCount(env,url.searchParams.get('test')==='true')});
   if(request.method==='POST'&&path==='/api/chats/open'){
     const input=await readJSON(env,request);const order=await getOrder(env,String(input.orderId??''));
+    assertRecordOperation(order,'chat');
     await env.DB.prepare('INSERT OR IGNORE INTO chat_threads(id,order_id,created_at,last_at) VALUES(?,?,?,?)').bind(randomUUID(),order.id,iso(now),iso(now)).run();
     const row=await env.DB.prepare('SELECT id FROM chat_threads WHERE order_id=?').bind(order.id).first();
     return json({id:row.id});
@@ -364,11 +374,12 @@ export async function handleChat(env,request,identity,isOwner){
   const match=/^\/api\/chats\/t\/([0-9a-f-]{36})(?:\/(.*))?$/.exec(path);need(match,'Funktion nicht gefunden.',404);
   const thread=await threadById(env,match[1]),rest=(match[2]??'').split('/').filter(Boolean),fileUrl=id=>'/api/chats/t/'+thread.id+'/file/'+id;
   if(request.method==='GET'&&rest.length===0){
-    const order=await getOrder(env,thread.order_id),view=await conversation(env,thread.id,'owner',{...viewParams(url),preview:false,fileUrl,now});
+    const order=await getOrder(env,thread.order_id),view=await conversation(env,thread.id,'owner',{...viewParams(url),preview:isTrashedOrder(order),fileUrl,now});
     return json({id:thread.id,...orderSummary(order),email:order.source?.email??'',phone:order.source?.phone??'',closed:Boolean(view.thread.closed),link:await linkInfo(env,view.thread),messages:view.messages,read:view.read,limits:{text:CHAT_LIMITS.text,files:CHAT_LIMITS.filesPerMessage,bytes:CHAT_LIMITS.fileBytes}});
   }
   if(request.method==='GET'&&rest[0]==='file'&&rest.length===2)return serveFile(env,thread,rest[1],request,false);
   need(request.method==='POST','Methode nicht erlaubt.',405);
+  assertRecordOperation(await getOrder(env,thread.order_id),'chat');
   if(rest[0]==='file'&&rest.length===1)return json(await storeFile(env,thread,'owner',request,now));
   if(rest[0]==='message'&&rest.length===1)return json(await postMessage(env,thread,'owner',request,now,fileUrl));
   if(rest[0]==='link'&&rest.length===1){

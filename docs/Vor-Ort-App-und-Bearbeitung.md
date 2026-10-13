@@ -77,7 +77,9 @@ Vor-Ort-App herunterladen oder über „Teilen“ (z. B. WhatsApp) übergeben.
   nach Name, Telefon, E-Mail und Kennzeichen.
 - Neue Aufträge werden automatisch einem Kunden zugeordnet (gleiche E-Mail oder Telefonnummer) oder
   legen ihn an. Bestehende Aufträge werden ohne Änderung der Aufträge nachträglich verknüpft.
-- **Kunden, Fahrzeuge und Aufträge werden nie gelöscht.** Die Datenbank verweigert das Löschen.
+- **Kunden, Fahrzeuge und Aufträge werden nie physisch gelöscht.** Die Datenbank verweigert das
+  dauerhafte Löschen. „Auftrag löschen“ verschiebt einen Auftrag in den wiederherstellbaren
+  Papierkorb; Dokumente, Unterschriften, Rechnungen und Fotos bleiben erhalten.
   Änderungen an Kundendaten bleiben im Verlauf.
 
 ## Fahrzeugprotokoll

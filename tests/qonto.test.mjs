@@ -5,7 +5,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PanelDatabase, PrivateBucket } from "../server/storage.mjs";
-import { init, protect, setting, settings, getOrder } from "../src/worker.mjs";
+import { init, protect, setting, settings, getOrder, saveOrder } from "../src/worker.mjs";
+import { transitionOrderTrash, orderTrashStatements } from "../src/order-trash.mjs";
 import { digest } from "../server/auth.mjs";
 import {
   qontoSchema,
@@ -16,9 +17,11 @@ import {
   berlinDay,
   addDays,
   PAYMENT_TERM_DAYS,
+  invoiceDraftReviewHash,
 } from "../server/qonto.mjs";
 import {
   qontoInvoice,
+  saveInvoiceDraft,
   syncQontoInvoice,
   qontoMarkPaid,
   deliverInvoiceMail,
@@ -206,6 +209,13 @@ function providers(t, setup = {}) {
         state.invoices = state.invoices.filter((item) => item.id !== invoice.id);
         return json(null, 204);
       }
+      if (method === "PATCH") {
+        assert.equal(invoice.status, "draft", "Nur Qonto-Entwürfe sind bearbeitbar.");
+        Object.assign(invoice, body);
+        const total = body.items.reduce((sum, item) => sum + Math.round(Number(item.unit_price.value) * (1 + Number(item.vat_rate)) * 100), 0);
+        invoice.total_amount_cents = total;
+        invoice.total_amount = { value: (total / 100).toFixed(2), currency: "EUR" };
+      }
       if (match[2] === "finalize") invoice.status = "unpaid";
       if (match[2] === "mark_as_paid") {
         invoice.status = "paid";
@@ -242,6 +252,75 @@ const newClientInput = (extra = {}) => ({
     country: "DE",
   },
   ...extra,
+});
+
+test("invoice draft records extra work without changing the signed offer or contacting providers", async (t) => {
+  const signed = completedOrder({ acceptance: { at: "2026-10-01T09:00:00Z", signature: "synthetic-original" } });
+  const { env, order } = await fixture(t, signed);
+  const qonto = providers(t);
+  const saved = await saveInvoiceDraft(env, order, {
+    lines: [...order.offer.lines, { title: "Zusätzliche Reinigung", description: "Vor Ort mit Kunde vereinbart", amountCents: 5000 }],
+    reason: "Unerwartete Mehrarbeit, telefonisch mit Kunde vereinbart",
+  });
+  assert.deepEqual(saved.offer, order.offer);
+  assert.deepEqual(saved.acceptance, order.acceptance);
+  assert.equal(saved.invoiceDraft.totalCents, 39900);
+  assert.equal(saved.invoice, undefined);
+  assert.equal(qonto.calls.length, 0);
+  assert.equal(qonto.mails.length, 0);
+  await assert.rejects(saveInvoiceDraft(env, order, { lines: order.offer.lines, reason: "Veralteter Dialog" }), /inzwischen verändert/);
+  await assert.rejects(saveInvoiceDraft(env, saved, { lines: saved.invoiceDraft.lines, reason: "" }), /Grund/);
+  const changed = await saveInvoiceDraft(env, saved, { lines: order.offer.lines, reason: "Zusatzarbeit entfällt" });
+  assert.equal(changed.invoiceDraft.totalCents, 34900);
+  assert.equal(changed.invoiceDraftHistory[0].totalCents, 39900);
+});
+
+test("issuing uses the reviewed stored draft and its actual total for the invoice and portal", async (t) => {
+  const { env, order } = await fixture(t);
+  const qonto = providers(t);
+  const saved = await saveInvoiceDraft(env, order, {
+    lines: [...order.offer.lines, { title: "Mehrarbeit", amountCents: 5000 }], reason: "Zusatzreinigung vereinbart",
+  });
+  await assert.rejects(qontoInvoice(env, saved, newClientInput()), /Rechnungsentwurf/);
+  assert.equal(qonto.calls.length, 0);
+  const created = await qontoInvoice(env, saved, newClientInput({ sendMail: false, draftReviewHash: invoiceDraftReviewHash(saved) }));
+  assert.equal(created.order.invoice.totalCents, 39900);
+  assert.equal(created.order.invoice.agreedTotalCents, 34900);
+  assert.equal(created.order.invoice.lines[2].title, "Mehrarbeit");
+  assert.equal(created.order.offer.totalCents, 34900);
+  assert.equal(invoicePortalView(created.order).invoice.openCents, 39900);
+  await assert.rejects(saveInvoiceDraft(env, created.order, { lines: order.offer.lines, reason: "Nach Ausstellung" }), /bereits ausgestellt/);
+  assert.equal(qonto.invoices[0].total_amount_cents, 39900);
+  assert.equal(qonto.mails.length, 0);
+});
+
+test("extra work on a previously paid order records only the additional paid amount and settles by invoice total", async (t) => {
+  const paid = completedOrder({ status: "Bezahlt", payments: [{ amountCents: 34900, method: "Bar", at: "2026-10-02T14:00:00Z" }] });
+  const { env, order } = await fixture(t, paid);
+  providers(t);
+  const draft = await saveInvoiceDraft(env, order, { lines: [...order.offer.lines, { title: "Mehrarbeit", amountCents: 5000 }], reason: "Zusatz vereinbart" });
+  assert.equal(draft.status, "Erledigt");
+  const created = await qontoInvoice(env, draft, newClientInput({
+    mode: "paid", paymentMethod: "Bar", paidAt: berlinDay(), sendMail: false, draftReviewHash: invoiceDraftReviewHash(draft),
+  }));
+  assert.equal(created.order.status, "Bezahlt");
+  assert.equal(created.order.invoice.totalCents, 39900);
+  assert.equal(created.order.payments.length, 2);
+  assert.equal(created.order.payments[1].amountCents, 5000);
+});
+
+test("a resumed finalized Qonto invoice locks the local draft even before panel assignment or e-mail", async (t) => {
+  const { env, order } = await fixture(t);
+  const client = { id: randomUUID(), kind: "individual", first_name: "TEST", last_name: "Kunde", email: customerEmail,
+    currency: "EUR", billing_address: { street_address: "Teststraße 1", zip_code: "72160", city: "Horb", country_code: "DE" } };
+  const input = newClientInput();
+  const remote = existingInvoice(order, client, input, "unpaid");
+  const qonto = providers(t, { clients: [client], invoices: [remote] });
+  await env.DB.prepare("INSERT INTO invoice_claims(order_id,provider,marker,org_id,stage,created_at) VALUES(?,'qonto',?,?,'finalize-attempt',?)")
+    .bind(order.id, order.wg, organizationId, new Date().toISOString()).run();
+  await assert.rejects(saveInvoiceDraft(env, order, { lines: order.offer.lines, reason: "Geändert" }), /bereits ausgestellt/);
+  assert.ok(qonto.calls.every((call) => call.method === "GET"));
+  assert.equal((await getOrder(env, order.id)).invoiceDraft, undefined);
 });
 
 test("Qonto check stores organization and active accounts without balances", async (t) => {
@@ -434,7 +513,7 @@ test("an existing invoice number is adopted instead of creating a second invoice
   assert.equal(qonto.mails.length, 0);
 });
 
-test("an issued invoice with different terms is never adopted; a different draft is replaced", async (t) => {
+test("an issued invoice with different terms is never adopted; a different draft is updated without deletion", async (t) => {
   const { env, order } = await fixture(t);
   const client = existingClient(),
     input = newClientInput({ sendMail: false });
@@ -453,10 +532,12 @@ test("an issued invoice with different terms is never adopted; a different draft
   qonto.invoices[0] = existingInvoice(order, client, { ...input, vatBasisPoints: 700 }, "draft");
   const oldDraft = qonto.invoices[0].id;
   const result = await qontoInvoice(env, await getOrder(env, order.id), choose);
-  assert.notEqual(result.order.invoice.id, oldDraft);
+  assert.equal(result.order.invoice.id, oldDraft);
+  assert.ok(qonto.calls.some((call) => call.method === "PATCH"));
+  assert.ok(!qonto.calls.some((call) => call.method === "DELETE"));
   assert.equal(qonto.invoices.length, 1);
   assert.equal(qonto.invoices[0].items[0].vat_rate, "0.19");
-  assert.ok(qonto.calls.some((call) => call.method === "DELETE" && call.url.includes(oldDraft)));
+  assert.ok(qonto.calls.some((call) => call.method === "PATCH" && call.url.includes(oldDraft)));
 });
 
 test("a Qonto total that differs from the agreed price deletes the draft and stores nothing", async (t) => {
@@ -582,6 +663,36 @@ test("invoice mail can be sent later and resent without duplicate idempotency ke
   assert.equal((await resendInvoiceMail(env, await getOrder(env, order.id))).state, "sent");
   assert.equal(qonto.mails.length, 2);
   assert.notEqual(qonto.mails[0].idempotency, qonto.mails[1].idempotency);
+});
+
+test("restoring an order keeps invoice work paused and explicit resend renews the revoked customer link", async (t) => {
+  const { env, order } = await fixture(t);
+  const qonto = providers(t, { attachmentReady: false });
+  const created = await qontoInvoice(env, order, newClientInput());
+  const originalToken = created.order.invoice.portalToken;
+  const removed = transitionOrderTrash(created.order, "deleteOrder", { reason: "Synthetische Prüfung" });
+  removed.operationId = randomUUID();
+  const statements = await orderTrashStatements(env, removed, "deleteOrder", removed.operationId, created.order.version + 1);
+  const deleted = await saveOrder(env, removed, created.order.version, "Synthetischer Papierkorb", "owner", statements);
+  assert.equal((await invoiceInfo(env, deleted)).portalUrl, null);
+  await assert.rejects(resendInvoiceMail(env, deleted), /Papierkorb/);
+  const restored = await saveOrder(env, transitionOrderTrash(deleted, "restoreOrder"), deleted.version, "Synthetische Wiederherstellung", "owner");
+  await pendingInvoiceWork(env);
+  assert.equal(qonto.mails.length, 0);
+  assert.equal((await env.DB.prepare("SELECT state FROM jobs WHERE order_id=? AND kind='invoice-mail'").bind(order.id).first()).state, "paused");
+  qonto.attachmentReady = true;
+  const delivery = await resendInvoiceMail(env, restored);
+  assert.equal(delivery.state, "sent");
+  const current = await getOrder(env, order.id);
+  const newToken = current.invoice.portalToken;
+  assert.notEqual(newToken, originalToken);
+  assert.match(newToken, /^[a-f0-9]{64}$/);
+  assert.equal(qonto.mails.length, 1);
+  assert.match(qonto.mails[0].text, new RegExp("/rechnung/" + newToken));
+  assert.ok(!qonto.mails[0].text.includes(originalToken));
+  assert.equal((await env.DB.prepare("SELECT revoked FROM invoice_tokens WHERE hash=?").bind(digest(originalToken)).first()).revoked, 1);
+  assert.equal((await env.DB.prepare("SELECT revoked FROM invoice_tokens WHERE hash=?").bind(digest(newToken)).first()).revoked, 0);
+  assert.equal((await invoiceInfo(env, current)).portalUrl, env.PANEL_ORIGIN + "/rechnung/" + newToken);
 });
 
 test("customer portal view shows payment data while open and hides the pay link once paid", async (t) => {

@@ -434,6 +434,7 @@ export async function qontoInventory(env, order) {
     paymentTermDays: PAYMENT_TERM_DAYS,
     customerEmail: validEmail(order.source.email) ? email(order.source.email) : "",
     paidCents: paidCents(order),
+    draftReviewHash: invoiceDraftReviewHash(order),
     mailReady: config.emailVerified === true && config.sendApproved === true && Boolean(config.sender),
   };
 }
@@ -464,7 +465,10 @@ function centNet(grossCents, vatBasisPoints) {
   return Math.floor(best / 100) + "." + String(best % 100).padStart(2, "0");
 }
 export function invoiceLines(order) {
-  const lines = order.offer?.lines?.length
+  const draft = order.invoiceDraft;
+  if (draft) need(draft.offerHash === hash(order.offer ?? null), "Das Angebot wurde seit dem Rechnungsentwurf geändert. Bitte den Entwurf erneut prüfen und speichern.", 409);
+  const total = draft?.totalCents ?? order.offer?.totalCents;
+  const lines = draft ? draft.lines : order.offer?.lines?.length
     ? order.offer.lines
     : [{ title: "Fahrzeugaufbereitung", description: order.offer?.services ?? "", amountCents: order.offer?.totalCents }];
   need(Array.isArray(lines) && lines.length > 0 && lines.length <= 100, "Bestätigte Leistungen fehlen.", 409);
@@ -475,14 +479,17 @@ export function invoiceLines(order) {
       409,
     );
   need(
-    Number.isSafeInteger(order.offer?.totalCents) &&
-      order.offer.totalCents > 0 &&
-      lines.reduce((sum, line) => sum + line.amountCents, 0) === order.offer.totalCents,
-    "Leistungspositionen stimmen nicht mit dem vereinbarten Festpreis überein.",
+    Number.isSafeInteger(total) && total > 0 && total <= 100000000 &&
+      lines.reduce((sum, line) => sum + line.amountCents, 0) === total,
+    "Leistungspositionen stimmen nicht mit dem geprüften Rechnungsbetrag überein.",
     409,
   );
   return lines;
 }
+export function invoiceDraftReviewHash(order) {
+  return order.invoiceDraft ? hash(order.invoiceDraft) : null;
+}
+export const invoiceAmountCents = (order) => invoiceLines(order).reduce((sum, line) => sum + line.amountCents, 0);
 export function eligibleForInvoice(order, input) {
   need(!order.synthetic, "Testaufträge erzeugen keine echten Rechnungen.", 409);
   need(
@@ -516,7 +523,7 @@ export function invoiceNumberFor(order) {
   return order.wg;
 }
 export function invoiceTexts(order, input, issueDate, dueDate, number = invoiceNumberFor(order)) {
-  const total = euro(order.offer.totalCents),
+  const total = euro(invoiceAmountCents(order)),
     vehicle = [order.source.vehicle, order.source.plate].filter(Boolean).join(" · ");
   const header =
     "Vielen Dank für Ihren Auftrag. Wir berechnen die vereinbarten Leistungen zu Auftrag " +
@@ -620,7 +627,7 @@ export function remoteInvoiceProblem(
   number = order.invoice?.number ?? order.wg,
   expectedTotal = order.invoice?.number === number && Number.isSafeInteger(order.invoice?.totalCents)
     ? order.invoice.totalCents
-    : order.offer.totalCents,
+    : invoiceAmountCents(order),
 ) {
   if (!remote || !uuid(remote.id)) return "Qonto-Rechnung fehlt.";
   if (remote.number !== number) return "Qonto-Rechnungsnummer weicht von " + number + " ab.";
@@ -632,7 +639,7 @@ export function remoteInvoiceProblem(
     return "Qonto-Rechnungsbetrag ist nicht lesbar.";
   }
   if (total !== expectedTotal)
-    return "Qonto berechnet " + euro(total) + " statt des vereinbarten Festpreises " + euro(expectedTotal) + ".";
+    return "Qonto berechnet " + euro(total) + " statt des geprüften Rechnungsbetrags " + euro(expectedTotal) + ".";
   if (clientId && remote.client?.id && remote.client.id !== clientId)
     return "Qonto-Rechnung gehört zu einem anderen Rechnungskunden.";
   if (!["draft", "unpaid", "paid", "canceled"].includes(remote.status)) return "Unbekannter Qonto-Rechnungsstatus.";
@@ -700,6 +707,7 @@ export function invoiceTermsProblem(remote, payload, mode) {
       have = remoteItems[index] ?? {};
     const price = num(have.unit_price && typeof have.unit_price === "object" ? have.unit_price.value : have.unit_price);
     if (String(have.title ?? "").trim() !== want.title) return "Positionstitel weichen ab.";
+    if (String(have.description ?? "").trim() !== String(want.description ?? "").trim()) return "Positionsbeschreibungen weichen ab.";
     if (num(have.quantity) !== num(want.quantity)) return "Mengen weichen ab.";
     if (Math.abs(num(have.vat_rate) - num(want.vat_rate)) > 1e-9 || Number.isNaN(num(have.vat_rate)))
       return "Umsatzsteuersatz weicht ab.";

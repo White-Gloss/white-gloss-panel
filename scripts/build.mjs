@@ -4,7 +4,8 @@ await import('./build-pdf.mjs');
 const company=readFileSync('src/company.mjs','utf8').replace(/export /g,'');
 const calendar=readFileSync('src/calendar.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');
 const migration=readFileSync('src/migration.mjs','utf8').replace(/export /g,'');const assessment=readFileSync('src/assessment.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');const catalog=readFileSync('src/catalog.mjs','utf8').replace(/export /g,'');const domain=readFileSync('src/domain.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');const recordCompat=readFileSync('src/record-compat.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');const schema=readFileSync('src/schema.mjs','utf8').replace(/export /g,'');const customers=readFileSync('src/customers.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');const worker=readFileSync('src/worker.mjs','utf8').replace(/^import .*;\r?\n/gm,'');
-writeFileSync('dist/server/index.js',company+'\n'+catalog+'\n'+assessment+'\n'+domain+'\n'+customers+'\n'+calendar+'\n'+schema+'\n'+migration+'\n'+recordCompat+'\n'+worker);
+const orderTrash=readFileSync('src/order-trash.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');
+writeFileSync('dist/server/index.js',company+'\n'+catalog+'\n'+assessment+'\n'+domain+'\n'+customers+'\n'+calendar+'\n'+schema+'\n'+migration+'\n'+orderTrash+'\n'+recordCompat+'\n'+worker);
 // Every file in public/ belongs to the client (pages, scripts, styles, manifest and icons).
 for(const f of readdirSync('public'))copyFileSync('public/'+f,'dist/client/'+f);
 copyFileSync('src/catalog.mjs','dist/client/catalog.mjs');copyFileSync('src/assessment.mjs','dist/client/assessment.mjs');
