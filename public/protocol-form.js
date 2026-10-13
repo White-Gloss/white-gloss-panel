@@ -14,7 +14,7 @@ function damageRow(damage={}){return `<div class="damage-row" data-damage-row da
 // Top view with clickable zones; a click adds a damage at that position.
 const zones=[['Stoßfänger vorne',50,8,100,24],['Motorhaube',50,34,100,70],['Kotflügel vorne links',28,40,22,70],['Kotflügel vorne rechts',150,40,22,70],['Scheiben',55,104,90,18],['A-Säule links',44,104,11,22],['A-Säule rechts',145,104,11,22],['Dach',55,124,90,118],['Tür vorne links',28,114,24,70],['Tür vorne rechts',148,114,24,70],['Tür hinten links',28,186,24,70],['Tür hinten rechts',148,186,24,70],['Schweller links',20,114,8,142],['Schweller rechts',172,114,8,142],['Seitenteil hinten links',28,258,22,70],['Seitenteil hinten rechts',150,258,22,70],['Heckklappe / Kofferraum',50,244,100,84],['Stoßfänger hinten',50,330,100,24],['Außenspiegel links',8,116,16,12],['Außenspiegel rechts',176,116,16,12]];
 export function damageSketch(marked=[]){return `<svg class="damage-sketch" viewBox="0 0 200 362" role="group" aria-label="Fahrzeugskizze: Bereich antippen, um einen Schaden hinzuzufügen"><text x="100" y="6" text-anchor="middle" class="sketch-label">vorne</text>${zones.map(([name,x,y,w,h])=>`<rect class="zone ${marked.includes(name)?'marked':''}" data-zone="${esc(name)}" x="${x}" y="${y}" width="${w}" height="${h}" rx="4" tabindex="0" role="button" aria-label="${esc(name)}"><title>${esc(name)}</title></rect>`).join('')}<text x="100" y="361" text-anchor="middle" class="sketch-label">hinten</text></svg>`;}
-export function protocolFormHTML({kind,protocol={},order,company,submitLabel='Speichern',signLabel='Anzeigen & unterschreiben',id='protocolform',replacement=false}){
+export function protocolFormHTML({kind,protocol={},order,company,submitLabel='Speichern',signLabel='Anzeigen & unterschreiben',id='protocolform',replacement=false,remoteLabel=''}){
   const p=protocol??{},checklist=p.checklist??{},photos=p.photos??[];
   return `<form id="${id}" class="protocol-form" data-kind="${kind}" data-replacement="${replacement}">
   <div class="sectiontitle">Fahrzeug und Übergabe</div>
@@ -35,7 +35,7 @@ export function protocolFormHTML({kind,protocol={},order,company,submitLabel='Sp
   <div class="sectiontitle">Fotos</div>
   ${photos.length?`<div class="photos keep-photos">${photos.map(photo=>`<label class="keep-photo"><img src="/api/asset/${esc(photo)}" alt="Gespeichertes Zustandsfoto"><span><input type="checkbox" name="keepPhoto" value="${esc(photo)}" checked> behalten</span></label>`).join('')}</div>`:''}
   <div class="grid2"><label>Foto aufnehmen<input type="file" data-photo-input accept="image/*" capture="environment" multiple></label><label>Aus Galerie wählen<input type="file" data-photo-input accept="image/jpeg,image/png,image/webp" multiple></label></div>
-  <div class="actions sectiongap"><button class="primary" type="submit" data-submit="save">${submitLabel}</button>${signLabel?`<button type="submit" data-submit="sign">${signLabel}</button>`:''}</div>
+  <div class="actions sectiongap"><button class="primary" type="submit" data-submit="save">${submitLabel}</button>${signLabel?`<button type="submit" data-submit="sign">${signLabel}</button>`:''}${remoteLabel?`<button type="submit" data-submit="remote">${remoteLabel}</button>`:''}</div>
   <div class="error" id="form-error"></div></form>`;
 }
 export function mountProtocolForm(form){

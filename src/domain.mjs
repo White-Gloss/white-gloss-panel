@@ -56,7 +56,8 @@ export function protocolValid(p,kind,assetIds) {
 }
 export function paintSummary(values){if(!values?.length)return null;const min=Math.min(...values),max=Math.max(...values);return {min,max,average:Math.round(values.reduce((a,b)=>a+b,0)/values.length)};}
 export function paidCents(o){return (o.payments??[]).filter(p=>!p.cancelledAt).reduce((sum,p)=>sum+p.amountCents,0);}
-function settle(o){const total=o.offer?.totalCents,paid=paidCents(o),open=(o.payments??[]).some(p=>!p.cancelledAt);if(o.status==='Erledigt'&&open&&Number.isSafeInteger(total)&&paid>=total)o.status='Bezahlt';else if(o.status==='Bezahlt'&&!o.paidManually&&!(open&&Number.isSafeInteger(total)&&paid>=total))o.status='Erledigt';}
+export function billedTotalCents(o){const invoice=o.invoice;if(invoice&&!['canceled','cancelled','void','voided'].includes(invoice.status)&&Number.isSafeInteger(invoice.totalCents)&&invoice.totalCents>=0)return invoice.totalCents;if(Number.isSafeInteger(o.invoiceDraft?.totalCents)&&o.invoiceDraft.totalCents>=0)return o.invoiceDraft.totalCents;return o.offer?.totalCents;}
+function settle(o){const total=billedTotalCents(o),paid=paidCents(o),open=(o.payments??[]).some(p=>!p.cancelledAt);if(o.status==='Erledigt'&&open&&Number.isSafeInteger(total)&&paid>=total)o.status='Bezahlt';else if(o.status==='Bezahlt'&&!o.paidManually&&!(open&&Number.isSafeInteger(total)&&paid>=total))o.status='Erledigt';}
 const history=(o,key,entry)=>{o[key]=[...(o[key]??[]),entry];};
 // Consent texts the customer actually saw are stored with the acceptance as evidence.
 const consents=input=>({paymentObligation:input.paymentObligation===true,immediateStart:input.immediateStart===true,immediateStartText:input.immediateStart===true?immediateStartNotice:'',withdrawalNotice:input.withdrawalNotice===true,withdrawalText:text(input.withdrawalText,8000)});
@@ -67,6 +68,9 @@ function applyDocument(o,kind,content,acceptance,now){
   if(kind==='offer'){if(o.offer||o.acceptance)history(o,'offerHistory',{offer:o.offer??null,acceptance:o.acceptance??null,replacedAt:now});o.acceptance=acceptanceSnapshot(o,content,acceptance);o.offer=content;return;}
   if(o[kind])history(o,kind+'History',{...o[kind],replacedAt:now});o[kind]=content;
 }
+export const documentBaseSnapshot=(o,kind)=>JSON.stringify(kind==='offer'?{offer:o.offer??null,acceptance:o.acceptance??null}:{document:o[kind]??null});
+export function assertPendingDocument(o,kind){need(['offer','intake','return'].includes(kind),'Unbekanntes Dokument.');const pending=o.pending?.[kind];need(pending,'Kein offenes Dokument zur Unterschrift.',404);need(!pending.baseSnapshot||pending.baseSnapshot===documentBaseSnapshot(o,kind),'Das Ausgangsdokument wurde verändert. Bitte einen neuen Entwurf zur Unterschrift erstellen.',409);return pending;}
+function clearPendingDocument(o,kind,now){if(!o.pending?.[kind])return;history(o,'pendingHistory',{kind,...o.pending[kind],discardedAt:now});const {[kind]:_removed,...rest}=o.pending;o.pending=rest;}
 export function transition(order,action,input,now=new Date().toISOString(),role='owner') {
   const o=structuredClone(order); const status=o.status; input=input??{};
   // Freeze legacy accepted data before the first edit can change its document.
@@ -94,7 +98,8 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
   }
   else if(action==='intake'||action==='return') {
     const current=o[action];
-    need(!isSigned(current)||input.customerSignature&&input.customerSignature!==current.customerSignature,'Ein unterschriebenes Protokoll bleibt unverändert. Bitte ein Ersatzprotokoll erstellen, das der Kunde neu unterschreibt.',409);
+    need(!isSigned(current),'Ein unterschriebenes Protokoll bleibt unverändert. Bitte ein Ersatzprotokoll erstellen, das der Kunde neu unterschreibt.',409);
+    clearPendingDocument(o,action,now);
     const content={...input,savedAt:now};
     if(isSigned(current))content.replaces={at:current.at??null,signedAt:current.signedAt??current.savedAt??null,snapshotHash:current.snapshotHash??null};
     if(input.customerSignature)content.signedAt=now;
@@ -102,20 +107,23 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     if(action==='intake'&&BEFORE_WORK.includes(status))o.status='In Arbeit';
     if(action==='return'){if([...BEFORE_WORK,'In Arbeit',...CLOSED_STATES].includes(status))o.status='Erledigt';o.completedAt??=now;settle(o);}
   }
-  else if(action==='replacement') {
+  else if(action==='replacement'||action==='protocolRequest') {
     const kind=input.kind;need(['offer','intake','return'].includes(kind),'Unbekanntes Dokument.');
-    need(kind==='offer'?offerSigned(o):isSigned(o[kind]),'Nicht unterschriebene Dokumente werden direkt bearbeitet.',409);
-    const content=kind==='offer'?{...structuredClone(o.assessment??emptyAssessment())}:input.content;need(content&&typeof content==='object','Ersatzdokument fehlt.');
+    const replacing=action==='replacement';
+    need(replacing?(kind==='offer'?offerSigned(o):isSigned(o[kind])):kind!=='offer'&&!isSigned(o[kind]),replacing?'Nicht unterschriebene Dokumente werden direkt bearbeitet.':'Für unterschriebene Dokumente bitte ein Ersatzdokument erstellen.',409);
+    const content=kind==='offer'?{...structuredClone(o.assessment??emptyAssessment())}:structuredClone(input.content);need(content&&typeof content==='object','Ersatzdokument fehlt.');
     const current=kind==='offer'?o.offer:o[kind];
-    o.pending={...(o.pending??{}),[kind]:{content,createdAt:now,replaces:{at:current?.at??current?.createdAt??null,signedAt:kind==='offer'?o.acceptance.at:(current.signedAt??current.savedAt??null),snapshotHash:kind==='offer'?(o.acceptance.snapshotHash??null):(current.snapshotHash??null)}}};
+    clearPendingDocument(o,kind,now);
+    if(kind!=='offer'){content.customerSignature=null;content.operatorSignature=null;content.signaturesConfirmed=false;delete content.signedAt;delete content.snapshotHash;delete content.replaces;}
+    o.pending={...(o.pending??{}),[kind]:{content,createdAt:now,requestId:crypto.randomUUID(),baseSnapshot:documentBaseSnapshot(o,kind),replaces:replacing?{at:current?.at??current?.createdAt??null,signedAt:kind==='offer'?o.acceptance.at:(current.signedAt??current.savedAt??null),snapshotHash:kind==='offer'?(o.acceptance.snapshotHash??null):(current.snapshotHash??null)}:null}};
   }
   else if(action==='discardReplacement') { need(o.pending?.[input.kind],'Kein offenes Ersatzdokument.',409); history(o,'pendingHistory',{kind:input.kind,...o.pending[input.kind],discardedAt:now}); const {[input.kind]:_removed,...rest}=o.pending; o.pending=rest; }
   else if(action==='signReplacement') {
     // Customer signature, either through the personal link or in person on the operator's device.
     need(role==='customer'||input.inPerson===true,'Nur der Kunde unterschreibt das Ersatzdokument.',403);
-    const kind=input.kind,pending=o.pending?.[kind];need(pending,'Kein offenes Ersatzdokument.',409);need(text(input.signature,100),'Unterschrift des Kunden fehlt.');need(input.snapshotHash,'Angezeigtes Dokument fehlt.',409);
+    const kind=input.kind,pending=assertPendingDocument(o,kind);need(text(input.signature,100),'Unterschrift des Kunden fehlt.');need(input.snapshotHash,'Angezeigtes Dokument fehlt.',409);
     if(kind==='offer'){applyDocument(o,'offer',{...pending.content,createdAt:pending.createdAt,expiresAt:now,replaces:pending.replaces},{mode:role==='customer'?'online':'vor Ort',at:now,signature:text(input.signature,250000),...consents(input),snapshotHash:input.snapshotHash,replaces:pending.replaces},now);if(BEFORE_ACCEPT.includes(status))o.status='Angenommen';}
-    else applyDocument(o,kind,{...pending.content,customerSignature:text(input.signature,100),signaturesConfirmed:true,signedAt:now,savedAt:now,snapshotHash:input.snapshotHash,replaces:pending.replaces,signedRemotely:role==='customer'},null,now);
+    else {applyDocument(o,kind,{...pending.content,customerSignature:text(input.signature,100),operatorSignature:null,signaturesConfirmed:true,signedAt:now,savedAt:now,snapshotHash:input.snapshotHash,replaces:pending.replaces??null,signedRemotely:role==='customer'},null,now);if(!pending.replaces){if(kind==='intake'&&BEFORE_WORK.includes(status))o.status='In Arbeit';if(kind==='return'){if([...BEFORE_WORK,'In Arbeit',...CLOSED_STATES].includes(status))o.status='Erledigt';o.completedAt??=now;settle(o);}}}
     const {[kind]:_done,...rest}=o.pending;o.pending=rest;
   }
   else if(action==='payment') {
@@ -124,7 +132,7 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     const method=text(input.method,40)||'Überweisung';need(['Überweisung','Karte','Bar'].includes(method),'Zahlungsart ist ungültig.');
     const payment={id:crypto.randomUUID(),amountCents:amount,at,method,receipt:text(input.receipt,100)||null,cashConfirmed:input.cashConfirmed===true,note:text(input.note,500)};
     o.payments=[...(o.payments??[]),payment];
-    need(input.allowOverpayment===true||!o.offer||paidCents(o)<=o.offer.totalCents,'Zahlung überschreitet den vereinbarten Festpreis. Bitte Betrag prüfen oder Überzahlung ausdrücklich bestätigen.',409);
+    need(input.allowOverpayment===true||!Number.isSafeInteger(billedTotalCents(o))||paidCents(o)<=billedTotalCents(o),'Zahlung überschreitet den Rechnungsbetrag bzw. vereinbarten Festpreis. Bitte Betrag prüfen oder Überzahlung ausdrücklich bestätigen.',409);
     settle(o);
   }
   else if(action==='paymentEdit') {
@@ -133,7 +141,7 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     if(input.cancelled===true)next.cancelledAt=now;
     else{if(input.amountCents!==undefined){next.amountCents=cents(input.amountCents);need(next.amountCents>0,'Zahlungsbetrag muss positiv sein.');}if(input.at)next.at=optionalTime(input.at);if(input.method!==undefined){next.method=text(input.method,40);need(['Überweisung','Karte','Bar'].includes(next.method),'Zahlungsart ist ungültig.');}if(input.note!==undefined)next.note=text(input.note,500);if(input.reactivate===true)delete next.cancelledAt;}
     o.payments=payments.map((p,i)=>i===index?next:p);
-    need(input.allowOverpayment===true||!o.offer||paidCents(o)<=o.offer.totalCents||paidCents(o)<=paidCents(order),'Korrektur überschreitet den vereinbarten Festpreis. Bitte Betrag prüfen oder Überzahlung ausdrücklich bestätigen.',409);settle(o);
+    need(input.allowOverpayment===true||!Number.isSafeInteger(billedTotalCents(o))||paidCents(o)<=billedTotalCents(o)||paidCents(o)<=paidCents(order),'Korrektur überschreitet den Rechnungsbetrag bzw. vereinbarten Festpreis. Bitte Betrag prüfen oder Überzahlung ausdrücklich bestätigen.',409);settle(o);
   }
   else if(action==='reject') { need(status!=='Bezahlt','Ein bezahlter Auftrag wird nicht abgelehnt.',409); history(o,'statusHistory',{from:status,to:'Abgelehnt',at:now,reason:text(input.reason)}); o.status='Abgelehnt'; o.closeReason=text(input.reason); }
   else if(action==='cancel') { need(status!=='Bezahlt','Ein bezahlter Auftrag wird nicht storniert.',409); history(o,'statusHistory',{from:status,to:'Storniert',at:now,reason:text(input.reason)}); o.status='Storniert';o.closeReason=text(input.reason); }

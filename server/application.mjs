@@ -52,7 +52,7 @@ export async function createApplication(env){
       const headers=new Headers(request.headers);headers.delete('oai-authenticated-user-email');headers.set('oai-authenticated-user-email',identity);
       const trusted=new Request(request,{headers});
       return worker.fetch(trusted,env);
-    }catch(error){return errorResponse(error instanceof AppError?error.message:'Verbindung oder Speicherung fehlgeschlagen. Kein Erfolg wurde bestätigt.',error instanceof AppError?error.status:500);}
+    }catch(error){if(error?.message==='Eine Anbieteraktion ist noch nicht bestätigt. Bitte zuerst lesend abgleichen und danach löschen.')return errorResponse(error.message,409);if(error?.message==='Terminüberschneidung')return errorResponse('Dieser Termin überschneidet sich mit einem anderen Auftrag. Bitte den Termin zuerst ändern.',409);return errorResponse(error instanceof AppError?error.message:'Verbindung oder Speicherung fehlgeschlagen. Kein Erfolg wurde bestätigt.',error instanceof AppError?error.status:500);}
   };
   return {env,async fetch(request){const result=await handle(request);const secured=new Response(result.body,{status:result.status,headers:result.headers});const sandboxed=result.headers.get('content-security-policy')?.startsWith('sandbox;');for(const [key,value] of Object.entries(lockedHeaders))if(!(sandboxed&&key==='Content-Security-Policy'))secured.headers.set(key,value);return secured;}};
 }

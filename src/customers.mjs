@@ -54,7 +54,7 @@ export async function resolveOrderLink(env,{source,synthetic=false,customerId=nu
 export const linkStatement=(env,orderId,customerId,vehicleId)=>env.DB.prepare('INSERT INTO customer_orders(order_id,customer_id,vehicle_id) VALUES(?,?,?) ON CONFLICT(order_id) DO UPDATE SET customer_id=excluded.customer_id,vehicle_id=excluded.vehicle_id').bind(orderId,customerId,vehicleId);
 // Existing orders from before the customer master are linked step by step without changing the orders themselves.
 export async function linkUnlinkedOrders(env,limit=200){
-  const rows=await env.DB.prepare('SELECT id,data,synthetic FROM orders o WHERE NOT EXISTS(SELECT 1 FROM customer_orders l WHERE l.order_id=o.id) ORDER BY o.rowid LIMIT ?').bind(limit).all();
+  const rows=await env.DB.prepare("SELECT id,data,synthetic FROM orders o WHERE json_extract(o.data,'$.trash.deletedAt') IS NULL AND NOT EXISTS(SELECT 1 FROM customer_orders l WHERE l.order_id=o.id) ORDER BY o.rowid LIMIT ?").bind(limit).all();
   for(const row of rows.results){const o=JSON.parse(row.data);const link=await resolveOrderLink(env,{source:o.source??{},synthetic:row.synthetic===1});await env.DB.batch([...link.statements,link.customerId?linkStatement(env,row.id,link.customerId,link.vehicleId):env.DB.prepare("INSERT OR IGNORE INTO customer_orders(order_id,customer_id,vehicle_id) VALUES(?,'',NULL)").bind(row.id)]);}
   return rows.results.length;
 }
@@ -64,7 +64,7 @@ export async function searchCustomers(env,query,synthetic=false,limit=100){
   const customers=rows.results.map(parseCustomer);if(!customers.length)return [];
   const ids=customers.map(c=>c.id),marks=ids.map(()=>'?').join(',');
   const vehicles=(await env.DB.prepare('SELECT * FROM vehicles WHERE customer_id IN ('+marks+') ORDER BY updated_at DESC').bind(...ids).all()).results.map(parseVehicle);
-  const counts=(await env.DB.prepare('SELECT l.customer_id id,COUNT(*) n,MAX(o.updated_at) last FROM customer_orders l JOIN orders o ON o.id=l.order_id WHERE l.customer_id IN ('+marks+') GROUP BY l.customer_id').bind(...ids).all()).results;
+  const counts=(await env.DB.prepare("SELECT l.customer_id id,COUNT(*) n,MAX(o.updated_at) last FROM customer_orders l JOIN orders o ON o.id=l.order_id WHERE json_extract(o.data,'$.trash.deletedAt') IS NULL AND l.customer_id IN ("+marks+') GROUP BY l.customer_id').bind(...ids).all()).results;
   return customers.map(c=>({...c,vehicles:vehicles.filter(v=>v.customerId===c.id),orderCount:counts.find(x=>x.id===c.id)?.n??0,lastOrderAt:counts.find(x=>x.id===c.id)?.last??null}));
 }
 export async function saveCustomer(env,input,synthetic=false){
@@ -84,7 +84,7 @@ export async function saveVehicle(env,input){
 }
 export async function customerDetail(env,id){
   const customer=await getCustomer(env,id);const vehicles=(await env.DB.prepare('SELECT * FROM vehicles WHERE customer_id=? ORDER BY updated_at DESC').bind(id).all()).results.map(parseVehicle);
-  const orders=(await env.DB.prepare('SELECT o.id,o.wg,o.status,o.version,o.updated_at,l.vehicle_id FROM customer_orders l JOIN orders o ON o.id=l.order_id WHERE l.customer_id=? ORDER BY o.updated_at DESC LIMIT 500').bind(id).all()).results.map(r=>({id:r.id,wg:r.wg,status:r.status,version:r.version,updatedAt:r.updated_at,vehicleId:r.vehicle_id}));
+  const orders=(await env.DB.prepare("SELECT o.id,o.wg,o.status,o.version,o.updated_at,l.vehicle_id FROM customer_orders l JOIN orders o ON o.id=l.order_id WHERE l.customer_id=? AND json_extract(o.data,'$.trash.deletedAt') IS NULL ORDER BY o.updated_at DESC LIMIT 500").bind(id).all()).results.map(r=>({id:r.id,wg:r.wg,status:r.status,version:r.version,updatedAt:r.updated_at,vehicleId:r.vehicle_id}));
   return {customer,vehicles,orders};
 }
 export async function orderLink(env,orderId){const row=await env.DB.prepare('SELECT customer_id,vehicle_id FROM customer_orders WHERE order_id=?').bind(orderId).first();if(!row?.customer_id)return {customer:null,vehicle:null};const customer=await getCustomer(env,row.customer_id).catch(()=>null);const vehicle=row.vehicle_id?await getVehicle(env,row.vehicle_id).catch(()=>null):null;return {customer,vehicle};}

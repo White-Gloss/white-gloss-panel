@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {JSDOM} from 'jsdom';
-import worker,{getOrder} from '../src/worker.mjs';
+import worker,{getOrder,saveOrder} from '../src/worker.mjs';
 import {PanelDatabase} from '../server/storage.mjs';
 
 const origin='https://panel.example.invalid',owner='test-owner@example.invalid';
@@ -198,4 +198,39 @@ test('consent texts: immediate start is never pre-ticked, names the lapse of the
   const row=await env.DB.prepare('SELECT id FROM orders').first();const o=await getOrder(env,row.id);assert.equal(o.acceptance.immediateStart,true);assert.equal(o.acceptance.withdrawalNotice,true);assert.equal(o.acceptance.withdrawalText,'Widerrufsbelehrung\n\nWiderrufsrecht');
   await ui.go('#auftrag='+row.id);assert.ok(ui.$('[data-share="acceptance"]'));
   assert.deepEqual(ui.errors,[]);
+});
+
+
+test('panel: absent customer protocol and recoverable order deletion preserve documents',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});
+  await ui.click('[data-click="test"]');await ui.click('[data-click="create"]');
+  ui.fill(ui.$('#createform'),{name:'Remote Test',vehicle:'Testauto'});await ui.submit('#createform');
+  const row=await ui.env.DB.prepare('SELECT * FROM orders').first();
+  await ui.click('[data-tab="intake"]');ui.fill(ui.$('#protocolform'),{mileage:'54321',notes:'Schlüssel im Briefkasten'});
+  await ui.submit('#protocolform','[data-submit="remote"]');
+  let current=await getOrder(ui.env,row.id);assert.equal(current.pending.intake.content.mileage,54321);assert.equal(current.pending.intake.replaces,null);assert.equal(current.pending.intake.content.customerSignature,null);
+  assert.match(ui.text(),/persönlichen Zugang/);assert.ok(ui.$('[data-click="documentLink"]'));
+  const request=structuredClone(current.pending.intake);
+  await ui.click('[data-click="deleteOrder"]');ui.fill(ui.$('#deleteorderform'),{reason:'Doppelte Anfrage'});await ui.submit('#deleteorderform');
+  current=await getOrder(ui.env,row.id);assert.ok(current.trash.deletedAt);assert.deepEqual(current.pending.intake.content,request.content);
+  assert.equal((await ui.env.DB.prepare('SELECT COUNT(*) n FROM orders').first()).n,1);
+  await ui.click('[data-view="trash"]');assert.match(ui.text(),/Remote Test/);await ui.click('[data-order]');
+  assert.ok(ui.$('[data-click="restoreOrder"]'));assert.equal(ui.$('#sourceform'),null);
+  await ui.click('[data-click="restoreOrder"]');current=await getOrder(ui.env,row.id);assert.ok(!current.trash?.deletedAt);
+  assert.ok(ui.$('#sourceform'));assert.equal(current.source.name,'TEST · Remote Test');
+});
+
+
+test('Vor-Ort app retains an absent customer draft and shows extra work in the open payment',async t=>{
+  const e=environment();const create=await worker.fetch(new Request(origin+'/api/create',{method:'POST',headers:{origin,'oai-authenticated-user-email':owner,'Content-Type':'application/json'},body:JSON.stringify({synthetic:true,source:{name:'Mobile Mehrarbeit',vehicle:'Testauto'}})}),e);
+  assert.equal(create.status,200);const original=await create.json();const updated=structuredClone(original);
+  updated.status='Erledigt';updated.offer={totalCents:10000,services:'Paket'};updated.completedAt='2026-10-13T09:00:00Z';updated.invoiceDraft={totalCents:15000};updated.payments=[{id:'test-payment',amountCents:4000}];updated.pending={intake:{content:{mileage:54321,notes:'Schlüssel im Briefkasten',photos:[]},createdAt:'2026-10-13T09:00:00Z'}};
+  await saveOrder(e,updated,original.version,'Isolierter Testzustand');
+  const ui=await boot(t,{page:'vor-ort.html',script:'vor-ort.js',hash:'#auftrag='+original.id+'/zahlung',env:e,storage:{'wg-vo-test':'1'}});
+  assert.equal(ui.$('#pay-form').elements.amount.value,'110,00');
+  await ui.go('#auftrag='+original.id+'/annahme');assert.equal(ui.$('#p-form').elements.mileage.value,'54321');assert.equal(ui.$('#p-form').elements.notes.value,'Schlüssel im Briefkasten');
+  const destinations=[];Object.defineProperty(globalThis,'location',{value:{get hash(){return ui.w.location.hash;},set hash(value){ui.w.location.hash=value;},assign(value){destinations.push(value);}},configurable:true});
+  ui.fill(ui.$('#p-form'),{notes:'Abholung dokumentiert'});await ui.submit('#p-form','[data-submit="remote"]');
+  assert.deepEqual(destinations,['/#auftrag='+encodeURIComponent(original.id)]);
+  assert.equal((await getOrder(e,original.id)).pending.intake.content.notes,'Abholung dokumentiert');
 });

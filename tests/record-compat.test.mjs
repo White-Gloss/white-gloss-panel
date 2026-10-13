@@ -54,7 +54,7 @@ test('a block applied after login-link creation wins before the offer email is r
   });
   t.mock.method(globalThis,'fetch',()=>{calls++;throw Error('Blocked offer must not be sent');});
   await assert.rejects(providerOperations.action(f.env,f.order,'sendOffer',{}),/verändert|gesperrt/);
-  assert.equal(blocked,true);assert.equal(calls,0);assert.equal((await f.env.DB.prepare("SELECT state FROM jobs WHERE kind='offer'").first()).state,'failed');
+  assert.equal(blocked,true);assert.equal(calls,0);assert.equal((await f.env.DB.prepare("SELECT state FROM jobs WHERE kind='offer' OR kind LIKE 'offer-%'").first()).state,'failed');
 });
 test('the immediate provider guard reads current restrictions while allowing retained original reads',async t=>{
   const f=await fixture(t);await f.env.DB.prepare("UPDATE orders SET data=json_set(data,'$.recordsRestriction.status','anonymized'),version=version+1 WHERE id=?").bind(f.order.id).run();

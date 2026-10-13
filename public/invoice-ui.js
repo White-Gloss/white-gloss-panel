@@ -42,18 +42,19 @@ const deliveryStates = {
   failed: "nicht gesendet",
   unknown: "Ergebnis offen",
   cancelled: "entfällt",
+  paused: "pausiert",
 };
 export const invoiceStatusLabel = (status) =>
   Object.hasOwn(statusLabels, status) ? statusLabels[status] : "Unbekannter Status";
 
 export function invoiceLines(order) {
-  const lines = order.offer?.lines?.length
+  const lines = order.invoiceDraft ? order.invoiceDraft.lines : order.offer?.lines?.length
     ? order.offer.lines
     : [{ title: "Fahrzeugaufbereitung", description: order.offer?.services ?? "", amountCents: order.offer?.totalCents }];
   if (
     !lines.length ||
     lines.some((line) => !Number.isSafeInteger(line.amountCents) || line.amountCents < 0) ||
-    lines.reduce((sum, line) => sum + line.amountCents, 0) !== order.offer?.totalCents
+    lines.reduce((sum, line) => sum + line.amountCents, 0) !== (order.invoiceDraft?.totalCents ?? order.offer?.totalCents)
   )
     throw Error("Die gespeicherten Leistungen stimmen nicht mit dem vereinbarten Festpreis überein.");
   return lines;
@@ -61,7 +62,7 @@ export function invoiceLines(order) {
 export function invoiceTotals(order, vatBasisPoints) {
   invoiceLines(order);
   if (![0, 700, 1900].includes(vatBasisPoints)) throw Error("Bitte den Umsatzsteuersatz auswählen.");
-  const grossCents = order.offer.totalCents,
+  const grossCents = order.invoiceDraft?.totalCents ?? order.offer.totalCents,
     denominator = BigInt(10000 + vatBasisPoints);
   const taxCents = Number((BigInt(grossCents) * BigInt(vatBasisPoints) + denominator / 2n) / denominator);
   return { grossCents, netCents: grossCents - taxCents, taxCents };
@@ -72,6 +73,69 @@ const addressLines = (address = {}) =>
   [address.street_address, [address.zip_code, address.city].filter(Boolean).join(" "), address.country_code].filter(
     Boolean,
   );
+
+export function invoiceDraftSummaryHTML(order) {
+  if (order.invoice && order.invoice.status !== "canceled")
+    return "";
+  const draft = order.invoiceDraft;
+  return `<div class="sectiontitle">Rechnungsentwurf vor Versand</div>${draft ? `<p>Gespeicherter Rechnungsbetrag: <strong>${invoiceMoney(draft.totalCents)}</strong> · Angebot: ${invoiceMoney(order.offer?.totalCents ?? 0)}</p><p class="hint">Änderungsgrund: ${invoiceEsc(draft.reason)}</p>` : '<p class="hint">Bei unerwarteter Mehrarbeit kannst du Positionen und Beträge vor dem Ausstellen bearbeiten. Das unterschriebene Angebot bleibt erhalten.</p>'}<button data-click="invoiceDraft">${draft ? "Rechnungsentwurf bearbeiten" : "Rechnungspositionen bearbeiten"}</button>`;
+}
+function draftLineHTML(line = {}) {
+  return `<fieldset class="catalog-options" data-invoice-draft-line><legend>Rechnungsposition</legend><label>Leistung<input data-draft-title value="${invoiceEsc(line.title ?? "")}" maxlength="180" required></label><label>Beschreibung<textarea data-draft-description maxlength="2000">${invoiceEsc(line.description ?? "")}</textarea></label><label>Bruttobetrag in €<input data-draft-amount inputmode="decimal" value="${Number.isSafeInteger(line.amountCents) ? (line.amountCents / 100).toFixed(2).replace(".", ",") : ""}" required></label><button type="button" data-invoice-remove>Position entfernen</button></fieldset>`;
+}
+export function invoiceDraftForm(order) {
+  if (order.invoice && order.invoice.status !== "canceled") throw Error("Die Rechnung ist bereits ausgestellt und bleibt unverändert.");
+  return `<p>${invoiceEsc(order.wg)} · ${invoiceEsc(order.source?.name)} · Angebot ${invoiceMoney(order.offer?.totalCents ?? 0)} brutto</p><p class="hint">Hier bearbeitest du ausschließlich den Rechnungsentwurf. Beschreibe Mehrarbeit und die dazu vereinbarte Preisänderung. Das gespeicherte Angebot und seine Unterschrift bleiben unverändert. Erst nach der anschließenden Rechnungsprüfung wird die Rechnung ausgestellt.</p><form id="invoiceDraftform"><div data-invoice-draft-lines>${invoiceLines(order).map(draftLineHTML).join("")}</div><button type="button" data-invoice-add>Position hinzufügen</button><label>Grund der Änderung / Vereinbarung mit dem Kunden<textarea name="reason" maxlength="2000" required>${invoiceEsc(order.invoiceDraft?.reason ?? "")}</textarea></label><p data-invoice-draft-total aria-live="polite"></p><button type="submit" class="primary">Entwurf speichern</button><div id="modal-error" class="error"></div></form>`;
+}
+function parseDraftAmount(value) {
+  const raw = String(value ?? "").trim();
+  if (!/^\d{1,7}(?:[.,]\d{1,2})?$/.test(raw)) throw Error("Bitte einen Bruttobetrag mit höchstens zwei Nachkommastellen eingeben.");
+  const [whole, fraction = ""] = raw.replace(",", ".").split(".");
+  const amount = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  if (!Number.isSafeInteger(amount) || amount > 100000000) throw Error("Der Betrag darf 1.000.000 € nicht überschreiten.");
+  return amount;
+}
+export function invoiceDraftInput(form) {
+  const rows = [...form.querySelectorAll("[data-invoice-draft-line]")];
+  if (!rows.length || rows.length > 100) throw Error("Bitte 1 bis 100 Rechnungspositionen angeben.");
+  const lines = rows.map((row) => {
+    const title = row.querySelector("[data-draft-title]").value.trim(),
+      description = row.querySelector("[data-draft-description]").value.trim(),
+      amountCents = parseDraftAmount(row.querySelector("[data-draft-amount]").value);
+    if (!title || title.length > 180) throw Error("Bitte für jede Position einen Titel angeben (höchstens 180 Zeichen).");
+    if (description.length > 2000) throw Error("Die Positionsbeschreibung darf höchstens 2000 Zeichen haben.");
+    return { title, description, amountCents };
+  });
+  const reason = form.elements.reason.value.trim();
+  if (!reason || reason.length > 2000) throw Error("Bitte den Grund und die Vereinbarung zur Rechnungsänderung angeben.");
+  const totalCents = lines.reduce((sum, line) => sum + line.amountCents, 0);
+  if (!totalCents || totalCents > 100000000) throw Error("Der Rechnungsbetrag muss positiv sein und darf 1.000.000 € nicht überschreiten.");
+  return { lines, reason };
+}
+export function mountInvoiceDraftForm(form) {
+  if (!form) return;
+  const update = () => {
+    const total = form.querySelector("[data-invoice-draft-total]");
+    try {
+      const sum = [...form.querySelectorAll("[data-draft-amount]")].reduce((amount, field) => amount + parseDraftAmount(field.value), 0);
+      total.textContent = "Rechnungsbetrag: " + invoiceMoney(sum) + " brutto";
+    } catch (error) { total.textContent = error.message; }
+  };
+  form.addEventListener("click", (event) => {
+    const target = event.target.closest("button");
+    if (target?.hasAttribute("data-invoice-add")) {
+      if (form.querySelectorAll("[data-invoice-draft-line]").length >= 100) return;
+      form.querySelector("[data-invoice-draft-lines]").insertAdjacentHTML("beforeend", draftLineHTML());
+      update();
+    }
+    if (target?.hasAttribute("data-invoice-remove") && form.querySelectorAll("[data-invoice-draft-line]").length > 1) {
+      target.closest("[data-invoice-draft-line]").remove();
+      update();
+    }
+  });
+  form.addEventListener("input", update);
+  update();
+}
 
 function readInvoiceFields(form, inventory) {
   const data = Object.fromEntries(
@@ -150,7 +214,7 @@ export function invoiceReview(order, input, inventory) {
     )
     .join(
       "",
-    )}</tbody></table></div>${pair("Netto", '<span class="money">' + invoiceMoney(totals.netCents) + "</span>")}${pair(invoiceEsc(VAT[input.vatBasisPoints]), '<span class="money">' + invoiceMoney(totals.taxCents) + "</span>")}<div class="fieldpair"><strong>Gesamtbetrag</strong><strong class="money">${invoiceMoney(totals.grossCents)}</strong></div><p class="hint">${client.existing ? "Der vorhandene Qonto-Kunde wird verwendet." : "Der Rechnungskunde wird mit diesen Angaben in Qonto angelegt."} Qonto stellt die Rechnung mit der Nummer ${invoiceEsc(number)} aus – eine doppelte Rechnung ist ausgeschlossen.${order.invoice?.status === "canceled" ? " Sie ersetzt die in Qonto stornierte Rechnung " + invoiceEsc(order.invoice.number) + "." : ""}${paid ? " Die Rechnung wird in Qonto sofort als bezahlt markiert und die Zahlung im Auftrag erfasst." : " Ohne Zahlungseingang folgen Zahlungserinnerung und Mahnungen nach deiner Freigabe."}${input.sendMail ? " Die PDF-Rechnung geht per E-Mail an den Kunden, Kopie an dich." : " Es wird keine E-Mail versendet."}</p>`;
+    )}</tbody></table></div>${order.invoiceDraft ? pair("Vereinbarter Angebotspreis", invoiceMoney(order.offer.totalCents)) + pair("Grund der Änderung", invoiceEsc(order.invoiceDraft.reason)) : ""}${pair("Netto", '<span class="money">' + invoiceMoney(totals.netCents) + "</span>")}${pair(invoiceEsc(VAT[input.vatBasisPoints]), '<span class="money">' + invoiceMoney(totals.taxCents) + "</span>")}<div class="fieldpair"><strong>Gesamtbetrag</strong><strong class="money">${invoiceMoney(totals.grossCents)}</strong></div><p class="hint">${client.existing ? "Der vorhandene Qonto-Kunde wird verwendet." : "Der Rechnungskunde wird mit diesen Angaben in Qonto angelegt."} Qonto stellt die Rechnung mit der Nummer ${invoiceEsc(number)} aus – eine doppelte Rechnung ist ausgeschlossen.${order.invoice?.status === "canceled" ? " Sie ersetzt die in Qonto stornierte Rechnung " + invoiceEsc(order.invoice.number) + "." : ""}${paid ? " Die Rechnung wird in Qonto sofort als bezahlt markiert und die Zahlung im Auftrag erfasst." : " Ohne Zahlungseingang folgen Zahlungserinnerung und Mahnungen nach deiner Freigabe."}${input.sendMail ? " Die PDF-Rechnung geht per E-Mail an den Kunden, Kopie an dich." : " Es wird keine E-Mail versendet."}</p>`;
 }
 
 export function invoiceForm(order, inventory) {
@@ -166,7 +230,7 @@ export function invoiceForm(order, inventory) {
     ? `<label>Qonto-Rechnungskunde<select name="clientId" ${inventory.customerEmail ? "required" : ""}><option value="">${inventory.customerEmail ? "Bitte den passenden Kunden auswählen" : "Neuen Rechnungskunden anlegen"}</option>${clients.map((client) => `<option value="${invoiceEsc(client.id)}">${invoiceEsc(client.name)}${client.email ? " · " + invoiceEsc(client.email) : ""}${client.complete ? "" : " · unvollständig"}</option>`).join("")}</select></label>`
     : '<input type="hidden" name="clientId" value="">';
   const newClient = `<fieldset class="catalog-options" data-new-client ${clients.length && inventory.customerEmail ? "hidden" : ""}><legend>Rechnungsadresse</legend><label>Kundenart<select name="billingKind"><option value="individual">Privatkunde</option><option value="company"${order.source.company ? " selected" : ""}>Firmenkunde</option></select></label><div class="grid2">${field("Vorname", "billingFirstName", String(order.source.name ?? "").split(" ").slice(0, -1).join(" "), 'autocomplete="given-name" maxlength="60"')}${field("Nachname", "billingLastName", String(order.source.name ?? "").split(" ").slice(-1).join(""), 'autocomplete="family-name" maxlength="60"')}${field("Firma", "billingName", order.source.company ?? "", 'autocomplete="organization" maxlength="180"')}${field("Straße und Hausnummer", "billingStreet", "", 'autocomplete="street-address" maxlength="180"')}${field("Postleitzahl", "billingZip", "", 'autocomplete="postal-code" inputmode="numeric" maxlength="20"')}${field("Ort", "billingCity", "", 'autocomplete="address-level2" maxlength="50"')}<input type="hidden" name="billingCountry" value="DE"></div><p class="hint">Die Adresse wird erst mit deiner Freigabe als Qonto-Kunde gespeichert.</p></fieldset>`;
-  return `<p>${invoiceEsc(order.wg)} · ${invoiceEsc(order.source.name)} · Festpreis ${invoiceMoney(order.offer.totalCents)} brutto</p><form id="invoiceform"><fieldset class="catalog-options"><legend>Wie rechnest du ab?</legend><label class="check"><input type="radio" name="mode" value="invoice" ${alreadyPaid ? "disabled" : "checked"}>Rechnung senden · zahlbar in ${PAYMENT_TERM_DAYS} Tagen bis ${invoiceGermanDay(due)}</label><label class="check"><input type="radio" name="mode" value="paid" ${alreadyPaid ? "checked" : ""}>Bereits bezahlt · Rechnung gilt als Quittung</label>${alreadyPaid ? '<p class="hint">Im Auftrag sind bereits ' + invoiceMoney(paidCents(order)) + " als Zahlung erfasst. Abrechnung deshalb nur als Quittung" + (paidCents(order) < order.offer.totalCents ? "; der Restbetrag wird mit der gewählten Zahlungsart als bezahlt erfasst." : ".") + "</p>" : ""}</fieldset><div class="grid2" data-paid-fields hidden><label>Zahlungsart<select name="paymentMethod"><option>Bar</option><option>Karte</option><option>Überweisung</option></select></label>${field("Bezahlt am", "paidAt", today, 'type="date" max="' + today + '"')}</div>${clientChoice}${newClient}<label>Umsatzsteuer<select name="vatBasisPoints"><option value="1900" selected>${VAT[1900]}</option><option value="700">${VAT[700]}</option><option value="0">${VAT[0]}</option></select></label><label class="check"><input type="checkbox" name="sendMail" ${canMail ? "checked" : "disabled"}>PDF-Rechnung per E-Mail an ${invoiceEsc(inventory.customerEmail || "den Kunden")} senden (Kopie an dich)</label>${canMail ? "" : '<p class="hint">' + (inventory.customerEmail ? "E-Mail-Versand ist in den Einstellungen noch nicht geprüft und freigegeben." : "Keine Kunden-E-Mail hinterlegt. Das PDF kannst du nach dem Ausstellen herunterladen.") + "</p>"}<section class="sectiongap" data-invoice-review aria-live="polite"><p class="hint">Angaben vervollständigen, dann erscheint die Vorschau.</p></section><label class="check"><input type="checkbox" name="reviewed" required disabled>Ich habe Kunde, Adresse, Leistungen, Steuer und Betrag geprüft. Die Rechnung ${invoiceEsc(inventory.number ?? order.wg)} soll jetzt in Qonto ausgestellt werden.</label><button class="primary" type="submit" disabled>Rechnung ausstellen</button><div id="modal-error" class="error"></div></form>`;
+  return `<p>${invoiceEsc(order.wg)} · ${invoiceEsc(order.source.name)} · Angebot ${invoiceMoney(order.offer.totalCents)} brutto${order.invoiceDraft ? " · Rechnungsentwurf " + invoiceMoney(order.invoiceDraft.totalCents) + " brutto" : ""}</p><form id="invoiceform"><fieldset class="catalog-options"><legend>Wie rechnest du ab?</legend><label class="check"><input type="radio" name="mode" value="invoice" ${alreadyPaid ? "disabled" : "checked"}>Rechnung senden · zahlbar in ${PAYMENT_TERM_DAYS} Tagen bis ${invoiceGermanDay(due)}</label><label class="check"><input type="radio" name="mode" value="paid" ${alreadyPaid ? "checked" : ""}>Bereits bezahlt · Rechnung gilt als Quittung</label>${alreadyPaid ? '<p class="hint">Im Auftrag sind bereits ' + invoiceMoney(paidCents(order)) + " als Zahlung erfasst. Abrechnung deshalb nur als Quittung" + (paidCents(order) < (order.invoiceDraft?.totalCents ?? order.offer.totalCents) ? "; der Restbetrag wird mit der gewählten Zahlungsart als bezahlt erfasst." : ".") + "</p>" : ""}</fieldset><div class="grid2" data-paid-fields hidden><label>Zahlungsart<select name="paymentMethod"><option>Bar</option><option>Karte</option><option>Überweisung</option></select></label>${field("Bezahlt am", "paidAt", today, 'type="date" max="' + today + '"')}</div>${clientChoice}${newClient}<label>Umsatzsteuer<select name="vatBasisPoints"><option value="1900" selected>${VAT[1900]}</option><option value="700">${VAT[700]}</option><option value="0">${VAT[0]}</option></select></label><label class="check"><input type="checkbox" name="sendMail" ${canMail ? "checked" : "disabled"}>PDF-Rechnung per E-Mail an ${invoiceEsc(inventory.customerEmail || "den Kunden")} senden (Kopie an dich)</label>${canMail ? "" : '<p class="hint">' + (inventory.customerEmail ? "E-Mail-Versand ist in den Einstellungen noch nicht geprüft und freigegeben." : "Keine Kunden-E-Mail hinterlegt. Das PDF kannst du nach dem Ausstellen herunterladen.") + "</p>"}<section class="sectiongap" data-invoice-review aria-live="polite"><p class="hint">Angaben vervollständigen, dann erscheint die Vorschau.</p></section><label class="check"><input type="checkbox" name="reviewed" required disabled>Ich habe Kunde, Adresse, Leistungen, Steuer und Betrag geprüft. Die Rechnung ${invoiceEsc(inventory.number ?? order.wg)} soll jetzt in Qonto ausgestellt werden.</label><button class="primary" type="submit" disabled>Rechnung ausstellen</button><div id="modal-error" class="error"></div></form>`;
 }
 
 export function mountInvoiceForm(form, order, inventory) {
@@ -224,6 +288,7 @@ export function invoiceInput(form, currentOrder) {
     ...rest,
     ...(input.clientId ? {} : { billing }),
     clientReviewHash: client?.reviewHash ?? null,
+    draftReviewHash: context.inventory.draftReviewHash ?? null,
     reviewed: true,
   };
 }
@@ -283,5 +348,5 @@ export function invoiceResultHTML(order) {
           : info?.next
             ? `<p class="hint">Nächste Stufe: <strong>${invoiceEsc(info.next.label)}</strong> ab ${invoiceGermanDay(info.next.on)} · ${info.dunningApproved ? "wird automatisch gesendet" : "automatischer Versand ist in den Einstellungen noch nicht freigegeben – du kannst sie hier manuell senden"}.</p>`
             : "";
-  return `<div class="sectiontitle">Qonto-Rechnung</div><p><strong>${invoiceEsc(inv.number)}</strong> <span class="badge ${badge}">${invoiceStatusLabel(status)}</span>${paidMode ? ' <span class="badge good">Quittung</span>' : ""}</p>${pair("Rechnungsdatum", invoiceGermanDay(inv.issueDate))}${paidMode ? pair("Bezahlt", invoiceEsc(inv.paymentMethod ?? "") + (inv.paidAt ? " am " + invoiceGermanDay(inv.paidAt) : "")) : pair("Zahlbar bis", invoiceGermanDay(inv.dueDate))}${pair("Betrag", invoiceMoney(inv.totalCents))}${paidMode ? "" : pair("Noch offen", invoiceMoney(open))}<div class="actions">${actions.join("")}</div>${dunning}${deliveries ? '<div class="sectiontitle">Versand & Mahnwesen</div><ul class="timeline">' + deliveries + "</ul>" : ""}`;
+  return `<div class="sectiontitle">Qonto-Rechnung</div><p><strong>${invoiceEsc(inv.number)}</strong> <span class="badge ${badge}">${invoiceStatusLabel(status)}</span>${paidMode ? ' <span class="badge good">Quittung</span>' : ""}</p>${pair("Rechnungsdatum", invoiceGermanDay(inv.issueDate))}${paidMode ? pair("Bezahlt", invoiceEsc(inv.paymentMethod ?? "") + (inv.paidAt ? " am " + invoiceGermanDay(inv.paidAt) : "")) : pair("Zahlbar bis", invoiceGermanDay(inv.dueDate))}${pair("Betrag", invoiceMoney(inv.totalCents))}<p class="hint">Bereits in Qonto ausgestellt. Die Rechnung bleibt auch vor dem E-Mail-Versand unverändert. Korrekturen erfolgen über Storno und Neuausstellung in Qonto.</p>${paidMode ? "" : pair("Noch offen", invoiceMoney(open))}<div class="actions">${actions.join("")}</div>${dunning}${deliveries ? '<div class="sectiontitle">Versand & Mahnwesen</div><ul class="timeline">' + deliveries + "</ul>" : ""}`;
 }
