@@ -53,7 +53,7 @@ export async function deliverProtocol(env,orderId,kind,jobId=null){
   if(!['queued','failed'].includes(record.state))return {state:record.state,message:record.state==='sent'?'Protokoll-PDF an den Kunden mit Kopie an dich versendet.':'Protokoll gespeichert; Versandergebnis wird geprüft. Keine zweite E-Mail erzeugt.'};
   const now=Date.now(),leaseOwner=randomUUID(),lease=await env.DB.prepare('UPDATE '+table+" SET processing_until=?,lease_owner=? WHERE job_id=? AND processing_until<=? AND EXISTS(SELECT 1 FROM jobs WHERE id=? AND state IN ('queued','failed'))").bind(now+120000,leaseOwner,record.job_id,now,record.job_id).run();
   if(!lease.meta.changes)return {state:'queued',message:'Protokoll gespeichert; PDF-Versand läuft bereits.'};
-  let attempted=false,providerId=null;
+  let attempted=false,restricted=false,providerId=null;
   try{
     const order=deliveryOrder(await getOrder(env,orderId),record),p=documentOf(order,kind);need(!order.synthetic&&deliverable(kind,p),'Versand gehört nicht zu einem gespeicherten Dokument.',409);
     const config=await configuration(env,['resendKey']);need(config.emailVerified&&config.sendApproved&&config.resendKey&&config.sender,'Protokoll gespeichert. E-Mail-Versand zuerst prüfen und freigeben.',409);
@@ -63,12 +63,12 @@ export async function deliverProtocol(env,orderId,kind,jobId=null){
     const payload={from:config.sender,to:[record.recipient],...(record.copy_to&&record.copy_to!==record.recipient?{cc:[record.copy_to]}:{}),reply_to:record.copy_to||config.sender,subject:'White Gloss · '+label+(p.replaces?' (Ersatz)':'')+' · '+order.wg,text:'Guten Tag '+(p.customerName||order.source.name||'')+',\n\n'+intro+replaced+'\n\nBei Rückfragen antworten Sie bitte auf diese E-Mail.\n\n'+business.name+'\n'+business.owner+'\n'+business.street+'\n'+business.city+'\n'+business.phone+'\n'+business.email,attachments:[{filename:pdf.filename,content:Buffer.from(pdf.bytes).toString('base64')}]};
     const reserved=await env.DB.prepare("UPDATE jobs SET state='pending',detail='Versand wird angefordert',updated_at=? WHERE id=? AND state IN ('queued','failed') AND EXISTS(SELECT 1 FROM "+table+' WHERE job_id=? AND lease_owner=?)').bind(new Date().toISOString(),record.job_id,record.job_id,leaseOwner).run();
     if(!reserved.meta.changes)return {state:'queued',message:'Protokoll gespeichert; Versand wurde bereits übernommen.'};
-    assertCurrentRecordOperation(env,order,'send');attempted=true;
+    try{assertCurrentRecordOperation(env,order,'send');}catch(error){if(error.status===409)restricted=true;throw error;}attempted=true;
     const result=await fetch('https://api.resend.com/emails',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(20000),headers:{Authorization:'Bearer '+config.resendKey,'Content-Type':'application/json','Idempotency-Key':'wg-protocol-'+record.job_id},body:JSON.stringify(payload)});
     const data=await result.json();need(result.ok&&typeof data.id==='string','Versandergebnis ist nicht eindeutig bestätigt.',502);providerId=data.id;
     await env.DB.prepare("UPDATE jobs SET state='sent',provider_id=?,detail='PDF an Kunden und Betreiber bestätigt',updated_at=? WHERE id=?").bind(providerId,new Date().toISOString(),record.job_id).run();
     return {state:'sent',message:labels[kind]+' als PDF an den Kunden mit Kopie an dich versendet.'};
-  }catch(error){const state=attempted?'unknown':'failed',detail=attempted?'Versandergebnis ungeklärt. Keine automatische Wiederholung.':'PDF-Versand steht aus: '+error.message;await env.DB.prepare('UPDATE jobs SET state=?,provider_id=?,detail=?,updated_at=? WHERE id=? AND EXISTS(SELECT 1 FROM '+table+' WHERE job_id=? AND lease_owner=?)').bind(state,providerId,detail,new Date().toISOString(),record.job_id,record.job_id,leaseOwner).run();return {state,message:'Protokoll und Unterschriften sind gespeichert. '+detail};}
+  }catch(error){const state=restricted?'cancelled':attempted?'unknown':'failed',detail=restricted?'Versand wegen einer aktuellen Aktenbeschränkung abgebrochen: '+error.message:attempted?'Versandergebnis ungeklärt. Keine automatische Wiederholung.':'PDF-Versand steht aus: '+error.message;await env.DB.prepare('UPDATE jobs SET state=?,provider_id=?,detail=?,updated_at=? WHERE id=? AND EXISTS(SELECT 1 FROM '+table+' WHERE job_id=? AND lease_owner=?)').bind(state,providerId,detail,new Date().toISOString(),record.job_id,record.job_id,leaseOwner).run();return {state,message:'Protokoll und Unterschriften sind gespeichert. '+detail};}
   finally{await env.DB.prepare('UPDATE '+table+" SET processing_until=0,lease_owner='' WHERE job_id=? AND lease_owner=?").bind(record.job_id,leaseOwner).run();}
 }
 export async function pendingProtocolMails(env){
