@@ -87,7 +87,7 @@ export function mountConversation(root,options){
   const scroll=$('.chat-scroll'),list=$('.chat-list'),emptyState=$('.chat-empty'),form=$('.chat-composer'),textarea=$('textarea'),fileInput=$('input[type=file]'),pendingBox=$('.chat-pending'),errorBox=$('.chat-error'),banner=$('.chat-banner'),lightbox=$('.chat-lightbox');
   if(options.header)$('.chat-head-slot').replaceWith(options.header);else $('.chat-head-slot').remove();
   emptyState.textContent=options.emptyText;
-  const messages=new Map(),nodes=new Map(),outbox=[];
+  const messages=new Map(),nodes=new Map(),outbox=[],listeners=new AbortController(),bound={signal:listeners.signal};
   let cursor=0,otherRead=0,alive=true,closed=false,controller=null,pending=[],queue=Promise.resolve(),wakeLoop=null,lastData=null;
 
   const nearBottom=()=>scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90;
@@ -114,7 +114,7 @@ export function mountConversation(root,options){
     const meta=el('span','chat-meta');meta.append(el('time','',chatTime(message.at)));
     if(message.sender===mine){const tick=el('span','chat-tick');meta.append(tick);}
     box.append(meta);item.append(box);
-    if(local){item.classList.add('local',local.state);if(local.state==='failed'){const retry=el('button','chat-retry','Nicht gesendet · Erneut senden');retry.type='button';retry.dataset.retry=local.clientId;item.append(retry);}}
+    if(local){item.classList.add('local',local.state);if(local.state==='failed'){const actions=el('span','chat-retry-row');const retry=el('button','chat-retry','Nicht gesendet · Erneut senden');retry.type='button';retry.dataset.retry=local.clientId;const discard=el('button','chat-retry discard','Verwerfen');discard.type='button';discard.dataset.discard=local.clientId;actions.append(retry,discard);item.append(actions);}}
     return item;
   }
   function updateTicks(){for(const [id,node] of nodes){const message=messages.get(id);if(message?.sender!==mine)continue;const read=id<=otherRead;node.classList.toggle('read',read);const tick=node.querySelector('.chat-tick');if(tick&&tick.dataset.read!==String(read)){tick.dataset.read=String(read);tick.innerHTML=svg(read?chatIcons.ticks:chatIcons.tick);tick.setAttribute('aria-label',read?'Gelesen':'Gesendet');tick.title=read?'Gelesen':'Gesendet';}}}
@@ -161,8 +161,9 @@ export function mountConversation(root,options){
       if(document.hidden){await new Promise(resolve=>{wakeLoop=resolve;});wakeLoop=null;first=true;if(!alive)break;}
       controller=new AbortController();
       try{
+        const began=Date.now(),waited=!first;
         const data=await request(`${options.base}?after=${cursor}&seen=${otherRead}&wait=${first?0:25}`,{signal:controller.signal});
-        if(!alive)break;first=false;failures=0;root.classList.remove('chat-offline');apply(data);
+        if(!alive)break;const unchanged=!(data.messages??[]).length&&Number(data.read?.[other]??0)===otherRead&&Boolean(data.closed)===closed;if(waited&&unchanged&&Date.now()-began<1000)await sleep(2500);if(!alive)break;first=false;failures=0;root.classList.remove('chat-offline');apply(data);
       }catch(error){
         if(!alive)break;if(error.name==='AbortError'){first=true;continue;}
         failures++;root.classList.add('chat-offline');
@@ -217,23 +218,24 @@ export function mountConversation(root,options){
   textarea.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing&&window.matchMedia?.('(pointer: fine)')?.matches){event.preventDefault();submit();}});
   textarea.addEventListener('paste',event=>{const files=event.clipboardData?.files;if(files?.length){event.preventDefault();addFiles(files);}});
   fileInput.addEventListener('change',()=>{addFiles(fileInput.files);fileInput.value='';});
-  root.addEventListener('dragover',event=>{if(event.dataTransfer?.types?.includes('Files')){event.preventDefault();root.classList.add('chat-drop');}});
-  root.addEventListener('dragleave',event=>{if(event.target===root||!root.contains(/** @type {Node} */(event.relatedTarget)))root.classList.remove('chat-drop');});
-  root.addEventListener('drop',event=>{if(event.dataTransfer?.files?.length){event.preventDefault();root.classList.remove('chat-drop');if(!closed)addFiles(event.dataTransfer.files);}});
+  root.addEventListener('dragover',event=>{if(event.dataTransfer?.types?.includes('Files')){event.preventDefault();root.classList.add('chat-drop');}},bound);
+  root.addEventListener('dragleave',event=>{if(event.target===root||!root.contains(/** @type {Node} */(event.relatedTarget)))root.classList.remove('chat-drop');},bound);
+  root.addEventListener('drop',event=>{if(event.dataTransfer?.files?.length){event.preventDefault();root.classList.remove('chat-drop');if(!closed)addFiles(event.dataTransfer.files);}},bound);
   root.addEventListener('click',event=>{
     const target=/** @type {HTMLElement} */(event.target);
     const remove=target.closest('[data-remove]'),retry=target.closest('[data-retry]'),image=target.closest('[data-full]');
     if(remove){pending.splice(Number(remove.dataset.remove),1);renderPending();return;}
     if(retry){const local=outbox.find(entry=>entry.clientId===retry.dataset.retry);if(local){local.state='sending';showError('');render();enqueue(local);}return;}
+    const discard=target.closest('[data-discard]');if(discard){const index=outbox.findIndex(entry=>entry.clientId===discard.dataset.discard);if(index>=0){outbox.splice(index,1);showError('');render();}return;}
     if(image){const big=lightbox.querySelector('img');big.src=image.dataset.full;big.alt=image.getAttribute('aria-label')??'';lightbox.hidden=false;lightbox.querySelector('button').focus();return;}
     if(target.closest('.chat-lightbox')){lightbox.hidden=true;lightbox.querySelector('img').removeAttribute('src');}
-  });
+  },bound);
   const escape=event=>{if(event.key==='Escape'&&!lightbox.hidden){lightbox.hidden=true;lightbox.querySelector('img').removeAttribute('src');}};
   document.addEventListener('keydown',escape);
 
   loop();
   return {
-    destroy(){alive=false;controller?.abort();wakeLoop?.();document.removeEventListener('visibilitychange',visibility);document.removeEventListener('keydown',escape);},
+    destroy(){alive=false;controller?.abort();listeners.abort();wakeLoop?.();document.removeEventListener('visibilitychange',visibility);document.removeEventListener('keydown',escape);},
     focus(){textarea.focus();},
     get data(){return lastData;}
   };

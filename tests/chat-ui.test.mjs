@@ -34,8 +34,8 @@ async function boot(t,{app,page,script,path,cookie}){
   w.Element.prototype.scrollIntoView=()=>{};w.HTMLDialogElement.prototype.showModal??=function(){this.setAttribute('open','');};w.HTMLDialogElement.prototype.close??=function(){this.removeAttribute('open');};
   let pending=0;const errors=[];
   // Waiting live requests are not counted as "busy"; they return as soon as something changes.
-  const fetchImpl=async(url,options={})=>{const target=new URL(url,origin),live=Number(target.searchParams.get('wait')??0)>0;if(!live)pending++;try{const headers=new Headers(options.headers);headers.set('origin',origin);headers.set('cookie',cookie);if(options.body&&typeof options.body!=='string'&&!headers.has('content-length'))headers.set('content-length',String(options.body.size));return await app.fetch(new Request(target,{...options,headers}));}finally{if(!live)pending--;}};
-  for(const [key,value] of Object.entries({window:w,document:w.document,location:w.location,history:w.history,localStorage:w.localStorage,FormData:w.FormData,HTMLElement:w.HTMLElement,Event:w.Event,fetch:fetchImpl}))Object.defineProperty(globalThis,key,{value,configurable:true,writable:true});
+  const fetchImpl=async(url,options={})=>{const target=new URL(url,origin),live=Number(target.searchParams.get('wait')??0)>0;if(!live)pending++;try{const headers=new Headers(options.headers);headers.set('origin',origin);headers.set('cookie',cookie);if(options.body&&typeof options.body!=='string'&&!headers.has('content-length'))headers.set('content-length',String(options.body.size));const {signal:_signal,...rest}=options;return await app.fetch(new Request(target,{...rest,headers}));}finally{if(!live)pending--;}};
+  for(const [key,value] of Object.entries({window:w,document:w.document,location:w.location,history:w.history,localStorage:w.localStorage,FormData:w.FormData,HTMLElement:w.HTMLElement,Event:w.Event,AbortController:w.AbortController,fetch:fetchImpl}))Object.defineProperty(globalThis,key,{value,configurable:true,writable:true});
   Object.defineProperty(globalThis,'navigator',{value:{},configurable:true,writable:true});
   w.addEventListener('error',e=>errors.push(e.error??e.message));
   const settle=async()=>{for(let i=0;i<500;i++){await new Promise(r=>setTimeout(r,3));if(pending===0){await new Promise(r=>setTimeout(r,15));if(pending===0)return;}}throw Error('UI blieb beschäftigt.');};
@@ -102,5 +102,9 @@ test('panel inbox: unread badge, open the chat from an order and reply',async t=
   await call(f.app,f.customerCookie,'/api/kundenchat/'+token+'/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({files:[uploaded.id]})});
   const backup=await backupData(join(dir,'data'),join(dir,'backups'));
   assert.ok(readdirSync(join(backup.path,'uploads')).includes(uploaded.id),'chat photo is in the backup');
+  const part=await call(f.app,f.customerCookie,'/api/kundenchat/'+token+'/file/'+uploaded.id,{headers:{range:'bytes=1-3'}});
+  assert.equal(part.status,206);assert.deepEqual(Buffer.from(await part.arrayBuffer()),png.subarray(1,4),'byte range streamed from disk');
+  const whole=await call(f.app,f.customerCookie,'/api/kundenchat/'+token+'/file/'+uploaded.id);
+  assert.deepEqual(Buffer.from(await whole.arrayBuffer()),png);assert.equal(whole.headers.get('content-length'),String(png.length));
   assert.deepEqual(ui.errors,[]);
 });

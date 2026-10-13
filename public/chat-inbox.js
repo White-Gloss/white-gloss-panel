@@ -106,7 +106,7 @@ function openThread(root,id,{toast}){
       if(kind==='copy'){try{await navigator.clipboard.writeText(meta.link.url);toast?.('Kundenlink kopiert.');}catch{window.prompt('Kundenlink',meta.link.url);}}
       if(kind==='create'||kind==='renew'){if(kind==='renew'&&!window.confirm('Der bisherige Kundenlink wird damit ungültig. Fortfahren?'))return;const r=await api('chats/t/'+id+'/link',{action:kind});describe({link:r.link});toast?.(kind==='renew'?'Neuer Kundenlink erstellt. Der alte Link gilt nicht mehr.':'Kundenlink erstellt.');}
       if(kind==='revoke'){if(!window.confirm('Kundenlink sperren? Der Kunde kann den Chat dann nicht mehr öffnen.'))return;const r=await api('chats/t/'+id+'/link',{action:'revoke'});describe({link:r.link});toast?.('Kundenlink gesperrt.');}
-      if(kind==='invite'){const r=await api('chats/t/'+id+'/invite',{});toast?.(r.message);const fresh=await api('chats/t/'+id+'?after=999999999');describe(fresh);}
+      if(kind==='invite'){const r=await api('chats/t/'+id+'/invite',{});toast?.(r.message);if(r.link)describe({link:r.link});}
       if(kind==='close'||kind==='reopen'){const r=await api('chats/t/'+id+'/close',{closed:kind==='close'});describe({closed:r.closed});toast?.(r.closed?'Chat beendet.':'Chat wieder geöffnet.');}
     }catch(error){toast?.(error.message);}
     finally{action.removeAttribute('disabled');}

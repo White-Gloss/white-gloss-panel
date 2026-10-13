@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {randomBytes,randomUUID,createHash} from 'node:crypto';
 import {PanelDatabase} from '../server/storage.mjs';
 import {createApplication,maintenance} from '../server/application.mjs';
+import {chatNotificationsSettled,pruneUnsentUploads} from '../server/chat.mjs';
 import {digest} from '../server/auth.mjs';
 import {protect,setting} from '../src/worker.mjs';
 import {COMPANY} from '../src/company.mjs';
@@ -162,19 +163,52 @@ test('invitation and notifications: link with PIN, owner alert, pause and presen
   assert.match(invitation.text,/\/auth\/verify\?token=[a-f0-9]{64}&pin=required/);assert.match(invitation.text,/PIN: \d{6}/);assert.ok(invitation.text.includes(chat.link.url));
   const login=await f.env.DB.prepare('SELECT return_to FROM auth_tokens ORDER BY rowid DESC LIMIT 1').first();assert.equal(login.return_to,'/chat/'+chat.token);
   // Customer writes: the owner gets one email, a second message inside the pause gets none.
-  await post(f.app,'/api/kundenchat/'+chat.token+'/message',f.customer,{text:'Kratzer an der Tür, Foto folgt.'});
+  await post(f.app,'/api/kundenchat/'+chat.token+'/message',f.customer,{text:'Kratzer an der Tür, Foto folgt.'});await chatNotificationsSettled();
   const alert=mails.at(-1);assert.deepEqual(alert.to,[COMPANY.email]);assert.match(alert.subject,/Neue Kundennachricht/);assert.match(alert.text,/Kratzer an der Tür/);assert.ok(alert.text.includes('/#chat='+chat.id));
-  const count=mails.length;await post(f.app,'/api/kundenchat/'+chat.token+'/message',f.customer,{text:'Noch eine Frage'});assert.equal(mails.length,count,'pause between owner alerts');
+  const count=mails.length;await post(f.app,'/api/kundenchat/'+chat.token+'/message',f.customer,{text:'Noch eine Frage'});await chatNotificationsSettled();assert.equal(mails.length,count,'pause between owner alerts');
   // Owner answers while the customer is away: one email with fresh link and PIN.
   await f.env.DB.prepare('UPDATE chat_threads SET customer_seen_at=0 WHERE id=?').bind(chat.id).run();
-  await post(f.app,'/api/chats/t/'+chat.id+'/message',f.owner,{text:'Danke, sehen wir uns morgen an.'});
+  await post(f.app,'/api/chats/t/'+chat.id+'/message',f.owner,{text:'Danke, sehen wir uns morgen an.'});await chatNotificationsSettled();
   const note=mails.at(-1);assert.deepEqual(note.to,[customer]);assert.match(note.text,/Danke, sehen wir uns morgen an/);assert.match(note.text,/PIN: \d{6}/);
-  const after=mails.length;await post(f.app,'/api/chats/t/'+chat.id+'/message',f.owner,{text:'Und bitte Schlüssel mitbringen.'});assert.equal(mails.length,after,'pause between customer emails');
+  const after=mails.length;await post(f.app,'/api/chats/t/'+chat.id+'/message',f.owner,{text:'Und bitte Schlüssel mitbringen.'});await chatNotificationsSettled();assert.equal(mails.length,after,'pause between customer emails');
   // A customer who is in the chat right now gets no email.
   await f.env.DB.prepare('UPDATE chat_threads SET customer_notified_at=0,customer_seen_at=? WHERE id=?').bind(Date.now(),chat.id).run();
-  await post(f.app,'/api/chats/t/'+chat.id+'/message',f.owner,{text:'Bis gleich'});assert.equal(mails.length,after,'present customer');
+  await post(f.app,'/api/chats/t/'+chat.id+'/message',f.owner,{text:'Bis gleich'});await chatNotificationsSettled();assert.equal(mails.length,after,'present customer');
   // The background run catches it once the customer has left.
   await f.env.DB.prepare('UPDATE chat_threads SET customer_seen_at=0 WHERE id=?').bind(chat.id).run();
   const result=await maintenance(f.env);assert.equal(result.deliveryError,null);assert.equal(mails.length,after+1);assert.match(mails.at(-1).text,/Bis gleich/);
   await maintenance(f.env);assert.equal(mails.length,after+1,'no repeat for the same messages');
+});
+
+test('a failed email gives its slot back; the background run delivers it later',async t=>{
+  const f=await fixture(t,COMPANY.email),o=await order(f.env),chat=await openChat(f,o),mails=[];let fail=true;
+  t.mock.method(globalThis,'fetch',async(url,options)=>{if(fail)return new Response(JSON.stringify({message:'synthetic outage'}),{status:500});mails.push(JSON.parse(options.body));return new Response(JSON.stringify({id:'ok-'+mails.length}));});
+  await configureMail(f.env);
+  const started=Date.now();await post(f.app,'/api/kundenchat/'+chat.token+'/message',f.customer,{text:'Hallo?'});assert.ok(Date.now()-started<2000,'sender does not wait for the mail provider');
+  await chatNotificationsSettled();assert.equal(mails.length,0);
+  assert.equal((await f.env.DB.prepare('SELECT owner_notified_id FROM chat_threads WHERE id=?').bind(chat.id).first()).owner_notified_id,0,'slot released');
+  fail=false;await f.env.DB.prepare('UPDATE chat_threads SET owner_seen_at=0 WHERE id=?').bind(chat.id).run();
+  await maintenance(f.env);assert.equal(mails.length,1);assert.match(mails[0].text,/Hallo\?/);
+});
+
+test('unsent uploads expire after a day and no longer block new attachments',async t=>{
+  const f=await fixture(t),o=await order(f.env),chat=await openChat(f,o),page='/api/kundenchat/'+chat.token;
+  const ids=[];for(let i=0;i<20;i++)ids.push((await body(await upload(f.app,page,f.customer,image,'image/png'))).id);
+  assert.equal((await upload(f.app,page,f.customer,image,'image/png')).status,409);
+  const kept=await body(await upload(f.app,'/api/chats/t/'+chat.id,f.owner,image,'image/png'));await post(f.app,'/api/chats/t/'+chat.id+'/message',f.owner,{files:[kept.id]});
+  await f.env.DB.prepare("UPDATE chat_attachments SET created_at='2020-01-01T00:00:00.000Z'").run();
+  assert.equal(await pruneUnsentUploads(f.env),20);
+  assert.equal(f.env.BUCKET.files.has(ids[0]),false);assert.equal(f.env.BUCKET.files.has(kept.id),true,'sent files stay');
+  assert.equal((await f.env.DB.prepare("SELECT COUNT(*) n FROM assets WHERE kind='chat'").first()).n,1);
+  assert.equal((await upload(f.app,page,f.customer,image,'image/png')).status,200);
+});
+
+test('chat files keep their sandbox policy and PDFs download instead of opening inline',async t=>{
+  const f=await fixture(t),o=await order(f.env),chat=await openChat(f,o),page='/api/kundenchat/'+chat.token;
+  const pdf=Buffer.concat([Buffer.from('%PDF-1.7\n'),Buffer.alloc(200,32)]);
+  const file=await body(await upload(f.app,page,f.customer,pdf,'application/pdf','Fahrzeugschein.pdf'));
+  await post(f.app,page+'/message',f.customer,{files:[file.id]});
+  const response=await get(f.app,page+'/file/'+file.id,f.customer);
+  assert.match(response.headers.get('content-security-policy'),/^sandbox;/);assert.match(response.headers.get('content-disposition'),/^attachment; filename\*=UTF-8''Fahrzeugschein\.pdf$/);
+  assert.equal(response.headers.get('x-frame-options'),'DENY');
 });

@@ -1,5 +1,7 @@
 import {DatabaseSync} from 'node:sqlite';
-import {mkdir,readFile,writeFile,rename,unlink,realpath,link} from 'node:fs/promises';
+import {mkdir,readFile,writeFile,rename,unlink,realpath,link,stat} from 'node:fs/promises';
+import {createReadStream} from 'node:fs';
+import {Readable} from 'node:stream';
 import {resolve,dirname,extname,sep} from 'node:path';
 import {randomUUID} from 'node:crypto';
 
@@ -14,6 +16,8 @@ export class PrivateBucket {
   path(key){if(!/^[a-f0-9-]{36}$/.test(key))throw Error('Ungültige Datei-ID.');return resolve(this.directory,key);}
   async put(key,value,options={}){const path=this.path(key),temporary=path+'.'+randomUUID()+'.tmp';let created=false;await mkdir(this.directory,{recursive:true,mode:0o700});try{await writeFile(temporary,new Uint8Array(value),{mode:0o600,flag:'wx'});await link(temporary,path);created=true;await writeFile(path+'.json',JSON.stringify({httpMetadata:options.httpMetadata??{}}),{mode:0o600,flag:'wx'});}catch(error){if(created)await unlink(path).catch(()=>{});throw error;}finally{await unlink(temporary).catch(()=>{});}}
   async get(key){const path=this.path(key);try{const [body,metadata]=await Promise.all([readFile(path),readFile(path+'.json','utf8')]);return {body:new Uint8Array(body),httpMetadata:JSON.parse(metadata).httpMetadata};}catch(error){if(error.code==='ENOENT')return null;throw error;}}
+  // Streams a byte range of a stored file as a web stream (no full copy in memory); null if missing.
+  async stream(key,start,end){const path=this.path(key);try{await stat(path);}catch(error){if(error.code==='ENOENT')return null;throw error;}return Readable.toWeb(createReadStream(path,{start,end}));}
   async delete(key){const path=this.path(key);await unlink(path).catch(error=>{if(error.code!=='ENOENT')throw error;});await unlink(path+'.json').catch(error=>{if(error.code!=='ENOENT')throw error;});}
 }
 export class StaticAssets {

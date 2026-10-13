@@ -54,7 +54,7 @@ export async function createApplication(env){
       return worker.fetch(trusted,env);
     }catch(error){return errorResponse(error instanceof AppError?error.message:'Verbindung oder Speicherung fehlgeschlagen. Kein Erfolg wurde bestätigt.',error instanceof AppError?error.status:500);}
   };
-  return {env,async fetch(request){const result=await handle(request);const secured=new Response(result.body,{status:result.status,headers:result.headers});for(const [key,value] of Object.entries(lockedHeaders))secured.headers.set(key,value);return secured;}};
+  return {env,async fetch(request){const result=await handle(request);const secured=new Response(result.body,{status:result.status,headers:result.headers});const sandboxed=result.headers.get('content-security-policy')?.startsWith('sandbox;');for(const [key,value] of Object.entries(lockedHeaders))if(!(sandboxed&&key==='Content-Security-Policy'))secured.headers.set(key,value);return secured;}};
 }
 export async function configureFromEnvironment(env){await init(env);const old=await settings(env);const secrets={HUB_SYNC_TOKEN:'hubKey',RESEND_API_KEY:'resendKey'};for(const [key,settingKey] of Object.entries(secrets))if(env[key]&&!old[settingKey])await setting(env,settingKey,await protect(env,env[key]));for(const [key,settingKey] of Object.entries({EMAIL_SENDER:'sender',CALENDAR_ID:'calendarId',REVIEW_URL:'reviewUrl'}))if(env[key]&&old[settingKey]===undefined)await setting(env,settingKey,env[key]);await setting(env,'standaloneAuth',true);}
 /** @returns {Promise<any>} */

@@ -39,6 +39,8 @@
 .chat-msg.local.sending .chat-bubble{opacity:.72}
 .chat-msg.local.sending .chat-meta time::after{content:' · wird gesendet …'}
 .chat-msg.local.failed .chat-bubble{outline:2px solid #e7b2ae}
+.chat-retry-row{display:flex;gap:10px}
+.chat-retry.discard{color:var(--muted)}
 .chat-retry{margin-top:4px;border:0;background:transparent;color:var(--red);font-size:12px;font-weight:600;padding:4px 2px}
 
 .chat-media{display:grid;gap:4px;margin:-3px -6px 5px;border-radius:12px;overflow:hidden}
