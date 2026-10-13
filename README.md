@@ -1,7 +1,7 @@
 # White Gloss Mein Panel
 
 Privates Betriebspanel für Anfragen, manuelle Aufträge, Preisprüfung, Angebote,
-Termine, Fahrzeugprotokolle und Kundenbetreuung.
+Termine, Fahrzeugprotokolle, Kundenbetreuung und direkten Kundenchat.
 
 Das eigene Panel läuft auf IONOS unter panel.white-gloss.de. Dieses Repository enthält
 die eigenständige Laufzeit mit Anmeldung, SQLite, privatem Fotospeicher,
@@ -14,6 +14,7 @@ Jede Änderung benötigt einen eigenen geprüften IONOS-Release und einen Live-N
 - [Passwort, Kunden-PIN und Protokoll-PDF](docs/Passwort-PIN-und-Protokoll-PDF.md)
 - [Qonto: Rechnungen, Quittungen und Mahnwesen](docs/Qonto-Rechnungen-und-Mahnwesen.md)
 - [Vor-Ort-App, Kundenstamm und Bearbeitung](docs/Vor-Ort-App-und-Bearbeitung.md)
+- [Kundenchat mit Fotos, Videos und PDFs](docs/Kundenchat.md)
 
 ## Aufbau
 
