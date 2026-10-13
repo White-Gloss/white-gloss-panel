@@ -212,3 +212,24 @@ test('chat files keep their sandbox policy and PDFs download instead of opening 
   assert.match(response.headers.get('content-security-policy'),/^sandbox;/);assert.match(response.headers.get('content-disposition'),/^attachment; filename\*=UTF-8''Fahrzeugschein\.pdf$/);
   assert.equal(response.headers.get('x-frame-options'),'DENY');
 });
+
+test('two parallel sends of the same photo: exactly one message gets it, none loses it silently',async t=>{
+  const f=await fixture(t),o=await order(f.env),chat=await openChat(f,o),page='/api/kundenchat/'+chat.token;
+  const photo=await body(await upload(f.app,page,f.customer,image,'image/png'));
+  const results=await Promise.all(['send-aaaa-1','send-bbbb-2'].map(clientId=>post(f.app,page+'/message',f.customer,{text:'Foto',files:[photo.id],clientId})));
+  assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
+  const rows=(await f.env.DB.prepare('SELECT m.id,(SELECT COUNT(*) FROM chat_attachments c WHERE c.message_id=m.id) AS files FROM chat_messages m').all()).results;
+  assert.deepEqual(rows.map(r=>r.files),[1],'one message, with the photo');
+});
+
+test('a failed file deletion is retried in the next cleanup run',async t=>{
+  const f=await fixture(t),o=await order(f.env),chat=await openChat(f,o),page='/api/kundenchat/'+chat.token;
+  const photo=await body(await upload(f.app,page,f.customer,image,'image/png'));
+  await f.env.DB.prepare("UPDATE chat_attachments SET created_at='2020-01-01T00:00:00.000Z'").run();
+  const remove=f.env.BUCKET.delete;f.env.BUCKET.delete=async()=>{throw Error('synthetic disk error');};
+  await assert.rejects(pruneUnsentUploads(f.env),/synthetic disk error/);
+  assert.equal((await post(f.app,page+'/message',f.customer,{files:[photo.id]})).status,409,'a file being removed cannot be sent');
+  assert.equal((await get(f.app,page+'/file/'+photo.id,f.customer)).status,404);
+  f.env.BUCKET.delete=remove;assert.equal(await pruneUnsentUploads(f.env),1);
+  assert.equal(f.env.BUCKET.files.has(photo.id),false);assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM chat_attachments').first()).n,0);
+});

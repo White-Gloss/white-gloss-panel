@@ -32,7 +32,7 @@ export async function chatSchema(env){
     'CREATE INDEX IF NOT EXISTS chat_attachments_message ON chat_attachments(thread_id,message_id)',
     "CREATE TRIGGER IF NOT EXISTS no_chat_message_delete BEFORE DELETE ON chat_messages BEGIN SELECT RAISE(ABORT,'Chatnachrichten werden nicht gelöscht'); END",
     "CREATE TRIGGER IF NOT EXISTS no_chat_message_update BEFORE UPDATE ON chat_messages BEGIN SELECT RAISE(ABORT,'Chatnachrichten werden nicht verändert'); END",
-    "CREATE TRIGGER IF NOT EXISTS no_chat_attachment_delete BEFORE DELETE ON chat_attachments WHEN OLD.message_id IS NOT NULL BEGIN SELECT RAISE(ABORT,'Gesendete Chatdateien werden nicht gelöscht'); END"
+    "CREATE TRIGGER IF NOT EXISTS no_chat_attachment_delete BEFORE DELETE ON chat_attachments WHEN OLD.message_id>0 BEGIN SELECT RAISE(ABORT,'Gesendete Chatdateien werden nicht gelöscht'); END"
   ].map(query=>env.DB.prepare(query)));
 }
 
@@ -174,15 +174,24 @@ async function postMessage(env,thread,sender,request,now,fileUrl,notify=true){
   }
   const at=iso(now),column=sender==='owner'?'owner':'customer';
   const created='(SELECT id FROM chat_messages WHERE thread_id=? AND client_id=?)';
+  // The message is written only if every file is still unsent at that moment, inside the same
+  // transaction, so two parallel sends can never both claim (or silently lose) the same file.
+  const list=files.map(()=>'?').join(','),unsent=`(SELECT COUNT(*) FROM chat_attachments WHERE thread_id=? AND sender=? AND message_id IS NULL AND asset_id IN (${list||"''"}))`;
+  let inserted;
   try{
-    await env.DB.batch([
-      env.DB.prepare('INSERT INTO chat_messages(thread_id,sender,body,client_id,created_at) VALUES(?,?,?,?,?)').bind(thread.id,sender,text,clientId,at),
-      ...(files.length?[env.DB.prepare(`UPDATE chat_attachments SET message_id=${created} WHERE thread_id=? AND sender=? AND message_id IS NULL AND asset_id IN (${files.map(()=>'?').join(',')})`).bind(thread.id,clientId,thread.id,sender,...files)]:[]),
-      env.DB.prepare(`UPDATE chat_threads SET last_at=?,${column}_read_id=${created},${column}_seen_at=? WHERE id=?`).bind(at,thread.id,clientId,now,thread.id)
+    [inserted]=await env.DB.batch([
+      env.DB.prepare(`INSERT INTO chat_messages(thread_id,sender,body,client_id,created_at) SELECT ?,?,?,?,? WHERE ${unsent}=?`).bind(thread.id,sender,text,clientId,at,thread.id,sender,...files,files.length),
+      ...(files.length?[env.DB.prepare(`UPDATE chat_attachments SET message_id=${created} WHERE thread_id=? AND sender=? AND message_id IS NULL AND asset_id IN (${list}) AND EXISTS${created}`).bind(thread.id,clientId,thread.id,sender,...files,thread.id,clientId)]:[]),
+      env.DB.prepare(`UPDATE chat_threads SET last_at=?,${column}_read_id=${created},${column}_seen_at=? WHERE id=? AND EXISTS${created}`).bind(at,thread.id,clientId,now,thread.id,thread.id,clientId)
     ]);
   }catch(error){
     const again=await env.DB.prepare('SELECT id FROM chat_messages WHERE thread_id=? AND client_id=?').bind(thread.id,clientId).first();
     if(!again)throw error;
+    inserted={meta:{changes:1}};
+  }
+  if(!inserted.meta.changes){
+    const again=await env.DB.prepare('SELECT id FROM chat_messages WHERE thread_id=? AND client_id=?').bind(thread.id,clientId).first();
+    need(again,'Eine Datei gehört nicht zu diesem Chat oder wurde bereits gesendet.',409);
   }
   const row=await env.DB.prepare('SELECT id FROM chat_messages WHERE thread_id=? AND client_id=?').bind(thread.id,clientId).first();
   wake(thread.id);
@@ -196,7 +205,7 @@ async function postMessage(env,thread,sender,request,now,fileUrl,notify=true){
 async function serveFile(env,thread,assetId,request,customer){
   need(UUID.test(assetId??''),'Datei nicht gefunden.',404);
   const row=await env.DB.prepare('SELECT c.sender,c.name,c.message_id,a.mime,a.size FROM chat_attachments c JOIN assets a ON a.id=c.asset_id WHERE c.asset_id=? AND c.thread_id=?').bind(assetId,thread.id).first();
-  need(row&&(!customer||row.message_id!==null||row.sender==='customer'),'Datei nicht gefunden.',404);
+  need(row&&Number(row.message_id??0)>=0&&(!customer||Number(row.message_id)>0||row.sender==='customer'),'Datei nicht gefunden.',404);
   const size=Number(row.size);
   const base={...headers,'Content-Type':row.mime,'Accept-Ranges':'bytes','Content-Disposition':(row.mime==='application/pdf'?'attachment':'inline')+"; filename*=UTF-8''"+encodeURIComponent(row.name),'Content-Security-Policy':"sandbox; default-src 'none'; img-src 'self'; media-src 'self'"};
   const range=/^bytes=(\d*)-(\d*)$/.exec(request.headers.get('range')??'');
@@ -285,11 +294,14 @@ export async function notifyThread(env,threadId,now=Date.now()){
 
 // Background run: catches messages that stayed unread after the other side left the chat.
 // Uploads that were never sent (closed tab, discarded message) are removed after 24 hours.
+// First they are marked (message_id=-1) so no send can claim them any more; the records stay until
+// the file itself is gone, so a failed deletion is retried in the next run.
 export async function pruneUnsentUploads(env,now=Date.now()){
-  const rows=(await env.DB.prepare('SELECT asset_id FROM chat_attachments WHERE message_id IS NULL AND created_at<? LIMIT 200').bind(iso(now-UNSENT_HOURS*3600000)).all()).results;
+  await env.DB.prepare('UPDATE chat_attachments SET message_id=-1 WHERE message_id IS NULL AND created_at<?').bind(iso(now-UNSENT_HOURS*3600000)).run();
+  const rows=(await env.DB.prepare('SELECT asset_id FROM chat_attachments WHERE message_id=-1 LIMIT 200').all()).results;
   for(const row of rows){
-    await env.DB.batch([env.DB.prepare('DELETE FROM chat_attachments WHERE asset_id=? AND message_id IS NULL').bind(row.asset_id),env.DB.prepare("DELETE FROM assets WHERE id=? AND kind='chat' AND NOT EXISTS(SELECT 1 FROM chat_attachments WHERE asset_id=?)").bind(row.asset_id,row.asset_id)]);
-    if(!await env.DB.prepare('SELECT 1 FROM assets WHERE id=?').bind(row.asset_id).first())await env.BUCKET?.delete(row.asset_id);
+    await env.BUCKET?.delete(row.asset_id);
+    await env.DB.batch([env.DB.prepare("DELETE FROM assets WHERE id=? AND kind='chat'").bind(row.asset_id),env.DB.prepare('DELETE FROM chat_attachments WHERE asset_id=? AND message_id=-1').bind(row.asset_id)]);
   }
   return rows.length;
 }
@@ -297,7 +309,10 @@ export async function pruneUnsentUploads(env,now=Date.now()){
 export async function chatBackground(env,now=Date.now()){
   await chatSchema(env);const errors=[];
   try{await pruneUnsentUploads(env,now);}catch(error){errors.push('Kundenchat-Aufräumen: '+(error?.message??'fehlgeschlagen'));}
-  const rows=(await env.DB.prepare('SELECT id FROM chat_threads WHERE last_at>? ORDER BY last_at DESC LIMIT 50').bind(iso(now-14*86400000)).all()).results;
+  const rows=(await env.DB.prepare(`SELECT t.id FROM chat_threads t WHERE t.last_at>? AND (
+      (SELECT COALESCE(MAX(id),0) FROM chat_messages m WHERE m.thread_id=t.id AND m.sender='customer')>MAX(t.owner_read_id,t.owner_notified_id)
+      OR (SELECT COALESCE(MAX(id),0) FROM chat_messages m WHERE m.thread_id=t.id AND m.sender='owner')>MAX(t.customer_read_id,t.customer_notified_id))
+    ORDER BY t.last_at ASC LIMIT 100`).bind(iso(now-14*86400000)).all()).results;
   for(const row of rows){try{await notifyThread(env,row.id,now);}catch(error){errors.push('Kundenchat: '+(error?.message??'Benachrichtigung fehlgeschlagen.'));}}
   return errors.length?[errors[0]+(errors.length>1?' (+'+(errors.length-1)+' weitere)':'')]:[];
 }

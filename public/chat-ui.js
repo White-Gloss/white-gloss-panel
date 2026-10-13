@@ -40,22 +40,29 @@ function richText(text){
 }
 
 // Images are scaled to at most 2048 px and re-encoded as JPEG: faster upload, no location metadata.
+async function decodeImage(file){
+  try{return await createImageBitmap(file);}catch{/* zweiter Weg über ein Bild-Element */}
+  const dataURL=await new Promise((resolve,reject)=>{const reader=new window.FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(reader.error);reader.readAsDataURL(file);});
+  const image=document.createElement('img');image.src=String(dataURL);await image.decode();
+  return {width:image.naturalWidth,height:image.naturalHeight,source:image};
+}
 async function prepareFile(file){
   const type=(file.type||'').toLowerCase();
   if(type.startsWith('image/')){
     try{
-      const bitmap=await createImageBitmap(file);
+      const bitmap=await decodeImage(file),source=bitmap.source??bitmap;
+      if(!bitmap.width||!bitmap.height)throw Error('leer');
       const scale=Math.min(1,MAX_EDGE/Math.max(bitmap.width,bitmap.height));
       const width=Math.max(1,Math.round(bitmap.width*scale)),height=Math.max(1,Math.round(bitmap.height*scale));
       const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
-      const context=canvas.getContext('2d');context.fillStyle='#ffffff';context.fillRect(0,0,width,height);context.drawImage(bitmap,0,0,width,height);
-      const blob=await new Promise((resolve,reject)=>canvas.toBlob(result=>result?resolve(result):reject(Error('Bild konnte nicht vorbereitet werden.')),'image/jpeg',0.85));
+      const context=canvas.getContext('2d');context.fillStyle='#ffffff';context.fillRect(0,0,width,height);context.drawImage(source,0,0,width,height);
+      const blob=await new Promise((resolve,reject)=>canvas.toBlob(result=>result?resolve(result):reject(Error('leer')),'image/jpeg',0.85));
       const thumbScale=Math.min(1,220/Math.max(width,height)),thumb=document.createElement('canvas');thumb.width=Math.max(1,Math.round(width*thumbScale));thumb.height=Math.max(1,Math.round(height*thumbScale));
       thumb.getContext('2d').drawImage(canvas,0,0,thumb.width,thumb.height);bitmap.close?.();
       return {blob,type:'image/jpeg',name:(file.name||'Foto').replace(/\.[a-z0-9]{2,5}$/i,'')+'.jpg',thumb:thumb.toDataURL('image/jpeg',0.7)};
     }catch{
-      if(['image/jpeg','image/png','image/webp'].includes(type))return {blob:file,type,name:file.name||'Foto',thumb:null};
-      throw Error('Dieses Bildformat wird nicht unterstützt. Bitte als JPEG oder PNG senden.');
+      // Never send the original: it could carry location data. The customer can take a screenshot instead.
+      throw Error('„'+(file.name||'Foto')+'“ konnte nicht verarbeitet werden. Bitte als JPEG oder PNG senden oder einen Screenshot schicken.');
     }
   }
   if(ALLOWED.includes(type))return {blob:file,type,name:file.name||'Datei',thumb:null};
@@ -81,14 +88,14 @@ export function mountConversation(root,options){
         <button type="submit" class="chat-send" aria-label="Senden">${svg(chatIcons.send)}</button>
       </div>
     </form>
-    <div class="chat-lightbox" hidden><button type="button" class="chat-lightbox-close" aria-label="Schließen">${svg(chatIcons.close)}</button><img alt=""></div>
+    <div class="chat-lightbox" role="dialog" aria-modal="true" aria-label="Bildansicht" hidden><button type="button" class="chat-lightbox-close" aria-label="Bildansicht schließen">${svg(chatIcons.close)}</button><img alt=""></div>
   </div>`;
   const $=selector=>root.querySelector(selector);
   const scroll=$('.chat-scroll'),list=$('.chat-list'),emptyState=$('.chat-empty'),form=$('.chat-composer'),textarea=$('textarea'),fileInput=$('input[type=file]'),pendingBox=$('.chat-pending'),errorBox=$('.chat-error'),banner=$('.chat-banner'),lightbox=$('.chat-lightbox');
   if(options.header)$('.chat-head-slot').replaceWith(options.header);else $('.chat-head-slot').remove();
   emptyState.textContent=options.emptyText;
   const messages=new Map(),nodes=new Map(),outbox=[],listeners=new AbortController(),bound={signal:listeners.signal};
-  let cursor=0,otherRead=0,alive=true,closed=false,controller=null,pending=[],queue=Promise.resolve(),wakeLoop=null,lastData=null;
+  let opener=null,cursor=0,otherRead=0,alive=true,closed=false,controller=null,pending=[],queue=Promise.resolve(),wakeLoop=null,lastData=null;
 
   const nearBottom=()=>scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90;
   const toBottom=()=>{scroll.scrollTop=scroll.scrollHeight;};
@@ -227,10 +234,12 @@ export function mountConversation(root,options){
     if(remove){pending.splice(Number(remove.dataset.remove),1);renderPending();return;}
     if(retry){const local=outbox.find(entry=>entry.clientId===retry.dataset.retry);if(local){local.state='sending';showError('');render();enqueue(local);}return;}
     const discard=target.closest('[data-discard]');if(discard){const index=outbox.findIndex(entry=>entry.clientId===discard.dataset.discard);if(index>=0){outbox.splice(index,1);showError('');render();}return;}
-    if(image){const big=lightbox.querySelector('img');big.src=image.dataset.full;big.alt=image.getAttribute('aria-label')??'';lightbox.hidden=false;lightbox.querySelector('button').focus();return;}
-    if(target.closest('.chat-lightbox')){lightbox.hidden=true;lightbox.querySelector('img').removeAttribute('src');}
+    if(image){opener=image;const big=lightbox.querySelector('img');big.src=image.dataset.full;big.alt=image.getAttribute('aria-label')??'';lightbox.hidden=false;lightbox.querySelector('button').focus();return;}
+    if(target.closest('.chat-lightbox'))closeLightbox();
   },bound);
-  const escape=event=>{if(event.key==='Escape'&&!lightbox.hidden){lightbox.hidden=true;lightbox.querySelector('img').removeAttribute('src');}};
+  function closeLightbox(){lightbox.hidden=true;lightbox.querySelector('img').removeAttribute('src');opener?.focus?.();opener=null;}
+  // While the image is open, focus stays on its close button (the only control of the dialog).
+  const escape=event=>{if(lightbox.hidden)return;if(event.key==='Escape')closeLightbox();if(event.key==='Tab'){event.preventDefault();lightbox.querySelector('button').focus();}};
   document.addEventListener('keydown',escape);
 
   loop();

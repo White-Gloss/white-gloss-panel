@@ -15,6 +15,7 @@ import {digest} from '../server/auth.mjs';
 const origin='https://panel.example.invalid',owner='owner@example.invalid',customer='kunde@example.invalid';
 const png=Buffer.concat([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ypcAAAAASUVORK5CYII=','base64'),Buffer.alloc(200)]);
 let loads=0;
+const jpeg=Buffer.concat([Buffer.from([0xff,0xd8,0xff,0xe0]),Buffer.alloc(200,1)]);
 
 function memoryBucket(){const files=new Map();return {async put(id,bytes,o){files.set(id,{body:new Uint8Array(bytes),httpMetadata:o?.httpMetadata??{}});},async get(id){return files.get(id)??null;},async delete(id){files.delete(id);}};}
 async function setup(t,storage=null){
@@ -31,7 +32,11 @@ async function call(app,cookie,path,init={}){const headers=new Headers(init.head
 async function boot(t,{app,page,script,path,cookie}){
   const html=readFileSync(new URL('../dist/client/'+page,import.meta.url),'utf8').replace(/<script[^>]*><\/script>/g,'');
   const dom=new JSDOM(html,{url:origin+path,pretendToBeVisual:true});const w=dom.window;
-  w.Element.prototype.scrollIntoView=()=>{};w.HTMLDialogElement.prototype.showModal??=function(){this.setAttribute('open','');};w.HTMLDialogElement.prototype.close??=function(){this.removeAttribute('open');};
+  w.Element.prototype.scrollIntoView=()=>{};
+  // jsdom cannot decode images: a stand-in canvas returns a small JPEG, like the browser re-encoding would.
+  const ctx=new Proxy({},{get:(_target,key)=>key==='canvas'?null:()=>{},set:()=>true});
+  w.HTMLCanvasElement.prototype.getContext=()=>ctx;w.HTMLCanvasElement.prototype.toDataURL=()=>'data:image/jpeg;base64,/9j/';w.HTMLCanvasElement.prototype.toBlob=callback=>callback(new Blob([jpeg],{type:'image/jpeg'}));
+  globalThis.createImageBitmap=async()=>({width:3000,height:2000,close(){}});w.HTMLDialogElement.prototype.showModal??=function(){this.setAttribute('open','');};w.HTMLDialogElement.prototype.close??=function(){this.removeAttribute('open');};
   let pending=0;const errors=[];
   // Waiting live requests are not counted as "busy"; they return as soon as something changes.
   const fetchImpl=async(url,options={})=>{const target=new URL(url,origin),live=Number(target.searchParams.get('wait')??0)>0;if(!live)pending++;try{const headers=new Headers(options.headers);headers.set('origin',origin);headers.set('cookie',cookie);if(options.body&&typeof options.body!=='string'&&!headers.has('content-length'))headers.set('content-length',String(options.body.size));const {signal:_signal,...rest}=options;return await app.fetch(new Request(target,{...rest,headers}));}finally{if(!live)pending--;}};
@@ -60,10 +65,15 @@ test('customer page: sees the order, writes, attaches a photo and gets read rece
   await ui.send('<b>Hallo</b> – geht auch Samstag?');
   const mine=ui.$('.chat-msg.mine .chat-text');assert.equal(mine.textContent,'<b>Hallo</b> – geht auch Samstag?','text stays text, no HTML injection');assert.equal(ui.$('.chat-msg.mine b'),null);
   const input=ui.$('.chat input[type=file]');Object.defineProperty(input,'files',{value:[new File([png],'tuer.png',{type:'image/png'})],configurable:true});input.dispatchEvent(new ui.w.Event('change'));await ui.settle();
-  assert.match(ui.$('.chat-pending').textContent,/tuer\.png/);
+  assert.match(ui.$('.chat-pending').textContent,/tuer\.jpg/,'photos are re-encoded as JPEG before upload');
   await ui.send('Foto von der Tür');
   const last=[...ui.w.document.querySelectorAll('.chat-msg.mine')].at(-1);
   assert.ok(last.querySelector('.chat-image img').getAttribute('src').startsWith('/api/kundenchat/'+token+'/file/'));assert.equal(ui.$('.chat-pending').hidden,true);
+  assert.equal((await f.env.DB.prepare("SELECT mime FROM assets WHERE kind='chat'").first()).mime,'image/jpeg');
+  // An image the browser cannot decode is refused instead of sending the original with its metadata.
+  globalThis.createImageBitmap=async()=>{throw Error('nicht lesbar');};
+  Object.defineProperty(input,'files',{value:[new File([png],'kaputt.heic',{type:'image/heic'})],configurable:true});input.dispatchEvent(new ui.w.Event('change'));await ui.settle();
+  assert.match(ui.$('.chat-error').textContent,/konnte nicht verarbeitet werden/);assert.equal(ui.$('.chat-pending').hidden,true);
   const rows=(await f.env.DB.prepare("SELECT sender,body FROM chat_messages ORDER BY id").all()).results;
   assert.deepEqual(rows.map(r=>[r.sender,r.body]),[['owner','Guten Tag! Schicken Sie uns gern Fotos: https://white-gloss.de'],['customer','<b>Hallo</b> – geht auch Samstag?'],['customer','Foto von der Tür']]);
   assert.equal(last.classList.contains('read'),false);

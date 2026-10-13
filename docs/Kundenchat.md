@@ -67,7 +67,8 @@ keinen E-Mail-Versand; der Kundenlink dient nur der Betreibervorschau.
   mit genau der E-Mail-Adresse des Auftrags. Der Link wird nur als Hash und verschlüsselt gespeichert.
 - Erlaubt sind JPEG, PNG, WebP, MP4, MOV und PDF bis 15 MB, höchstens 10 Dateien je Nachricht. Der
   Server prüft den tatsächlichen Dateiinhalt. Fotos werden im Browser auf höchstens 2048 Pixel
-  verkleinert und neu gespeichert – dabei entfallen Standortdaten und andere Metadaten.
+  verkleinert und neu gespeichert – dabei entfallen Standortdaten und andere Metadaten. Kann ein
+  Gerät ein Foto nicht verarbeiten, wird es abgelehnt statt im Original gesendet.
 - Nachrichten werden wie Aufträge nie geändert oder gelöscht (Datenbank-Sperre). Chatdateien stehen
   in der Dateitabelle und sind damit Teil der täglichen Sicherung.
   Nur hochgeladene, aber nie gesendete Dateien (z. B. Fenster während des Sendens geschlossen) werden
@@ -81,6 +82,7 @@ keinen E-Mail-Versand; der Kundenlink dient nur der Betreibervorschau.
 
 ## Technik
 
+- Nur in der IONOS-Laufzeit: Die bisherige Sites-Kopie zeigt weder „Nachrichten“ noch „Kundenchat“.
 - Server: `server/chat.mjs` (eingebunden in `server/application.mjs`), Tabellen `chat_threads`,
   `chat_messages`, `chat_attachments`; Dateien zusätzlich in `assets` mit `kind='chat'`.
   Die Tabellen entstehen beim Start automatisch. Keine neue Konfiguration, kein neuer Port.
