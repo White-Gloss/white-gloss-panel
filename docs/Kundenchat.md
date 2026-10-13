@@ -70,6 +70,10 @@ keinen E-Mail-Versand; der Kundenlink dient nur der Betreibervorschau.
   verkleinert und neu gespeichert – dabei entfallen Standortdaten und andere Metadaten.
 - Nachrichten werden wie Aufträge nie geändert oder gelöscht (Datenbank-Sperre). Chatdateien stehen
   in der Dateitabelle und sind damit Teil der täglichen Sicherung.
+  Nur hochgeladene, aber nie gesendete Dateien (z. B. Fenster während des Sendens geschlossen) werden
+  nach 24 Stunden automatisch entfernt.
+- Chatdateien werden mit Sandbox-Richtlinie ausgeliefert; PDFs werden heruntergeladen statt im Panel
+  geöffnet. Videos und Bilder werden vom Speicher gestreamt, nicht komplett in den Arbeitsspeicher geladen.
 - Begrenzungen gegen Missbrauch: 120 Nachrichten und 80 Dateien pro Stunde und Chat für Kunden.
 - **Zu erledigen außerhalb des Codes:** Die Datenschutzerklärung auf white-gloss.de sollte den
   Kundenchat nennen (Zweck: Kommunikation zum Auftrag; Speicherort IONOS; Speicherdauer wie
@@ -82,7 +86,9 @@ keinen E-Mail-Versand; der Kundenlink dient nur der Betreibervorschau.
   Die Tabellen entstehen beim Start automatisch. Keine neue Konfiguration, kein neuer Port.
 - Oberfläche: `public/chat-ui.js` (gemeinsame Chatansicht), `public/chat-inbox.js` (Panel),
   `public/kunde-chat.js` + `public/chat.html` (Kunde), `public/chat.css`.
-- Live-Aktualisierung über wartende Abfragen (bis 25 Sekunden, höchstens 200 gleichzeitig) – keine
+- Uploads dürfen bis zu 180 Sekunden dauern (vorher 30 Sekunden für alle Anfragen), damit Videos auch
+  über langsames Mobilfunknetz ankommen.
+- Live-Aktualisierung über wartende Abfragen (bis 25 Sekunden, höchstens 200 gleichzeitig, 20 je Chat) – keine
   WebSockets, keine zusätzlichen Pakete, funktioniert unverändert hinter Caddy.
 - Lesebestätigung: Ein Gerät bestätigt den Empfang mit seiner nächsten Abfrage. Ein geschlossenes
   Fenster markiert deshalb nichts als gelesen.
