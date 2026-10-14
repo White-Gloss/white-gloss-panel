@@ -38,7 +38,9 @@ export async function chatSchema(env){
   ].map(query=>env.DB.prepare(query)));
   // Ein vom Betreiber gesperrter Kundenlink darf das Kundenportal nicht wieder öffnen.
   const columns=(await env.DB.prepare('PRAGMA table_info(chat_threads)').all()).results.map(c=>c.name);
-  if(!columns.includes('link_revoked'))await env.DB.prepare('ALTER TABLE chat_threads ADD COLUMN link_revoked INTEGER NOT NULL DEFAULT 0').run();
+  // Bestehende Chats ohne gültigen Link gelten einmalig als gesperrt: Ein früher widerrufener Link
+  // ist nicht von einem nie erstellten zu unterscheiden. „Kundenlink erstellen“ gibt ihn wieder frei.
+  if(!columns.includes('link_revoked'))await env.DB.batch([env.DB.prepare('ALTER TABLE chat_threads ADD COLUMN link_revoked INTEGER NOT NULL DEFAULT 0'),env.DB.prepare('UPDATE chat_threads SET link_revoked=1 WHERE token_hash IS NULL')]);
 }
 
 // Customer paths that the application lets through for signed-in customers.
@@ -258,7 +260,8 @@ export async function portalNotice(env,orderId,text,now=Date.now()){
   const at=iso(now),clientId='portal-'+randomUUID(),body=String(text).slice(0,CHAT_LIMITS.text);
   const [inserted]=await env.DB.batch([
     env.DB.prepare("INSERT INTO chat_messages(thread_id,sender,body,client_id,created_at) SELECT ?,'customer',?,?,? WHERE EXISTS(SELECT 1 FROM chat_threads WHERE id=? AND closed=0)").bind(thread.id,body,clientId,at,thread.id),
-    env.DB.prepare('UPDATE chat_threads SET last_at=?,customer_read_id=(SELECT id FROM chat_messages WHERE thread_id=? AND client_id=?) WHERE id=? AND EXISTS(SELECT 1 FROM chat_messages WHERE thread_id=? AND client_id=?)').bind(at,thread.id,clientId,thread.id,thread.id,clientId)
+    // Nur der Zeitpunkt: Der Kunde hat ungelesene Betreibernachrichten damit nicht gesehen.
+    env.DB.prepare('UPDATE chat_threads SET last_at=? WHERE id=? AND EXISTS(SELECT 1 FROM chat_messages WHERE thread_id=? AND client_id=?)').bind(at,thread.id,thread.id,clientId)
   ]);
   if(!inserted.meta.changes)return false;
   wake(thread.id);

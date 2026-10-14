@@ -62,10 +62,11 @@
 .portal-card label{font-size:13px}
 /* Leistungen */
 .portal-lines{width:100%;border-collapse:collapse;font-size:14px}
-.portal-lines td,.portal-lines th{padding:9px 0;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+.portal-lines td,.portal-lines th{padding:9px 0;border-bottom:1px solid var(--line);vertical-align:top;text-align:left;white-space:normal;overflow-wrap:anywhere;background:none;text-transform:none;letter-spacing:0;font-size:14px;color:inherit}
 .portal-lines td:last-child,.portal-lines tfoot td{text-align:right;white-space:nowrap;padding-left:12px}
 .portal-lines small{display:block;color:var(--steel);font-size:12px;margin-top:2px}
 .portal-lines tfoot th,.portal-lines tfoot td{border-bottom:0;font-weight:700;font-size:15px;color:var(--lacquer)}
+.portal-lines td:last-child,.portal-lines tfoot td{white-space:nowrap;overflow-wrap:normal}
 /* Zusatzleistungen */
 .portal-extras fieldset{border:0;margin:0 0 12px;padding:0;display:grid;gap:8px}
 .portal-extra{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:start;margin:0;padding:12px;border:1px solid var(--line);border-radius:12px;cursor:pointer}
@@ -108,6 +109,12 @@
   .portal-hero{padding:28px 28px 24px}
   .portal-hero h2{font-size:26px}
   .portal-page #toast{left:auto;max-width:420px}
+}
+@media (max-width:560px){
+  .portal-extra{grid-template-columns:auto minmax(0,1fr)}
+  .portal-price{grid-column:2}
+  .portal-rail li:not(.is-now) .portal-steplabel{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .portal-rail .is-now .portal-steplabel{white-space:nowrap}
 }
 @media (max-width:420px){
   .portal-steplabel{font-size:9px}

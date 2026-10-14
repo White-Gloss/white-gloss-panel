@@ -82,14 +82,17 @@ function offerView(o){
   const doc=['Preise prüfen'].includes(o.status)?null:o.offer;if(!doc)return null;
   return {lines:(doc.lines??[]).map(l=>({title:l.title,description:l.description??'',amountCents:l.amountCents})),services:doc.lines?.length?'':doc.services??'',totalCents:doc.totalCents??null,signed:Boolean(o.acceptance)};
 }
+const RESCHEDULE=['Preise prüfen','Angebot offen','Angenommen','Termin verbindlich'];
 async function portalOrder(env,o,config,preview){
   const restricted=recordOperationIssue(o,'customer-document');
+  // Gesperrte Akten: nur die Kopfzeile, keine Inhalte (wie bei Angebots-, Rechnungs- und Chatlinks).
+  if(restricted)return {id:o.id,wg:o.wg,status:o.status,statusText:'Dieser Vorgang ist derzeit gesperrt. Bitte kontaktieren Sie uns telefonisch oder per E-Mail.',step:null,steps:STEPS,closed:true,restricted:true,vehicle:o.source?.vehicle??'',plate:'',package:'',createdAt:null,appointment:null,offer:null,todo:[],documents:[],invoice:null,extras:[],requests:[],review:null,canReschedule:false};
   /** @type {{kind:string,label:string,at:string|null,signed:boolean|null,url:string}[]} */
   const documents=[];const pdf=kind=>'/api/portal/o/'+o.id+'/pdf/'+kind;
   if(o.acceptance)documents.push({kind:'acceptance',label:DOCUMENT_LABEL.acceptance,at:o.acceptance.at??null,signed:null,url:pdf('acceptance')});
   for(const kind of ['intake','return'])if(o[kind])documents.push({kind,label:DOCUMENT_LABEL[kind],at:o[kind].signedAt??o[kind].at??o[kind].savedAt??null,signed:Boolean(o[kind].customerSignature),url:pdf(kind)});
   const todo=[];
-  if(!restricted){
+  {
     if(o.status==='Angebot offen'&&!o.acceptance&&await validLink(env,'offer_tokens',o.offerToken,o.id))todo.push({kind:'offer-open',label:'Angebot prüfen und annehmen',url:'/angebot/'+o.offerToken});
     else if(o.status==='Angebot offen'&&!o.acceptance)todo.push({kind:'offer-expired',label:'Ihr Angebotslink ist abgelaufen. Bitte schreiben Sie uns – wir senden Ihnen einen neuen.',url:null});
     for(const kind of ['offer','intake','return'])if(o.pending?.[kind])todo.push({kind:'sign-'+kind,document:kind,label:SIGN_LABEL[kind],action:'/api/portal/o/'+o.id+'/sign/'+kind});
@@ -99,10 +102,10 @@ async function portalOrder(env,o,config,preview){
   const a=o.appointment&&!CLOSED.includes(o.status)?{start:o.appointment.start,end:o.appointment.end,delivery:o.appointment.delivery??'',location:o.appointment.location??'',workDays:o.appointment.workDays??null,curingNote:o.appointment.curing?.note??''}:null;
   const done=['Erledigt','Bezahlt'].includes(o.status);
   return {
-    id:o.id,wg:o.wg,status:o.status,statusText:STATUS_TEXT[o.status]??o.status,step:STEP_OF[o.status]??null,steps:STEPS,closed:CLOSED.includes(o.status),restricted:restricted?'Dieser Vorgang ist derzeit gesperrt. Bitte kontaktieren Sie uns.':null,
+    id:o.id,wg:o.wg,status:o.status,statusText:STATUS_TEXT[o.status]??o.status,step:STEP_OF[o.status]??null,steps:STEPS,closed:CLOSED.includes(o.status),restricted:false,canReschedule:Boolean(a)&&RESCHEDULE.includes(o.status),
     createdAt:o.createdAt??null,vehicle:o.source?.vehicle??'',plate:o.source?.plate??'',package:packages.find(p=>p.id===packageOf(o))?.name??o.source?.package??'',vehicleClass:classOf(o)?.label??o.source?.vehicleClass??'',
     desiredDate:o.source?.desiredDate??'',delivery:o.source?.delivery??'',appointment:a,offer:offerView(o),todo,documents,invoice,
-    extras:restricted?[]:availableExtras(o),requests:await requestsOf(env,o.id),
+    extras:availableExtras(o),requests:await requestsOf(env,o.id),
     review:done&&/^https:\/\//.test(config.reviewUrl??'')?config.reviewUrl:null
   };
 }
@@ -174,7 +177,7 @@ export async function handlePortal(env,request,identity,isOwner){
     return json({ok:true,id,message:'Danke! Ihre Anfrage ist bei uns. Wir prüfen sie und senden Ihnen ein ergänztes Angebot zur Unterschrift hier ins Portal.'});
   }
   if(op==='termin'){
-    need(o.appointment||['Angenommen','Termin verbindlich'].includes(o.status),'Für diesen Auftrag gibt es noch keinen Termin.',409);
+    need(o.appointment&&RESCHEDULE.includes(o.status),'Für diesen Auftrag kann kein Terminwunsch mehr gesendet werden.',409);
     const wish=text(input.wish,500);need(wish.length>=3,'Bitte beschreiben Sie kurz Ihren Wunsch.');
     const id=randomUUID(),at=new Date(now).toISOString();
     await env.DB.prepare("INSERT INTO portal_requests(id,order_id,kind,data,created_at) VALUES(?,?,'termin',?,?)").bind(id,o.id,JSON.stringify({wish,appointmentStart:o.appointment?.start??null}),at).run();
@@ -201,15 +204,22 @@ export async function handlePortalAdmin(env,request,isOwner){
     if(input.decision==='apply'){
       need(row.kind==='extras','Nur Zusatzleistungen lassen sich in die Leistungen übernehmen.');
       const o=await getOrder(env,row.order_id);assertRecordOperation(o,'operate');
+      need(EXTRA_STATES.includes(o.status),'Der Auftrag ist bereits '+o.status+'. Zusatzleistungen lassen sich nicht mehr übernehmen.',409);
       const base=o.assessment??o.offer;need(Array.isArray(base?.lines),'Bitte zuerst die Leistungen im Preisformular als Positionen speichern.',409);
       const data=JSON.parse(row.data),present=new Set(base.lines.filter(l=>l.kind==='extra').map(l=>l.catalogId));
       const added=data.extras.filter(e=>!present.has(e.id)).map(e=>({id:'portal-'+e.id+'-'+row.id.slice(0,8),kind:'extra',catalogId:e.id,title:e.name,description:e.inspect?'Preis vorbehaltlich Prüfung vor Ort':'',amountCents:e.priceCents}));
       const updated=transition(o,'price',{lines:[...base.lines.map(l=>({...l})),...added],condition:base.condition??'',pricesReviewed:false},at);
-      await saveOrder(env,updated,o.version,'Zusatzleistungen aus dem Kundenportal übernommen','owner',[decide('übernommen')]);
-      return json({ok:true,signed:Boolean(o.acceptance),message:o.acceptance?'Übernommen. Bitte Preise prüfen und ein Ersatzangebot erstellen – der Kunde unterschreibt es im Portal.':'Übernommen. Das Angebot zeigt die Zusatzleistungen nach dem Speichern der geprüften Preise.'});
+      // Ein offenes, noch nicht unterschriebenes Angebot bleibt unverändert, bis der Betreiber die
+      // Preise geprüft und im Preisformular gespeichert hat.
+      if(!o.acceptance){updated.offer=o.offer;if(o.offerHistory===undefined)delete updated.offerHistory;else updated.offerHistory=o.offerHistory;}
+      // Erst den Wunsch beanspruchen, damit „Übernehmen“ und „Ablehnen“ nie beide wirken.
+      const claimed=await decide('übernommen').run();need(claimed.meta.changes===1,'Dieser Kundenwunsch wurde bereits bearbeitet.',409);
+      try{await saveOrder(env,updated,o.version,'Zusatzleistungen aus dem Kundenportal übernommen','owner');}
+      catch(error){await env.DB.prepare("UPDATE portal_requests SET status='offen',decided_at=NULL WHERE id=? AND status='übernommen' AND decided_at=?").bind(row.id,at).run();throw error;}
+      return json({ok:true,signed:Boolean(o.acceptance),message:o.acceptance?'Übernommen. Bitte Preise prüfen und ein Ersatzangebot erstellen – der Kunde unterschreibt es im Portal.':'Übernommen. Bitte die Preise unter „Leistungen & Angebot“ prüfen und speichern – erst dann sieht der Kunde das ergänzte Angebot.'});
     }
     need(['done','decline'].includes(input.decision),'Unbekannte Entscheidung.');
-    await decide(input.decision==='done'?'erledigt':'abgelehnt').run();
+    const r=await decide(input.decision==='done'?'erledigt':'abgelehnt').run();need(r.meta.changes===1,'Dieser Kundenwunsch wurde bereits bearbeitet.',409);
     return json({ok:true});
   }
   throw new AppError('Funktion nicht gefunden.',404);

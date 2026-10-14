@@ -114,3 +114,36 @@ test('owner preview is read-only, review link appears after completion',async t=
   assert.equal(preview.orders.find(x=>x.id===o.id).extras.length,0,'no extras after completion');
   assert.equal((await f.post('/api/portal/o/'+o.id+'/termin',f.owner,{wish:'Test'})).status,403);
 });
+
+test('review fixes: unsigned offer untouched by apply, single decision, closed orders, restricted records, read state',async t=>{
+  const f=await fixture(t),open=await order(f.env,{status:'Angebot offen'});
+  const sent=await f.ok(await f.post('/api/portal/o/'+open.id+'/extras',f.customer,{extraIds:['motor']}));
+  const applied=await f.ok(await f.post('/api/portal-admin/request',f.owner,{id:sent.id,decision:'apply'}));assert.match(applied.message,/erst dann/);
+  const saved=await getOrder(f.env,open.id);assert.equal(saved.offer.totalCents,43625,'customer cannot accept unreviewed extras');assert.ok(saved.assessment.lines.some(l=>l.catalogId==='motor'));
+  assert.equal((await f.post('/api/portal-admin/request',f.owner,{id:sent.id,decision:'decline'})).status,409);
+  const second=await f.ok(await f.post('/api/portal/o/'+open.id+'/extras',f.customer,{extraIds:['ozon']}));
+  await f.env.DB.prepare("UPDATE orders SET status='Storniert',version=version+1,data=json_set(data,'$.status','Storniert') WHERE id=?").bind(open.id).run();
+  assert.equal((await f.post('/api/portal-admin/request',f.owner,{id:second.id,decision:'apply'})).status,409);
+  assert.equal((await f.env.DB.prepare('SELECT status FROM portal_requests WHERE id=?').bind(second.id).first()).status,'offen','failed apply leaves the wish open');
+  const cancelled=await order(f.env,{status:'Storniert',extra:{appointment:{start:'2030-10-14T07:00:00.000Z',end:'2030-10-14T13:00:00.000Z'}}});
+  assert.equal((await f.post('/api/portal/o/'+cancelled.id+'/termin',f.customer,{wish:'Bitte später'})).status,409);
+  const blocked=await order(f.env,{extra:{recordsRestriction:{status:'blocked'}}});
+  const me=await f.ok(await f.get('/api/portal/me',f.customer)),view=me.orders.find(o=>o.id===blocked.id);
+  assert.equal(view.restricted,true);assert.equal(view.offer,null);assert.equal(view.appointment,null);assert.deepEqual(view.documents,[]);
+  // A portal wish must not mark unread owner messages as read.
+  const o=await order(f.env);const chat=await f.ok(await f.post('/api/portal/o/'+o.id+'/chat',f.customer,{}));
+  const thread=await f.env.DB.prepare('SELECT id FROM chat_threads WHERE order_id=?').bind(o.id).first();
+  await f.ok(await f.post('/api/chats/t/'+thread.id+'/message',f.owner,{text:'Neue Info vom Betrieb'}));
+  await f.ok(await f.post('/api/portal/o/'+o.id+'/extras',f.customer,{extraIds:['motor']}));
+  assert.equal((await f.env.DB.prepare('SELECT customer_read_id FROM chat_threads WHERE id=?').bind(thread.id).first()).customer_read_id,0);
+  assert.ok(chat.available);
+});
+
+test('existing chats without a link count as revoked after the update',async t=>{
+  const db=new PanelDatabase(':memory:');t.after(async()=>{await chatNotificationsSettled();db.close();});
+  db.sql.exec("CREATE TABLE chat_threads(id TEXT PRIMARY KEY,order_id TEXT UNIQUE NOT NULL,token_hash TEXT UNIQUE,token_sealed TEXT,token_expires_at TEXT,closed INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,last_at TEXT NOT NULL,owner_read_id INTEGER NOT NULL DEFAULT 0,customer_read_id INTEGER NOT NULL DEFAULT 0,owner_seen_at INTEGER NOT NULL DEFAULT 0,customer_seen_at INTEGER NOT NULL DEFAULT 0,owner_notified_id INTEGER NOT NULL DEFAULT 0,customer_notified_id INTEGER NOT NULL DEFAULT 0,owner_notified_at INTEGER NOT NULL DEFAULT 0,customer_notified_at INTEGER NOT NULL DEFAULT 0);INSERT INTO chat_threads(id,order_id,created_at,last_at) VALUES('a','order-a','x','x');INSERT INTO chat_threads(id,order_id,token_hash,created_at,last_at) VALUES('b','order-b','h','x','x');");
+  await createApplication({PANEL_ORIGIN:origin,OWNER_EMAIL_SHA256:digest(owner),CONFIG_KEY:Buffer.alloc(32,4).toString('base64'),DB:db,BUCKET:{async put(){},async get(){return null;},async delete(){}},ASSETS:{fetch:async()=>new Response('')}});
+  assert.deepEqual(db.sql.prepare('SELECT id,link_revoked FROM chat_threads ORDER BY id').all().map(r=>[r.id,r.link_revoked]),[['a',1],['b',0]]);
+  await createApplication({PANEL_ORIGIN:origin,OWNER_EMAIL_SHA256:digest(owner),CONFIG_KEY:Buffer.alloc(32,4).toString('base64'),DB:db,BUCKET:{async put(){},async get(){return null;},async delete(){}},ASSETS:{fetch:async()=>new Response('')}});
+  assert.equal(db.sql.prepare('SELECT COUNT(*) n FROM chat_threads WHERE link_revoked=1').get().n,1,'migration runs once');
+});

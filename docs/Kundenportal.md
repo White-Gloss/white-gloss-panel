@@ -59,9 +59,14 @@ antwortest, gilt der bisherige Termin. „Erledigt“ oder „Ablehnen“ zeigt 
   Testbereich). Für andere Adressen kommt dieselbe neutrale Meldung, es wird keine Mail versendet.
 - Der Kunde sieht ausschließlich Aufträge, deren Kunden-E-Mail genau seiner Anmeldung entspricht
   (Groß-/Kleinschreibung egal). Testaufträge und Aufträge im Papierkorb erscheinen nie.
-- Gesperrte Kundenakten werden angezeigt, aber ohne Aktionen.
 - Dokumente, Rechnungs-PDF und Unterschriftslinks werden für jede Anfrage neu gegen die Anmeldung
   geprüft. Ein vom Betreiber gesperrter Chatlink wird über das Portal nicht wieder geöffnet.
+  Beim ersten Start nach dem Update gelten bestehende Chats **ohne** aktiven Kundenlink als gesperrt
+  (ein früher gesperrter Link ist nicht von einem nie erstellten zu unterscheiden). Im Chat
+  „Kundenzugang“ → „Kundenlink erstellen“ gibt ihn für das Portal frei. Neue Chats sind sofort verfügbar.
+- Gesperrte Kundenakten zeigen im Portal nur Auftragsnummer und den Hinweis, sich zu melden.
+- „In Leistungen übernehmen“ ändert ein noch offenes Angebot nicht: Erst wenn du die Preise
+  prüfst und speicherst, sieht der Kunde das ergänzte Angebot.
 - Kundenwünsche werden nie gelöscht (Datenbank-Sperre). Es gehen keine automatischen
   Kundenmails aus dem Portal hinaus; Benachrichtigungen an dich laufen über den Chat.
 - Begrenzung: 30 Portal-Aktionen je Kunde und Stunde.

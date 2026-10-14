@@ -30,7 +30,7 @@ async function load(){
   try{data=await api('me'+(previewId?'?vorschau='+encodeURIComponent(previewId):''));}
   catch(error){if(error.status===401){location.replace(loginUrl);return;}gate(error.message,error.status===403);return;}
   const wanted=location.hash.slice(1);
-  selectedId=data.orders.find(o=>o.id===wanted)?.id??data.orders.find(o=>!o.closed)?.id??data.orders[0]?.id??null;
+  selectedId=data.orders.find(o=>o.id===wanted)?.id??data.orders.find(o=>o.todo?.length)?.id??data.orders.find(o=>!o.closed&&o.step!==null&&o.step<5)?.id??data.orders.find(o=>!o.closed)?.id??data.orders[0]?.id??null;
   render();
 }
 
@@ -61,7 +61,7 @@ function hero(o){
     <p class="portal-vehicle">${esc(o.vehicle||'Ihr Fahrzeug')}${o.plate?` <span class="portal-plate">${esc(o.plate)}</span>`:''}</p>
     <h2 id="hero-${o.id}">${esc(o.statusText)}</h2>
     <p class="portal-meta">Auftrag ${esc(o.wg)}${o.package?', '+esc(o.package):''}${o.createdAt?', angefragt am '+esc(day(o.createdAt)):''}</p>
-    ${rail}${o.restricted?`<p class="portal-warn">${esc(o.restricted)}</p>`:''}</section>`;
+    ${rail}</section>`;
 }
 function todo(o){
   if(!o.todo.length)return '';
@@ -69,13 +69,13 @@ function todo(o){
 }
 function appointment(o){
   const a=o.appointment;
-  if(!a)return o.closed?'':`<section class="portal-card"><h2>Termin</h2><p>${o.desiredDate?'Ihr Wunschtermin: '+esc(day(o.desiredDate))+'. ':''}Den genauen Termin stimmen wir mit Ihnen ab und tragen ihn hier ein.</p></section>`;
+  if(!a)return o.closed||o.step===null||o.step>=4?'':`<section class="portal-card"><h2>Termin</h2><p>${o.desiredDate?'Ihr Wunschtermin: '+esc(day(o.desiredDate))+'. ':''}Den genauen Termin stimmen wir mit Ihnen ab und tragen ihn hier ein.</p></section>`;
   const open=o.requests.find(r=>r.kind==='termin'&&r.status==='offen');
   return `<section class="portal-card portal-termin"><h2>Termin</h2>
     <p class="portal-when">${icon(ICONS.cal)}<span><strong>${esc(when(a.start))}</strong>${a.end?`<span>Voraussichtlich fertig: ${esc(when(a.end))}</span>`:''}</span></p>
     <dl class="portal-facts"><div><dt>Übergabe</dt><dd>${a.delivery==='Abholung'?'Wir holen Ihr Fahrzeug ab':'Sie bringen Ihr Fahrzeug zu uns'}</dd></div>${a.location?`<div><dt>Ort</dt><dd>${esc(a.location)}</dd></div>`:''}${a.workDays>1?`<div><dt>Dauer</dt><dd>${a.workDays} Arbeitstage</dd></div>`:''}</dl>
     ${a.curingNote?`<p class="portal-note">Nach der Versiegelung: ${esc(a.curingNote)}</p>`:''}
-    ${open?`<p class="portal-note">Ihr Terminwunsch vom ${esc(day(open.createdAt))} liegt uns vor. Wir melden uns.</p>`:`<details class="portal-more"><summary>Termin verschieben?</summary><form data-form="termin"><label>Ihr Wunsch<textarea name="wish" rows="3" maxlength="500" required placeholder="z. B. lieber eine Woche später, vormittags"></textarea></label><button class="primary" type="submit"${data.preview?' disabled':''}>Terminwunsch senden</button><p class="hint">Bis wir uns melden, gilt der bisherige Termin.</p><p class="error" role="alert"></p></form></details>`}
+    ${open?`<p class="portal-note">Ihr Terminwunsch vom ${esc(day(open.createdAt))} liegt uns vor. Wir melden uns.</p>`:!o.canReschedule?'':`<details class="portal-more"><summary>Termin verschieben?</summary><form data-form="termin"><label>Ihr Wunsch<textarea name="wish" rows="3" maxlength="500" required placeholder="z. B. lieber eine Woche später, vormittags"></textarea></label><button class="primary" type="submit"${data.preview?' disabled':''}>Terminwunsch senden</button><p class="hint">Bis wir uns melden, gilt der bisherige Termin.</p><p class="error" role="alert"></p></form></details>`}
   </section>`;
 }
 function services(o){
@@ -86,13 +86,15 @@ function services(o){
 function extrasView(o){
   const requests=o.requests.filter(r=>r.kind==='extras');
   if(!o.extras.length&&!requests.length)return '';
-  const list=o.extras.length?`<form data-form="extras" class="portal-extras"><fieldset><legend class="sr-only">Zusatzleistungen auswählen</legend>${o.extras.map(e=>`<label class="portal-extra"><input type="checkbox" name="extra" value="${esc(e.id)}"><span><strong>${esc(e.name)}</strong><small>${esc(e.hint)}</small></span><span class="portal-price">${e.inspect?'ab ':''}${money(e.priceCents)}</span></label>`).join('')}</fieldset><label>Hinweis (optional)<textarea name="note" rows="2" maxlength="500"></textarea></label><button class="primary" type="submit"${data.preview?' disabled':''}>Unverbindlich anfragen</button><p class="hint">Die Anfrage ist noch keine Buchung. Wir prüfen sie und schicken Ihnen ein ergänztes Angebot, das Sie hier unterschreiben.${o.extras.some(e=>!e.classKnown)?' Preise gelten für die Kompaktklasse; für größere Fahrzeuge bestätigen wir den Preis.':''}</p><p class="error" role="alert"></p></form>`:'';
+  const list=o.extras.length?`<details class="portal-more portal-extrasbox"><summary>${requests.length?'Weitere Zusatzleistungen ansehen':o.extras.length+' Zusatzleistungen für Ihr Fahrzeug ansehen'}</summary><form data-form="extras" class="portal-extras"><fieldset><legend class="sr-only">Zusatzleistungen auswählen</legend>${o.extras.map(e=>`<label class="portal-extra"><input type="checkbox" name="extra" value="${esc(e.id)}"><span><strong>${esc(e.name)}</strong><small>${esc(e.hint)}</small></span><span class="portal-price">${e.inspect?'ab ':''}${money(e.priceCents)}</span></label>`).join('')}</fieldset><label>Hinweis (optional)<textarea name="note" rows="2" maxlength="500"></textarea></label><button class="primary" type="submit"${data.preview?' disabled':''}>Unverbindlich anfragen</button><p class="hint">Die Anfrage ist noch keine Buchung. Wir prüfen sie und schicken Ihnen ein ergänztes Angebot, das Sie hier unterschreiben.${o.extras.some(e=>!e.classKnown)?' Preise gelten für die Kompaktklasse; für größere Fahrzeuge bestätigen wir den Preis.':''}</p><p class="error" role="alert"></p></form></details>`:'';
   return `<section class="portal-card"><h2>Zusatzleistungen</h2>${requests.length?`<ul class="portal-requests">${requests.map(r=>`<li><span>${esc((r.extras??[]).map(e=>e.name).join(', '))}</span><span class="portal-state">${esc(REQUEST_STATUS[r.status]??r.status)}</span></li>`).join('')}</ul>`:''}${list}</section>`;
 }
 function messages(o){
+  if(o.restricted)return '';
   return `<section class="portal-card portal-chatcard"><h2>Nachrichten und Fotos</h2><p>Fragen zum Auftrag, Fotos vom Fahrzeug oder Wünsche: Schreiben Sie uns direkt hier.</p><div class="portal-chatactions"><button class="primary" data-act="chat"${data.preview?' disabled':''}>Chat öffnen</button><button data-act="photo"${data.preview?' disabled':''}>${icon(ICONS.camera)}Fotos senden</button></div><div class="portal-chat" id="portal-chat" hidden></div></section>`;
 }
 function documents(o){
+  if(o.restricted)return '';
   if(!o.documents.length)return `<section class="portal-card"><h2>Dokumente</h2><p>Hier finden Sie nach der Auftragsannahme Ihre Auftragsbestätigung und die Fahrzeugprotokolle als PDF.</p></section>`;
   return `<section class="portal-card"><h2>Dokumente</h2><ul class="portal-docs">${o.documents.map(d=>`<li><a href="${esc(d.url)}" download>${icon(ICONS.doc)}<span><strong>${esc(d.label)}</strong><small>${d.at?esc(day(d.at)):''}${d.signed===false?(d.at?', ':'')+'ohne Ihre Unterschrift':''}</small></span>${icon(ICONS.down)}</a></li>`).join('')}</ul></section>`;
 }
@@ -109,8 +111,10 @@ function review(o){
   return `<section class="portal-card portal-review"><h2>Wie zufrieden sind Sie?</h2><p>Eine kurze Bewertung auf Google hilft uns als kleinem Betrieb sehr. Vielen Dank!</p><a class="button primary" href="${esc(o.review)}" target="_blank" rel="noopener noreferrer">${icon(ICONS.star)}Auf Google bewerten</a></section>`;
 }
 
-async function openChat(attach=false){
+async function openChat(attach=false,scroll=true){
   const o=data.orders.find(x=>x.id===selectedId),box=document.querySelector('#portal-chat');
+  // Ist der Chat schon offen, öffnet „Fotos senden“ die Auswahl direkt (noch innerhalb des Tippens).
+  if(chat&&attach){box.querySelector('input[type=file]')?.click();return;}
   if(!chat){
     const result=await api('o/'+o.id+'/chat',{});
     if(!result.available){toast(result.message);return;}
@@ -118,8 +122,8 @@ async function openChat(attach=false){
     chat=mountConversation(box,{base:result.base,role:'customer',header:null,emptyText:'Schreiben Sie uns – zum Beispiel Fragen zum Termin oder Fotos von Ihrem Fahrzeug. Wir antworten so schnell wie möglich.',onData(d){if(d?.error)toast(d.error);}});
     document.querySelector('[data-act="chat"]').textContent='Chat ist geöffnet';
   }
-  box.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});
-  if(attach)box.querySelector('input[type=file]')?.click();
+  if(scroll)box.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});
+  if(attach)toast('Tippen Sie unten im Chat auf die Büroklammer, um Fotos aus der Kamera oder Galerie zu senden.');
 }
 
 document.addEventListener('click',async event=>{
@@ -140,7 +144,7 @@ document.addEventListener('submit',async event=>{
     let r;
     if(form.dataset.form==='extras'){const extraIds=[...form.querySelectorAll('input[name=extra]:checked')].map(x=>x.value);if(!extraIds.length)throw Error('Bitte mindestens eine Zusatzleistung auswählen.');r=await api('o/'+selectedId+'/extras',{extraIds,note:form.elements.note.value});}
     if(form.dataset.form==='termin')r=await api('o/'+selectedId+'/termin',{wish:form.elements.wish.value});
-    toast(r.message);await load();
+    const reopen=Boolean(chat);toast(r.message);await load();if(reopen)await openChat(false,false);
   }catch(e){error.textContent=e.message;button.disabled=false;}
 });
 load();
