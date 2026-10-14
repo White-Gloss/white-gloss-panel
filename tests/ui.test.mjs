@@ -70,6 +70,11 @@ test('panel: create, edit every step, sign on site, protocol with paint thicknes
   await ui.click(form.querySelector('[data-paint-add]'));const row=form.querySelector('[data-paint-row]');row.querySelector('[data-paint-panel]').value='Dach';row.querySelectorAll('[data-paint-value]')[0].value='110';row.querySelectorAll('[data-paint-value]')[1].value='260';
   ui.fill(form,{mileage:'45000'});await ui.submit(form,'[data-submit="save"]');
   current=await getOrder(ui.env,o.id);assert.equal(current.status,'In Arbeit');assert.deepEqual(current.intake.paint.readings,[{panel:'Dach',values:[110,260]}]);assert.equal(current.intake.damages[0].area,'Motorhaube');assert.equal(current.intake.mileage,45000);
+  // After work started the appointment changes only with a release; removal is gone.
+  await ui.click('[data-tab="appointment"]');assert.ok(!ui.$('[data-click="removeAppointment"]'));
+  ui.fill(ui.$('#appointmentform'),{start:'2030-01-04T10:00'});await ui.submit('#appointmentform');assert.match(ui.$('#appointmentform .error').textContent,/Freigabe/);
+  ui.fill(ui.$('#appointmentform'),{start:'2030-01-04T10:00',release:true,releaseReason:'länger gebraucht'});await ui.submit('#appointmentform');
+  current=await getOrder(ui.env,o.id);assert.equal(current.status,'In Arbeit');assert.equal(current.appointment.confirmation.release.reason,'länger gebraucht');await ui.click('[data-tab="intake"]');
   // Sign the protocol with both pads.
   await ui.submit(ui.$('#protocolform'),'[data-submit="sign"]');assert.ok(ui.$('#signatureform'));ui.draw(ui.$('#customerSign'));ui.draw(ui.$('#operatorSign'));ui.fill(ui.$('#signatureform'),{confirmed:true});await ui.submit('#signatureform');
   current=await getOrder(ui.env,o.id);assert.ok(current.intake.customerSignature);assert.match(ui.text(),/Unterschriebenes Annahmeprotokoll/);

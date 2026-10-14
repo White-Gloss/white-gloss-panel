@@ -126,3 +126,9 @@ test('D1 trigger-inclusive change counts acknowledge a saved order and preserve 
 test('paused cloud schedule is not advertised as running despite manual heartbeat',async()=>{const e=env();e.BACKGROUND_CADENCE='hourly';e.BACKGROUND_STATE='paused';await req(e,'background',{});const s=await(await req(e,'state')).json();assert.match(s.integrations.background,/Cloudlauf pausiert/);assert.match(s.integrations.background,/Letzte erfolgreiche Fälligkeitsprüfung/);assert.doesNotMatch(s.integrations.background,/eingerichtet/);});
 
 test('offer page serves the app shell without index canonical redirect or losing its URL',async()=>{const e=env();const seen=[];e.ASSETS.fetch=async request=>{const path=new URL(request.url).pathname;seen.push(path);if(path==='/index.html')return new Response(null,{status:301,headers:{Location:'/'}});return path==='/'?new Response('<html>Offer app</html>',{headers:{'Content-Type':'text/html'}}):new Response('missing',{status:404});};const r=await worker.fetch(new Request('https://panel.example.invalid/angebot/synthetic-link'),e);assert.equal(r.status,200);assert.equal(r.headers.get('Location'),null);assert.deepEqual(seen,['/']);assert.match(r.headers.get('Content-Security-Policy'),/frame-ancestors/);assert.match(await r.text(),/Offer app/);assert.equal((await worker.fetch(new Request('https://panel.example.invalid/missing.js'),e)).status,404);});
+
+test('repeated online acceptance is only idempotent for an online customer signature',()=>{
+  const released=transition(offered(),'setStatus',{status:'Angenommen',reason:'mündlich zugesagt'},now);
+  assert.throws(()=>transition(released,'accept',{signature:'x',snapshotHash:'y',paymentObligation:true},now,'customer'),/geschlossen/);
+  const signed=accepted();assert.deepEqual(transition(signed,'accept',{signature:'z',snapshotHash:'w',paymentObligation:true},now,'customer'),signed);
+});
