@@ -5,8 +5,8 @@
 // übernimmt sie, gebucht wird über ein Ersatzangebot, das der Kunde selbst unterschreibt.
 // Es werden keine Kundendaten gelöscht und keine E-Mails automatisch an Kunden versendet.
 import {randomUUID} from 'node:crypto';
-import {AppError,need,transition,text} from '../src/domain.mjs';
-import {getOrder,saveOrder,settings,documentLinkUpdate} from '../src/worker.mjs';
+import {AppError,need,transition,text,appointmentSnapshot} from '../src/domain.mjs';
+import {getOrder,saveOrder,settings,documentLinkUpdate,storeDataSignature} from '../src/worker.mjs';
 import {packages,extras,vehicleClasses,extraIncluded} from '../src/catalog.mjs';
 import {COMPANY} from '../src/company.mjs';
 import {digest,limited} from './auth.mjs';
@@ -85,6 +85,8 @@ function offerView(o){
   return {lines:(doc.lines??[]).map(l=>({title:l.title,description:l.description??'',amountCents:l.amountCents})),services:doc.lines?.length?'':doc.services??'',totalCents:doc.totalCents??null,signed:Boolean(o.acceptance)};
 }
 const RESCHEDULE=['Preise prüfen','Angebot offen','Angenommen','Termin verbindlich'];
+// Nur noch nicht verbindliche Termine werden vom Kunden bestätigt; ältere verbindliche Termine bleiben es.
+const CONFIRMABLE=['Preise prüfen','Angebot offen','Angenommen'];
 async function portalOrder(env,o,config,preview){
   const restricted=recordOperationIssue(o,'customer-document');
   // Gesperrte Akten: nur die Kopfzeile, keine Inhalte (wie bei Angebots-, Rechnungs- und Chatlinks).
@@ -97,14 +99,18 @@ async function portalOrder(env,o,config,preview){
   {
     if(o.status==='Angebot offen'&&!o.acceptance&&await validLink(env,'offer_tokens',o.offerToken,o.id))todo.push({kind:'offer-open',label:'Angebot prüfen und annehmen',url:'/angebot/'+o.offerToken});
     else if(o.status==='Angebot offen'&&!o.acceptance)todo.push({kind:'offer-expired',label:'Ihr Angebotslink ist abgelaufen. Bitte schreiben Sie uns – wir senden Ihnen einen neuen.',url:null});
+    if(o.appointment&&!o.appointment.confirmation&&CONFIRMABLE.includes(o.status))todo.push({kind:'confirm-appointment',label:'Termin bestätigen und unterschreiben',anchor:'termin-'+o.id});
     for(const kind of ['offer','intake','return'])if(o.pending?.[kind])todo.push({kind:'sign-'+kind,document:kind,label:SIGN_LABEL[kind],action:'/api/portal/o/'+o.id+'/sign/'+kind});
   }
   let invoice=null;
   if(o.invoice?.provider==='qonto'&&o.invoice.number&&!o.synthetic){try{const view=invoicePortalView(o,preview);invoice={...view.invoice,lines:view.lines,payment:view.payment,payUrl:view.payUrl,vat:view.vat,pdfUrl:'/api/portal/o/'+o.id+'/rechnung.pdf'};}catch{invoice=null;}}
-  const a=o.appointment&&!CLOSED.includes(o.status)?{start:o.appointment.start,end:o.appointment.end,delivery:o.appointment.delivery??'',location:o.appointment.location??'',workDays:o.appointment.workDays??null,curingNote:o.appointment.curing?.note??''}:null;
+  const a=o.appointment&&!CLOSED.includes(o.status)?{start:o.appointment.start,end:o.appointment.end,delivery:o.appointment.delivery??'',location:o.appointment.location??'',workDays:o.appointment.workDays??null,curingNote:o.appointment.curing?.note??'',
+    confirmed:Boolean(o.appointment.confirmation)||!CONFIRMABLE.includes(o.status),confirmedAt:o.appointment.confirmation?.at??null,confirmedHow:o.appointment.confirmation?.mode??null,
+    // Der Kunde unterschreibt genau diesen Stand; der Server prüft den Hash beim Absenden.
+    snapshotHash:digest(JSON.stringify(appointmentSnapshot(o))),canConfirm:!o.appointment.confirmation&&CONFIRMABLE.includes(o.status)}:null;
   const done=['Erledigt','Bezahlt'].includes(o.status);
   return {
-    id:o.id,wg:o.wg,status:o.status,statusText:STATUS_TEXT[o.status]??o.status,step:STEP_OF[o.status]??null,steps:STEPS,closed:CLOSED.includes(o.status),restricted:false,canReschedule:Boolean(a)&&RESCHEDULE.includes(o.status),
+    id:o.id,wg:o.wg,status:o.status,statusText:o.status==='Angenommen'&&o.appointment&&!o.appointment.confirmation?'Ihr Termin ist vorgeschlagen. Bitte bestätigen Sie ihn mit Ihrer Unterschrift.':STATUS_TEXT[o.status]??o.status,step:STEP_OF[o.status]??null,steps:STEPS,closed:CLOSED.includes(o.status),restricted:false,canReschedule:Boolean(a)&&RESCHEDULE.includes(o.status),
     createdAt:o.createdAt??null,vehicle:o.source?.vehicle??'',plate:o.source?.plate??'',package:packages.find(p=>p.id===packageOf(o))?.name??o.source?.package??'',vehicleClass:classOf(o)?.label??o.source?.vehicleClass??'',
     desiredDate:o.source?.desiredDate??'',delivery:o.source?.delivery??'',appointment:a,offer:offerView(o),todo,documents,invoice,
     ...await (async()=>{const requests=await requestsOf(env,o.id);return {extras:availableExtras(o,requestedExtras(requests)),requests};})(),
@@ -112,10 +118,10 @@ async function portalOrder(env,o,config,preview){
   };
 }
 function company(){return {name:COMPANY.name,owner:COMPANY.owner,street:COMPANY.street,city:COMPANY.city,phone:COMPANY.phone,email:COMPANY.email};}
-async function readJSON(request){
+async function readJSON(request,max=8000){
   need(request.headers.get('origin')===new URL(request.url).origin,'Ungültiger Ursprung.',403);
   need(request.headers.get('content-type')?.startsWith('application/json'),'JSON-Eingabe erforderlich.',415);
-  const raw=await request.text();need(raw.length<8000,'Anfrage zu groß.',413);
+  const raw=await request.text();need(raw.length<max,'Anfrage zu groß.',413);
   try{const value=JSON.parse(raw);need(value&&typeof value==='object','Ungültige Eingabe.');return value;}catch(error){if(error instanceof AppError)throw error;throw new AppError('Ungültige Eingabe.',400);}
 }
 const euro=cents=>(cents/100).toFixed(2).replace('.',',')+' €';
@@ -156,7 +162,8 @@ export async function handlePortal(env,request,identity,isOwner){
   need(request.method==='POST','Methode nicht erlaubt.',405);
   need(!isOwner,'Betreibervorschau: Aktionen führt nur der Kunde selbst aus.',403);
   assertRecordOperation(o,'customer-document');
-  const input=await readJSON(request);
+  // Eine Unterschrift als PNG braucht mehr Platz als die übrigen Formulare.
+  const input=await readJSON(request,op==='termin-bestaetigen'?450000:8000);
   if(op==='chat'){
     const chat=await portalChat(env,o.id,now);
     return json(chat);
@@ -178,6 +185,18 @@ export async function handlePortal(env,request,identity,isOwner){
     await env.DB.prepare("INSERT INTO portal_requests(id,order_id,kind,data,created_at) VALUES(?,?,'extras',?,?)").bind(id,o.id,JSON.stringify(data),at).run();
     await portalNotice(env,o.id,'Zusatzleistungen über das Kundenportal angefragt (noch nicht gebucht):\n'+chosen.map(e=>'• '+e.name+' – '+(e.inspect?'ab ':'')+euro(e.priceCents)).join('\n')+(note?'\n\nHinweis: '+note:''),now).catch(()=>null);
     return json({ok:true,id,message:'Danke! Ihre Anfrage ist bei uns. Wir prüfen sie und senden Ihnen ein ergänztes Angebot zur Unterschrift hier ins Portal.'});
+  }
+  if(op==='termin-bestaetigen'){
+    if(o.appointment&&(o.appointment.confirmation||o.status==='Termin verbindlich'))return json({ok:true,message:'Ihr Termin ist bereits bestätigt.'});
+    need(o.appointment&&CONFIRMABLE.includes(o.status),'Für diesen Auftrag gibt es keinen Termin zum Bestätigen.',409);
+    need(input.confirmed===true,'Bitte bestätigen Sie den angezeigten Termin.');
+    need(input.snapshotHash===digest(JSON.stringify(appointmentSnapshot(o))),'Der Termin wurde inzwischen geändert. Bitte die Seite neu laden und den aktuellen Termin bestätigen.',409);
+    const operationId=randomUUID(),guard={sql:"EXISTS(SELECT 1 FROM orders WHERE id=? AND version=? AND json_extract(data,'$.operationId')=?)",params:[o.id,o.version+1,operationId]};
+    const signature=await storeDataSignature(env,o.id,input.signature,'signature',guard);
+    const updated=transition(o,'confirmAppointment',{signature:signature.id,confirmed:true,snapshotHash:input.snapshotHash,customerName:input.customerName},new Date(now).toISOString(),'customer');updated.operationId=operationId;
+    try{await saveOrder(env,updated,o.version,'Kunde hat den Termin im Kundenportal bestätigt und unterschrieben','customer',[signature.statement]);}catch(error){await env.BUCKET.delete(signature.id);throw error;}
+    await portalNotice(env,o.id,'Termin im Kundenportal bestätigt und unterschrieben.',now).catch(()=>null);
+    return json({ok:true,message:'Vielen Dank! Ihr Termin ist jetzt verbindlich bestätigt.'});
   }
   if(op==='termin'){
     need(o.appointment&&RESCHEDULE.includes(o.status),'Für diesen Auftrag kann kein Terminwunsch mehr gesendet werden.',409);

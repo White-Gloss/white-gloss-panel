@@ -158,3 +158,20 @@ test('Codex review: no duplicate extra requests, restricted orders serve no file
   assert.equal((await f.get('/api/portal/o/'+blocked.id+'/pdf/acceptance',f.customer)).status,409);
   assert.equal((await f.get('/api/portal/o/'+blocked.id+'/rechnung.pdf',f.customer)).status,409);
 });
+
+test('customer confirms a proposed appointment with signature in the portal',async t=>{
+  const f=await fixture(t),o=await order(f.env,{status:'Angenommen',extra:{acceptance:{at:new Date().toISOString()},appointment:{start:'2030-10-14T07:00:00.000Z',end:'2030-10-14T10:00:00.000Z',duration:180,delivery:'Kunde bringt',location:''}}});
+  let view=(await f.ok(await f.get('/api/portal/me',f.customer))).orders[0];
+  assert.ok(view.todo.some(x=>x.kind==='confirm-appointment'));assert.equal(view.appointment.confirmed,false);assert.equal(view.appointment.canConfirm,true);
+  const route='/api/portal/o/'+o.id+'/termin-bestaetigen';
+  assert.equal((await f.post(route,f.customer,{signature,confirmed:true,snapshotHash:'veraltet'})).status,409);
+  assert.equal((await f.post(route,f.customer,{confirmed:true,snapshotHash:view.appointment.snapshotHash})).status,400,'signature required');
+  assert.equal((await f.post(route,f.customer,{signature,confirmed:false,snapshotHash:view.appointment.snapshotHash})).status,400);
+  assert.equal((await f.post(route,f.owner,{signature,confirmed:true,snapshotHash:view.appointment.snapshotHash})).status,403,'owner preview cannot sign');
+  assert.equal((await f.post(route,f.stranger,{signature,confirmed:true,snapshotHash:view.appointment.snapshotHash})).status,403);
+  await f.ok(await f.post(route,f.customer,{signature,confirmed:true,customerName:'Erika Muster',snapshotHash:view.appointment.snapshotHash}));
+  const saved=await getOrder(f.env,o.id);assert.equal(saved.status,'Termin verbindlich');assert.equal(saved.appointment.confirmation.mode,'online');
+  assert.ok(await f.env.DB.prepare("SELECT id FROM assets WHERE id=? AND order_id=? AND kind='signature'").bind(saved.appointment.confirmation.signature,o.id).first(),'signature stored with the order');
+  view=(await f.ok(await f.get('/api/portal/me',f.customer))).orders[0];assert.equal(view.appointment.confirmed,true);assert.ok(!view.todo.some(x=>x.kind==='confirm-appointment'));
+  assert.match((await f.ok(await f.post(route,f.customer,{signature,confirmed:true,snapshotHash:view.appointment.snapshotHash}))).message,/bereits/);
+});

@@ -71,6 +71,12 @@ function applyDocument(o,kind,content,acceptance,now){
 export const documentBaseSnapshot=(o,kind)=>JSON.stringify(kind==='offer'?{offer:o.offer??null,acceptance:o.acceptance??null}:{document:o[kind]??null});
 export function assertPendingDocument(o,kind){need(['offer','intake','return'].includes(kind),'Unbekanntes Dokument.');const pending=o.pending?.[kind];need(pending,'Kein offenes Dokument zur Unterschrift.',404);need(!pending.baseSnapshot||pending.baseSnapshot===documentBaseSnapshot(o,kind),'Das Ausgangsdokument wurde verändert. Bitte einen neuen Entwurf zur Unterschrift erstellen.',409);return pending;}
 function clearPendingDocument(o,kind,now){if(!o.pending?.[kind])return;history(o,'pendingHistory',{kind,...o.pending[kind],discardedAt:now});const {[kind]:_removed,...rest}=o.pending;o.pending=rest;}
+// Freigabe ohne Kundenunterschrift: nur durch den Betreiber, mit Grund, dauerhaft protokolliert.
+function ownerRelease(input,now,what){need(input.release===true,what+' braucht die Unterschrift des Kunden – oder deine ausdrückliche Freigabe ohne Unterschrift.',409);const reason=text(input.releaseReason,300);need(reason.length>=3,'Bitte einen Grund für die Freigabe ohne Unterschrift angeben.');return {by:'owner',at:now,reason};}
+// Ein Termin ist verbindlich, sobald der Kunde ihn bestätigt (Unterschrift) oder der Betreiber ihn freigibt.
+export const appointmentConfirmed=o=>Boolean(o.appointment?.confirmation);
+const sameAppointment=(a,b)=>Boolean(a&&b)&&a.start===b.start&&a.duration===b.duration&&a.delivery===b.delivery&&a.location===b.location;
+export function appointmentSnapshot(o){const a=o.appointment;return a?{wg:o.wg,start:a.start,end:a.end,duration:a.duration,delivery:a.delivery,location:a.location??''}:null;}
 export function transition(order,action,input,now=new Date().toISOString(),role='owner') {
   const o=structuredClone(order); const status=o.status; input=input??{};
   // Freeze legacy accepted data before the first edit can change its document.
@@ -82,19 +88,37 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     if(o.offer&&!offerSigned(o)){history(o,'offerHistory',{offer:o.offer,acceptance:o.acceptance??null,replacedAt:now});o.offer={...structuredClone(o.assessment),createdAt:o.offer.createdAt,expiresAt:o.offer.expiresAt,editedAt:now};}
   }
   else if(action==='confirm') { need(['Preise prüfen','Abgelaufen'].includes(status)&&!o.acceptance,'Das Angebot ist bereits freigegeben.',409); if(o.offer)history(o,'offerHistory',{offer:o.offer,acceptance:null,replacedAt:now}); o.offer={...structuredClone(o.assessment??emptyAssessment()),createdAt:now,expiresAt:new Date(Date.parse(now)+14*86400000).toISOString()}; o.status='Angebot offen'; }
-  else if(action==='accept') { need(role==='customer','Annahme ist ausschließlich dem Kunden vorbehalten.',403); if(status==='Angenommen') return o; need(status==='Angebot offen'&&!o.acceptance&&Date.parse(o.offer.expiresAt)>Date.parse(now),'Angebot geschlossen oder abgelaufen.',409); need(input.signature&&input.snapshotHash&&input.paymentObligation===true,'Eigene Unterschrift und zahlungspflichtige Annahme sind erforderlich.'); o.acceptance=acceptanceSnapshot(o,o.offer,{signature:input.signature,snapshotHash:input.snapshotHash,at:now,mode:'online',...consents(input)}); o.status='Angenommen'; }
+  else if(action==='accept') { need(role==='customer','Annahme ist ausschließlich dem Kunden vorbehalten.',403); if(status==='Angenommen') return o; need(status==='Angebot offen'&&!o.acceptance&&Date.parse(o.offer.expiresAt)>Date.parse(now),'Angebot geschlossen oder abgelaufen.',409); need(input.signature&&input.snapshotHash&&input.paymentObligation===true,'Eigene Unterschrift und zahlungspflichtige Annahme sind erforderlich.'); o.acceptance=acceptanceSnapshot(o,o.offer,{signature:input.signature,snapshotHash:input.snapshotHash,at:now,mode:'online',...consents(input)}); o.status=appointmentConfirmed(o)?'Termin verbindlich':'Angenommen'; }
   else if(action==='onsiteAccept') {
     // The customer signs in person on the operator's device. A signed offer is only replaced by a new signature.
     const signature=text(input.signature,100)||null;
+    const release=signature?null:ownerRelease(input,now,'Die Annahme des Angebots');
     const signed=offerSigned(o);need(!signed||signature,'Ein unterschriebenes Angebot bleibt erhalten. Für Änderungen unterschreibt der Kunde ein Ersatzangebot.',409);
     const base=signed?(o.assessment??emptyAssessment()):(o.offer??o.assessment??emptyAssessment());const previous=signed?{at:o.acceptance.at,signedAt:o.acceptance.at,offerCreatedAt:o.offer?.createdAt??null,snapshotHash:o.acceptance.snapshotHash??null}:null;
     const offer={...structuredClone(base),createdAt:signed||!o.offer?now:o.offer.createdAt,expiresAt:signed||!o.offer?now:o.offer.expiresAt,...(previous?{replaces:previous}:{})};
-    applyDocument(o,'offer',offer,{mode:'vor Ort',at:now,signature,customerName:text(input.customerName,180),...consents(input),snapshotHash:text(input.snapshotHash,128)||null,...(previous?{replaces:previous}:{})},now);
-    if(BEFORE_ACCEPT.includes(status))o.status='Angenommen';
+    applyDocument(o,'offer',offer,{mode:release?'ohne Unterschrift freigegeben':'vor Ort',at:now,signature,customerName:text(input.customerName,180),...consents(input),snapshotHash:text(input.snapshotHash,128)||null,...(release?{release}:{}),...(previous?{replaces:previous}:{})},now);
+    if(BEFORE_ACCEPT.includes(status))o.status=appointmentConfirmed(o)?'Termin verbindlich':'Angenommen';
   }
   else if(action==='appointment') {
-    if(!text(input.start)){o.appointment=null;}
-    else{const duration=input.duration===undefined||input.duration===null||input.duration===''?120:input.duration;need(Number.isInteger(duration)&&duration>=15&&duration<=4320,'Dauer: 15 Minuten bis 3 Tage.');const delivery=text(input.delivery,40)||'Kunde bringt';need(['Abholung','Kunde bringt'].includes(delivery),'Übergabeart ist ungültig.');const start=optionalTime(input.start);o.appointment={start,end:new Date(Date.parse(start)+duration*60000).toISOString(),duration,delivery,location:text(input.location,600)};if(status==='Angenommen')o.status='Termin verbindlich';}
+    if(!text(input.start)){if(o.appointment)history(o,'appointmentHistory',{...o.appointment,replacedAt:now});o.appointment=null;if(status==='Termin verbindlich'){history(o,'statusHistory',{from:status,to:'Angenommen',at:now,reason:'Termin entfernt'});o.status='Angenommen';}}
+    else{const duration=input.duration===undefined||input.duration===null||input.duration===''?120:input.duration;need(Number.isInteger(duration)&&duration>=15&&duration<=4320,'Dauer: 15 Minuten bis 3 Tage.');const delivery=text(input.delivery,40)||'Kunde bringt';need(['Abholung','Kunde bringt'].includes(delivery),'Übergabeart ist ungültig.');const start=optionalTime(input.start),previous=o.appointment;o.appointment={start,end:new Date(Date.parse(start)+duration*60000).toISOString(),duration,delivery,location:text(input.location,600)};
+      // Ein unveränderter Termin behält seine Bestätigung; jede Änderung braucht eine neue.
+      if(sameAppointment(previous,o.appointment)&&previous.confirmation)o.appointment.confirmation=previous.confirmation;
+      // Termine, die schon vor Einführung der Kundenbestätigung verbindlich waren, bleiben es beim unveränderten Speichern.
+      else if(sameAppointment(previous,o.appointment)&&status==='Termin verbindlich')o.appointment.confirmation={mode:'bereits verbindlich (vor Einführung der Bestätigung)',at:now,legacy:true};
+      else if(previous?.confirmation)history(o,'appointmentHistory',{...previous,replacedAt:now});
+      if(input.release===true)o.appointment.confirmation={mode:'ohne Unterschrift freigegeben',at:now,release:ownerRelease(input,now,'Der Termin')};
+      if(status==='Angenommen'&&appointmentConfirmed(o))o.status='Termin verbindlich';
+      if(status==='Termin verbindlich'&&!appointmentConfirmed(o)){history(o,'statusHistory',{from:status,to:'Angenommen',at:now,reason:'Termin geändert – neue Bestätigung des Kunden nötig'});o.status='Angenommen';}}
+  }
+  else if(action==='confirmAppointment') {
+    need(o.appointment,'Es gibt keinen Termin zum Bestätigen.',409);need(!['Abgelehnt','Storniert','Abgelaufen','In Arbeit','Erledigt','Bezahlt'].includes(status),'Der Termin kann in diesem Auftragsstand nicht mehr bestätigt werden.',409);
+    if(appointmentConfirmed(o))return o;
+    const signature=text(input.signature,100);
+    if(role==='customer'){need(signature&&input.confirmed===true&&input.snapshotHash,'Bitte den angezeigten Termin bestätigen und unterschreiben.');o.appointment.confirmation={mode:'online',at:now,signature,snapshotHash:text(input.snapshotHash,128),customerName:text(input.customerName,180)};}
+    else if(signature){need(input.inPerson===true,'Nur der Kunde unterschreibt die Terminbestätigung.',403);o.appointment.confirmation={mode:'vor Ort',at:now,signature,snapshotHash:text(input.snapshotHash,128)||null,customerName:text(input.customerName,180)};}
+    else o.appointment.confirmation={mode:'ohne Unterschrift freigegeben',at:now,release:ownerRelease(input,now,'Der Termin')};
+    if(status==='Angenommen')o.status='Termin verbindlich';
   }
   else if(action==='intake'||action==='return') {
     const current=o[action];
@@ -156,7 +180,12 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     o.source={...o.source,...changes};o.sourceEdited=true;
   }
   else if(action==='setStatus') {
-    need(STATES.includes(input.status),'Unbekannter Status.');history(o,'statusHistory',{from:status,to:input.status,at:now,reason:text(input.reason)});
+    need(STATES.includes(input.status),'Unbekannter Status.');
+    // Ein Statussprung über fehlende Kundenunterschriften hinweg ist eine Freigabe: nur mit Grund.
+    const skipsAcceptance=!o.acceptance&&['Angenommen','Termin verbindlich','In Arbeit','Erledigt','Bezahlt'].includes(input.status)&&!['Angenommen','Termin verbindlich','In Arbeit','Erledigt','Bezahlt'].includes(status);
+    const skipsAppointment=input.status==='Termin verbindlich'&&o.appointment&&!appointmentConfirmed(o);
+    if(skipsAcceptance||skipsAppointment){need(text(input.reason).length>=3,skipsAcceptance?'Ohne Unterschrift des Kunden unter dem Angebot bitte einen Grund für die Freigabe angeben.':'Der Termin ist noch nicht vom Kunden bestätigt. Bitte einen Grund für die Freigabe angeben.');if(skipsAppointment)o.appointment.confirmation={mode:'ohne Unterschrift freigegeben',at:now,release:{by:'owner',at:now,reason:text(input.reason,300)}};if(skipsAcceptance)o.acceptanceRelease={by:'owner',at:now,reason:text(input.reason,300),status:input.status};}
+    history(o,'statusHistory',{from:status,to:input.status,at:now,reason:text(input.reason)});
     // A status set by hand is kept; payments no longer move it back automatically.
     o.status=input.status;o.paidManually=o.status==='Bezahlt';if(['Erledigt','Bezahlt'].includes(o.status))o.completedAt??=now;
   }
@@ -171,5 +200,6 @@ export function dueJobs(o,now=Date.now()) {
   return out;
 }
 export function nextStep(o) {
+  if(o.status==='Angenommen'&&o.appointment&&!appointmentConfirmed(o))return 'Terminbestätigung des Kunden abwarten (Kundenportal) oder vor Ort unterschreiben lassen';
   return ({'Preise prüfen':'Fahrzeugzustand und Preise prüfen','Angebot offen':'Auf persönliche Kundenannahme warten','Angenommen':'Verbindlichen Termin festlegen','Termin verbindlich':'Fahrzeugannahme vollständig dokumentieren','In Arbeit':'Arbeit abschließen und Rückgabe dokumentieren','Erledigt':'Schlussrechnung erstellen und Zahlung erfassen','Bezahlt':'Auftrag abgeschlossen'})[o.status]??'Auftrag geschlossen';
 }

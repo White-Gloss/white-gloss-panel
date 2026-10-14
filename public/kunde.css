@@ -124,3 +124,13 @@
   .portal-facts dd{margin-top:-6px}
 }
 @media (prefers-reduced-motion:reduce){.portal-page *{scroll-behavior:auto!important}}
+/* Terminbestätigung: Stand immer als Zeichen und Text */
+.portal-confirmed,.portal-pending{display:inline-flex;align-items:center;gap:6px;margin:0 0 10px;padding:4px 10px;border-radius:999px;font-size:13px;font-weight:600}
+.portal-confirmed{background:#e6f2ec;color:var(--ok)}
+.portal-pending{background:#fbf6ee;color:#7a5d2c;border:1px dashed #c9a86a}
+.portal-confirm{margin-top:12px;padding:14px;border:1px solid #c7d6e6;border-radius:12px;background:#f5f9fd}
+.portal-confirm input[name=customerName]{width:100%;font-size:16px;border:1px solid var(--line);border-radius:10px;padding:10px}
+.portal-confirm .signaturebox{margin:10px 0}
+.portal-confirm canvas.signature{width:100%;max-width:100%;touch-action:none;background:#fff;border:1px solid var(--line);border-radius:10px}
+.portal-check{display:flex;gap:10px;align-items:flex-start;font-size:14px;margin:10px 0}
+.portal-check input{width:20px;height:20px;flex:none;margin:1px 0 0}

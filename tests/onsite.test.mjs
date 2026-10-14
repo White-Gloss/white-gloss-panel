@@ -41,7 +41,7 @@ test('on-site booking stores customer, price, personal signature and immediate s
   const r=await req(e,'onsite',{synthetic:true,customerId:c.id,source:{vehicle:'Zweitwagen'},assessment:{lines},acceptance:{signature},appointment:{start:o.appointment.start}});assert.equal(r.status,409);
   assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM orders').get().n,1);assert.equal(e.files.size,1);
   // Without signature or price the booking is still possible (no required fields).
-  const bare=await ok(e,'onsite',{synthetic:true,source:{name:'Ohne Angaben'},appointment:{skip:true}});assert.equal(bare.status,'Angenommen');assert.equal(bare.offer.totalCents,0);
+  const bare=await ok(e,'onsite',{synthetic:true,source:{name:'Ohne Angaben'},acceptance:{release:true,releaseReason:'Test ohne Unterschrift'},appointment:{skip:true}});assert.equal(bare.status,'Angenommen');assert.equal(bare.offer.totalCents,0);
 });
 
 test('real on-site orders still respect the WG number audit',async t=>{const e=env(t);assert.equal((await req(e,'onsite',{source:{name:'Echt'}})).status,409);});
@@ -126,7 +126,7 @@ test('IONOS runtime serves the Vor-Ort app, its manifest and customer document l
 });
 
 test('review fixes: signatureless acceptance stays editable, corrections respect overpayment, receipts and vehicle versions are checked',async t=>{
-  const e=env(t);let o=await ok(e,'onsite',{synthetic:true,source:{name:'Ohne Unterschrift'},assessment:{lines},appointment:{skip:true}});assert.equal(o.acceptance.signature,null);
+  const e=env(t);let o=await ok(e,'onsite',{synthetic:true,source:{name:'Ohne Unterschrift'},assessment:{lines},acceptance:{release:true,releaseReason:'Test ohne Unterschrift'},appointment:{skip:true}});assert.equal(o.acceptance.signature,null);
   o=await ok(e,'action',{id:o.id,version:o.version,action:'price',input:{lines:[lines[0]]}});assert.equal(o.offer.totalCents,43625);
   assert.equal((await req(e,'action',{id:o.id,version:o.version,action:'replacement',input:{kind:'offer'}})).status,409);
   o=await ok(e,'action',{id:o.id,version:o.version,action:'onsiteAccept',input:{signature}});assert.ok(o.acceptance.signature);assert.equal(o.offer.replaces,undefined);
@@ -151,7 +151,7 @@ test('on-site bookings are checked against the business calendar before they are
   const e=env(t);const calls=[];e.operations={validateAppointment:async(_env,order)=>{calls.push(order.appointment.start);throw Object.assign(new (await import('../src/domain.mjs')).AppError('Dieser Zeitraum ist im geschäftlichen Google-Kalender bereits belegt.',409));}};
   const r=await req(e,'onsite',{synthetic:true,source:{name:'Kalender'},assessment:{lines},acceptance:{signature}});assert.equal(r.status,409);assert.equal(calls.length,1);
   assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM orders').get().n,0);assert.equal(e.files.size,0);
-  assert.equal((await req(e,'onsite',{synthetic:true,source:{name:'Ohne Termin'},appointment:{skip:true}})).status,200);assert.equal(calls.length,1);
+  assert.equal((await req(e,'onsite',{synthetic:true,source:{name:'Ohne Termin'},acceptance:{release:true,releaseReason:'Test ohne Unterschrift'},appointment:{skip:true}})).status,200);assert.equal(calls.length,1);
 });
 
 test('second review round: cancelled payments stay cancelled, consent opt-out wins, parallel signatures leave one file row',async t=>{

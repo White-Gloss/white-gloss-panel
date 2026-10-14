@@ -2,6 +2,7 @@
 // und sieht nur Aufträge mit seiner E-Mail-Adresse. Der Betreiber öffnet mit ?vorschau=<Auftrag>
 // eine schreibgeschützte Vorschau.
 import {mountConversation,esc} from './chat-ui.js';
+import {signatureBox,mountSignatures} from './signature.js';
 const app=document.querySelector('#app');
 const params=new URLSearchParams(location.search),previewId=params.get('vorschau');
 const loginUrl='/auth/login?returnTo='+encodeURIComponent('/kunde');
@@ -16,7 +17,7 @@ const INVOICE_STATUS={open:'Offen',overdue:'Überfällig',paid:'Bezahlt',cancele
 const REQUEST_STATUS={offen:'Angefragt – wir prüfen',übernommen:'Übernommen – ergänztes Angebot folgt',erledigt:'Erledigt',abgelehnt:'Leider nicht möglich'};
 const icon=path=>`<svg class="portal-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>`;
 const ICONS={doc:'M6 3h8l4 4v14H6zM14 3v5h4M9 13h6M9 17h6',down:'M12 4v11M7 10l5 5 5-5M5 20h14',sign:'M4 18c3-6 5-9 7-9s-1 9 2 9 3-4 4-4 1 2 3 2M4 21h16',star:'M12 3l2.6 5.5 6 .7-4.5 4.1 1.2 5.9L12 16.3 6.7 19.2l1.2-5.9L3.4 9.2l6-.7z',phone:'M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2',mail:'M3 6h18v12H3zM3 7l9 6 9-6',cal:'M4 5h16v16H4zM8 3v4M16 3v4M4 10h16',camera:'M4 8h4l2-3h4l2 3h4v11H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8',plus:'M12 5v14M5 12h14'};
-let data=null,selectedId=null,chat=null;
+let data=null,selectedId=null,chat=null,pads={};
 
 async function api(path,body){
   const r=await fetch('/api/portal/'+path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),credentials:'same-origin'});
@@ -48,6 +49,8 @@ function render(){
     ${o?orderView(o):'<section class="portal-card"><h2>Noch kein Auftrag</h2><p>Unter dieser E-Mail-Adresse gibt es keinen aktiven Auftrag. Neue Anfragen stellen Sie auf <a href="https://white-gloss.de">white-gloss.de</a>.</p></section>'}
   </main>
   <footer class="portal-foot"><strong>${esc(data.company.name)}</strong><span>${esc(data.company.owner)}, ${esc(data.company.street)}, ${esc(data.company.city)}</span><span><a href="tel:${esc(tel(data.company.phone))}">${esc(data.company.phone)}</a> · <a href="mailto:${esc(data.company.email)}">${esc(data.company.email)}</a></span></footer></div>`;
+  // Unterschriftsfeld nur im Bestätigungsformular; es wird bei jedem Neuzeichnen ersetzt.
+  const confirmBox=app.querySelector('.portal-confirm');pads=confirmBox?mountSignatures(confirmBox):{};
 }
 const tel=phone=>String(phone??'').replace(/[^\d+]/g,'').replace(/^0/,'+49');
 
@@ -66,16 +69,19 @@ function hero(o){
 }
 function todo(o){
   if(!o.todo.length)return '';
-  return `<section class="portal-card portal-todo"><h2>Für Sie zu erledigen</h2><ul>${o.todo.map(t=>`<li>${t.url?`<a class="portal-action" href="${esc(t.url)}">${icon(ICONS.sign)}<span>${esc(t.label)}</span></a>`:t.action?`<button class="portal-action" data-act="sign" data-kind="${esc(t.document)}"${data.preview?' disabled':''}>${icon(ICONS.sign)}<span>${esc(t.label)}</span></button>`:`<p class="portal-note">${esc(t.label)}</p>`}</li>`).join('')}</ul></section>`;
+  return `<section class="portal-card portal-todo"><h2>Für Sie zu erledigen</h2><ul>${o.todo.map(t=>`<li>${t.anchor?`<a class="portal-action" href="#${esc(t.anchor)}">${icon(ICONS.sign)}<span>${esc(t.label)}</span></a>`:t.url?`<a class="portal-action" href="${esc(t.url)}">${icon(ICONS.sign)}<span>${esc(t.label)}</span></a>`:t.action?`<button class="portal-action" data-act="sign" data-kind="${esc(t.document)}"${data.preview?' disabled':''}>${icon(ICONS.sign)}<span>${esc(t.label)}</span></button>`:`<p class="portal-note">${esc(t.label)}</p>`}</li>`).join('')}</ul></section>`;
 }
 function appointment(o){
   const a=o.appointment;
   if(!a)return o.closed||o.step===null||o.step>=4?'':`<section class="portal-card"><h2>Termin</h2><p>${o.desiredDate?'Ihr Wunschtermin: '+esc(day(o.desiredDate))+'. ':''}Den genauen Termin stimmen wir mit Ihnen ab und tragen ihn hier ein.</p></section>`;
   const open=o.requests.find(r=>r.kind==='termin'&&r.status==='offen');
-  return `<section class="portal-card portal-termin"><h2>Termin</h2>
+  const status=a.confirmed?`<p class="portal-confirmed"><span aria-hidden="true">✓</span> Verbindlich bestätigt${a.confirmedAt?' am '+esc(day(a.confirmedAt)):''}</p>`:`<p class="portal-pending"><span aria-hidden="true">◌</span> Vorgeschlagen – noch nicht bestätigt</p>`;
+  const confirm=a.canConfirm?`<div class="portal-confirm" id="termin-${esc(o.id)}"><p>Bitte bestätigen Sie diesen Termin mit Ihrer Unterschrift. Erst dann ist er für beide Seiten verbindlich.</p><form data-form="confirm" data-hash="${esc(a.snapshotHash)}"><label>Ihr Name<input name="customerName" maxlength="180" autocomplete="name" value="${esc(data.customer.name)}"></label>${signatureBox('confirm-sign','Ihre Unterschrift')}<label class="check portal-check"><input type="checkbox" name="confirmed"> Ich bestätige den oben angezeigten Termin verbindlich.</label><button class="primary" type="submit"${data.preview?' disabled':''}>Termin verbindlich bestätigen</button><p class="error" role="alert"></p></form></div>`:'';
+  return `<section class="portal-card portal-termin"><h2>Termin</h2>${status}
     <p class="portal-when">${icon(ICONS.cal)}<span><strong>${esc(when(a.start))}</strong>${a.end?`<span>Voraussichtlich fertig: ${esc(when(a.end))}</span>`:''}</span></p>
     <dl class="portal-facts"><div><dt>Übergabe</dt><dd>${a.delivery==='Abholung'?'Wir holen Ihr Fahrzeug ab':'Sie bringen Ihr Fahrzeug zu uns'}</dd></div>${a.location?`<div><dt>Ort</dt><dd>${esc(a.location)}</dd></div>`:''}${a.workDays>1?`<div><dt>Dauer</dt><dd>${a.workDays} Arbeitstage</dd></div>`:''}</dl>
     ${a.curingNote?`<p class="portal-note">Nach der Versiegelung: ${esc(a.curingNote)}</p>`:''}
+    ${confirm}
     ${open?`<p class="portal-note">Ihr Terminwunsch vom ${esc(day(open.createdAt))} liegt uns vor. Wir melden uns.</p>`:!o.canReschedule?'':`<details class="portal-more"><summary>Termin verschieben?</summary><form data-form="termin"><label>Ihr Wunsch<textarea name="wish" rows="3" maxlength="500" required placeholder="z. B. lieber eine Woche später, vormittags"></textarea></label><button class="primary" type="submit"${data.preview?' disabled':''}>Terminwunsch senden</button><p class="hint">Bis wir uns melden, gilt der bisherige Termin.</p><p class="error" role="alert"></p></form></details>`}
   </section>`;
 }
@@ -145,6 +151,7 @@ document.addEventListener('submit',async event=>{
     let r;
     if(form.dataset.form==='extras'){const extraIds=[...form.querySelectorAll('input[name=extra]:checked')].map(x=>x.value);if(!extraIds.length)throw Error('Bitte mindestens eine Zusatzleistung auswählen.');r=await api('o/'+selectedId+'/extras',{extraIds,note:form.elements.note.value});}
     if(form.dataset.form==='termin')r=await api('o/'+selectedId+'/termin',{wish:form.elements.wish.value});
+    if(form.dataset.form==='confirm'){const signature=pads['confirm-sign']?.dataURL();if(!form.elements.confirmed.checked)throw Error('Bitte bestätigen Sie den angezeigten Termin.');if(!signature)throw Error('Bitte unterschreiben Sie im Feld „Ihre Unterschrift“.');r=await api('o/'+selectedId+'/termin-bestaetigen',{signature,confirmed:true,customerName:form.elements.customerName.value,snapshotHash:form.dataset.hash});}
     const reopen=Boolean(chat);toast(r.message);await load();if(reopen)await openChat(false,false);
   }catch(e){error.textContent=e.message;button.disabled=false;}
 });
