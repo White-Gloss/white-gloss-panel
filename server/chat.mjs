@@ -36,6 +36,11 @@ export async function chatSchema(env){
     "CREATE TRIGGER IF NOT EXISTS no_chat_message_update BEFORE UPDATE ON chat_messages BEGIN SELECT RAISE(ABORT,'Chatnachrichten werden nicht verändert'); END",
     "CREATE TRIGGER IF NOT EXISTS no_chat_attachment_delete BEFORE DELETE ON chat_attachments WHEN OLD.message_id>0 BEGIN SELECT RAISE(ABORT,'Gesendete Chatdateien werden nicht gelöscht'); END"
   ].map(query=>env.DB.prepare(query)));
+  // Ein vom Betreiber gesperrter Kundenlink darf das Kundenportal nicht wieder öffnen.
+  const columns=(await env.DB.prepare('PRAGMA table_info(chat_threads)').all()).results.map(c=>c.name);
+  // Bestehende Chats ohne gültigen Link gelten einmalig als gesperrt: Ein früher widerrufener Link
+  // ist nicht von einem nie erstellten zu unterscheiden. „Kundenlink erstellen“ gibt ihn wieder frei.
+  if(!columns.includes('link_revoked'))await env.DB.batch([env.DB.prepare('ALTER TABLE chat_threads ADD COLUMN link_revoked INTEGER NOT NULL DEFAULT 0'),env.DB.prepare('UPDATE chat_threads SET link_revoked=1 WHERE token_hash IS NULL')]);
 }
 
 // Customer paths that the application lets through for signed-in customers.
@@ -230,8 +235,38 @@ async function serveFile(env,thread,assetId,request,customer){
 async function createLink(env,thread,renew,now){
   if(!renew){const info=await linkInfo(env,thread);if(info.active)return info;}
   const token=randomBytes(32).toString('hex');
-  await env.DB.prepare('UPDATE chat_threads SET token_hash=?,token_sealed=?,token_expires_at=? WHERE id=?').bind(digest(token),await protect(env,token),iso(now+LINK_DAYS*86400000),thread.id).run();
+  await env.DB.prepare('UPDATE chat_threads SET token_hash=?,token_sealed=?,token_expires_at=?,link_revoked=0 WHERE id=?').bind(digest(token),await protect(env,token),iso(now+LINK_DAYS*86400000),thread.id).run();
   return linkInfo(env,await threadById(env,thread.id));
+}
+
+// --- Kundenportal ---
+async function threadForOrder(env,orderId,now){
+  await env.DB.prepare('INSERT OR IGNORE INTO chat_threads(id,order_id,created_at,last_at) VALUES(?,?,?,?)').bind(randomUUID(),orderId,iso(now),iso(now)).run();
+  return env.DB.prepare('SELECT * FROM chat_threads WHERE order_id=?').bind(orderId).first();
+}
+// Der angemeldete Kunde erhält den Chat seines Auftrags. Ein gesperrter Link bleibt gesperrt.
+export async function portalChat(env,orderId,now=Date.now()){
+  const order=await getOrder(env,orderId);assertRecordOperation(order,'chat');
+  const thread=await threadForOrder(env,orderId,now);
+  if(thread.link_revoked)return {available:false,message:'Der Chat ist für diesen Auftrag derzeit nicht freigeschaltet. Bitte rufen Sie uns an oder schreiben Sie eine E-Mail.'};
+  const link=await createLink(env,thread,false,now);
+  const unread=await env.DB.prepare("SELECT COUNT(*) AS n FROM chat_messages WHERE thread_id=? AND sender='owner' AND id>?").bind(thread.id,thread.customer_read_id).first();
+  return {available:true,closed:Boolean(thread.closed),base:'/api/kundenchat/'+link.url.split('/').pop(),url:link.url,unread:Number(unread.n)};
+}
+// Hinweis aus dem Kundenportal (Zusatzleistung, Terminwunsch) als Kundennachricht im Chat,
+// damit der Betreiber ihn im Posteingang sieht und wie gewohnt benachrichtigt wird.
+export async function portalNotice(env,orderId,text,now=Date.now()){
+  const thread=await threadForOrder(env,orderId,now);if(thread.closed)return false;
+  const at=iso(now),clientId='portal-'+randomUUID(),body=String(text).slice(0,CHAT_LIMITS.text);
+  const [inserted]=await env.DB.batch([
+    env.DB.prepare("INSERT INTO chat_messages(thread_id,sender,body,client_id,created_at) SELECT ?,'customer',?,?,? WHERE EXISTS(SELECT 1 FROM chat_threads WHERE id=? AND closed=0)").bind(thread.id,body,clientId,at,thread.id),
+    // Nur der Zeitpunkt: Der Kunde hat ungelesene Betreibernachrichten damit nicht gesehen.
+    env.DB.prepare('UPDATE chat_threads SET last_at=? WHERE id=? AND EXISTS(SELECT 1 FROM chat_messages WHERE thread_id=? AND client_id=?)').bind(at,thread.id,thread.id,clientId)
+  ]);
+  if(!inserted.meta.changes)return false;
+  wake(thread.id);
+  const task=notifyThread(env,thread.id,Date.now()).catch(error=>setting(env,'chatNotifyError',String(error?.message??error)).catch(()=>{}));inflight.add(task);task.finally(()=>inflight.delete(task));
+  return true;
 }
 
 async function sendMail(config,{to,subject,text,key,beforeSend}){
@@ -384,7 +419,7 @@ export async function handleChat(env,request,identity,isOwner){
   if(rest[0]==='message'&&rest.length===1)return json(await postMessage(env,thread,'owner',request,now,fileUrl));
   if(rest[0]==='link'&&rest.length===1){
     const input=await readJSON(env,request);
-    if(input.action==='revoke'){await env.DB.prepare('UPDATE chat_threads SET token_hash=NULL,token_sealed=NULL,token_expires_at=NULL WHERE id=?').bind(thread.id).run();return json({link:{active:false,url:null,expiresAt:null}});}
+    if(input.action==='revoke'){await env.DB.prepare('UPDATE chat_threads SET token_hash=NULL,token_sealed=NULL,token_expires_at=NULL,link_revoked=1 WHERE id=?').bind(thread.id).run();return json({link:{active:false,url:null,expiresAt:null}});}
     need(['create','renew'].includes(input.action),'Unbekannte Aktion.');
     return json({link:await createLink(env,thread,input.action==='renew',now)});
   }

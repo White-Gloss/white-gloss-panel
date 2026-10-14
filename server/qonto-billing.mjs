@@ -706,7 +706,8 @@ export function invoiceMail(env, order, kind, today = berlinDay()) {
     portal = env.PANEL_ORIGIN && inv.portalToken ? env.PANEL_ORIGIN + "/rechnung/" + inv.portalToken : "",
     links =
       (inv.url && inv.status === "unpaid" ? "\n\nRechnung online ansehen und bezahlen:\n" + inv.url : "") +
-      (portal ? "\n\nIhr Kundenbereich mit allen Rechnungsdaten (Anmeldung mit Ihrer E-Mail-Adresse):\n" + portal : ""),
+      (portal ? "\n\nIhr Kundenbereich mit allen Rechnungsdaten (Anmeldung mit Ihrer E-Mail-Adresse):\n" + portal : "") +
+      (portal ? "\n\nAlle Aufträge, Dokumente und Nachrichten finden Sie in Ihrem Kundenportal:\n" + env.PANEL_ORIGIN + "/kunde" : ""),
     signature =
       "\n\nBei Rückfragen antworten Sie bitte auf diese E-Mail.\n\nMit freundlichen Grüßen\n" +
       [COMPANY.name, COMPANY.owner, COMPANY.street, COMPANY.city, COMPANY.phone, COMPANY.email].join("\n");
@@ -729,6 +730,7 @@ export function invoiceMail(env, order, kind, today = berlinDay()) {
           ({ Bar: " (bar)", Karte: " (Karte)", Überweisung: " (Überweisung)" }[inv.paymentMethod] ?? "") +
           "; die Rechnung gilt zugleich als Quittung." +
           (portal ? "\n\nIhr Kundenbereich (Anmeldung mit Ihrer E-Mail-Adresse):\n" + portal : "") +
+          (portal ? "\n\nAlle Aufträge, Dokumente und Nachrichten finden Sie in Ihrem Kundenportal:\n" + env.PANEL_ORIGIN + "/kunde" : "") +
           signature,
       };
     return {

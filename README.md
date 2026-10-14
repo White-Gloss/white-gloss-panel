@@ -62,6 +62,7 @@ Commit zugeordnet werden.
 
 Website, Resend und Google wurden in der getrennten IONOS-Installation verbunden.
 Rechnungen laufen über Qonto (Rechnung mit 7 Tagen Zahlungsziel oder Quittung, Mahnwesen, Zahlungsabgleich, Kundenbereich).
+Kunden haben unter `/kunde` ein eigenes Kundenportal mit Status, Termin, Dokumenten, Rechnung, Chat und Zusatzleistungs-Anfragen (siehe `docs/Kundenportal.md`).
 Der Qonto-Zugang und die neue IONOS-Veröffentlichung benötigen
 eigene tatsächliche Nachweise. Der unabhängige Dienst und die Timer sind installiert. Der vollständige
 historische WG-Nummernabgleich bleibt eine gesonderte Voraussetzung für echte neue
