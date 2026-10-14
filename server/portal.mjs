@@ -93,7 +93,7 @@ async function portalOrder(env,o,config,preview){
   if(restricted)return {id:o.id,wg:o.wg,status:o.status,statusText:'Dieser Vorgang ist derzeit gesperrt. Bitte kontaktieren Sie uns telefonisch oder per E-Mail.',step:null,steps:STEPS,closed:true,restricted:true,vehicle:o.source?.vehicle??'',plate:'',package:'',createdAt:null,appointment:null,offer:null,todo:[],documents:[],invoice:null,extras:[],requests:[],review:null,canReschedule:false};
   /** @type {{kind:string,label:string,at:string|null,signed:boolean|null,url:string}[]} */
   const documents=[];const pdf=kind=>'/api/portal/o/'+o.id+'/pdf/'+kind;
-  if(o.acceptance)documents.push({kind:'acceptance',label:DOCUMENT_LABEL.acceptance,at:o.acceptance.at??null,signed:null,url:pdf('acceptance')});
+  if(o.acceptance)documents.push({kind:'acceptance',label:o.acceptance.release?'Auftragsbestätigung':DOCUMENT_LABEL.acceptance,at:o.acceptance.at??null,signed:null,url:pdf('acceptance')});
   for(const kind of ['intake','return'])if(o[kind])documents.push({kind,label:DOCUMENT_LABEL[kind],at:o[kind].signedAt??o[kind].at??o[kind].savedAt??null,signed:Boolean(o[kind].customerSignature),url:pdf(kind)});
   const todo=[];
   {

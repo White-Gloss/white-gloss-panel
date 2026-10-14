@@ -88,7 +88,7 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     if(o.offer&&!offerSigned(o)){history(o,'offerHistory',{offer:o.offer,acceptance:o.acceptance??null,replacedAt:now});o.offer={...structuredClone(o.assessment),createdAt:o.offer.createdAt,expiresAt:o.offer.expiresAt,editedAt:now};}
   }
   else if(action==='confirm') { need(['Preise prüfen','Abgelaufen'].includes(status)&&!o.acceptance,'Das Angebot ist bereits freigegeben.',409); if(o.offer)history(o,'offerHistory',{offer:o.offer,acceptance:null,replacedAt:now}); o.offer={...structuredClone(o.assessment??emptyAssessment()),createdAt:now,expiresAt:new Date(Date.parse(now)+14*86400000).toISOString()}; o.status='Angebot offen'; }
-  else if(action==='accept') { need(role==='customer','Annahme ist ausschließlich dem Kunden vorbehalten.',403); if(status==='Angenommen') return o; need(status==='Angebot offen'&&!o.acceptance&&Date.parse(o.offer.expiresAt)>Date.parse(now),'Angebot geschlossen oder abgelaufen.',409); need(input.signature&&input.snapshotHash&&input.paymentObligation===true,'Eigene Unterschrift und zahlungspflichtige Annahme sind erforderlich.'); o.acceptance=acceptanceSnapshot(o,o.offer,{signature:input.signature,snapshotHash:input.snapshotHash,at:now,mode:'online',...consents(input)}); o.status=appointmentConfirmed(o)?'Termin verbindlich':'Angenommen'; }
+  else if(action==='accept') { need(role==='customer','Annahme ist ausschließlich dem Kunden vorbehalten.',403); if(o.acceptance&&['Angenommen','Termin verbindlich'].includes(status)) return o; need(status==='Angebot offen'&&!o.acceptance&&Date.parse(o.offer.expiresAt)>Date.parse(now),'Angebot geschlossen oder abgelaufen.',409); need(input.signature&&input.snapshotHash&&input.paymentObligation===true,'Eigene Unterschrift und zahlungspflichtige Annahme sind erforderlich.'); o.acceptance=acceptanceSnapshot(o,o.offer,{signature:input.signature,snapshotHash:input.snapshotHash,at:now,mode:'online',...consents(input)}); o.status=appointmentConfirmed(o)?'Termin verbindlich':'Angenommen'; }
   else if(action==='onsiteAccept') {
     // The customer signs in person on the operator's device. A signed offer is only replaced by a new signature.
     const signature=text(input.signature,100)||null;
@@ -102,6 +102,8 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
   else if(action==='appointment') {
     if(!text(input.start)){if(o.appointment)history(o,'appointmentHistory',{...o.appointment,replacedAt:now});o.appointment=null;if(status==='Termin verbindlich'){history(o,'statusHistory',{from:status,to:'Angenommen',at:now,reason:'Termin entfernt'});o.status='Angenommen';}}
     else{const duration=input.duration===undefined||input.duration===null||input.duration===''?120:input.duration;need(Number.isInteger(duration)&&duration>=15&&duration<=4320,'Dauer: 15 Minuten bis 3 Tage.');const delivery=text(input.delivery,40)||'Kunde bringt';need(['Abholung','Kunde bringt'].includes(delivery),'Übergabeart ist ungültig.');const start=optionalTime(input.start),previous=o.appointment;o.appointment={start,end:new Date(Date.parse(start)+duration*60000).toISOString(),duration,delivery,location:text(input.location,600)};
+      // Nach Arbeitsbeginn lässt sich ein Termin nur noch mit Freigabe (Grund) ändern; neu unterschreiben kann der Kunde dann nicht mehr.
+      if(['In Arbeit','Erledigt','Bezahlt'].includes(status)&&!sameAppointment(previous,o.appointment))need(input.release===true,'Der Auftrag läuft bereits. Den Termin bitte nur mit Freigabe und Grund ändern.',409);
       // Ein unveränderter Termin behält seine Bestätigung; jede Änderung braucht eine neue.
       if(sameAppointment(previous,o.appointment)&&previous.confirmation)o.appointment.confirmation=previous.confirmation;
       // Termine, die schon vor Einführung der Kundenbestätigung verbindlich waren, bleiben es beim unveränderten Speichern.
@@ -182,9 +184,18 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
   else if(action==='setStatus') {
     need(STATES.includes(input.status),'Unbekannter Status.');
     // Ein Statussprung über fehlende Kundenunterschriften hinweg ist eine Freigabe: nur mit Grund.
-    const skipsAcceptance=!o.acceptance&&['Angenommen','Termin verbindlich','In Arbeit','Erledigt','Bezahlt'].includes(input.status)&&!['Angenommen','Termin verbindlich','In Arbeit','Erledigt','Bezahlt'].includes(status);
-    const skipsAppointment=input.status==='Termin verbindlich'&&o.appointment&&!appointmentConfirmed(o);
-    if(skipsAcceptance||skipsAppointment){need(text(input.reason).length>=3,skipsAcceptance?'Ohne Unterschrift des Kunden unter dem Angebot bitte einen Grund für die Freigabe angeben.':'Der Termin ist noch nicht vom Kunden bestätigt. Bitte einen Grund für die Freigabe angeben.');if(skipsAppointment)o.appointment.confirmation={mode:'ohne Unterschrift freigegeben',at:now,release:{by:'owner',at:now,reason:text(input.reason,300)}};if(skipsAcceptance)o.acceptanceRelease={by:'owner',at:now,reason:text(input.reason,300),status:input.status};}
+    const BEYOND=['Angenommen','Termin verbindlich','In Arbeit','Erledigt','Bezahlt'],BINDING=['Termin verbindlich','In Arbeit','Erledigt','Bezahlt'];
+    const skipsAcceptance=!o.acceptance&&BEYOND.includes(input.status)&&!BEYOND.includes(status);
+    const skipsAppointment=BINDING.includes(input.status)&&!BINDING.includes(status)&&o.appointment&&!appointmentConfirmed(o);
+    if(skipsAcceptance||skipsAppointment){
+      need(text(input.reason).length>=3,skipsAcceptance?'Ohne Unterschrift des Kunden unter dem Angebot bitte einen Grund für die Freigabe angeben.':'Der Termin ist noch nicht vom Kunden bestätigt. Bitte einen Grund für die Freigabe angeben.');
+      const release={by:'owner',at:now,reason:text(input.reason,300)};
+      if(skipsAppointment)o.appointment.confirmation={mode:'ohne Unterschrift freigegeben',at:now,release};
+      // Dieselbe Annahme wie „ohne Unterschrift freigeben“ vor Ort, damit Dokumente, Portal und Kalender sie kennen.
+      // Ohne Preise gibt es nichts anzunehmen: dann nur die Freigabe vermerken, das Angebot folgt später.
+      if(skipsAcceptance&&!(o.offer??o.assessment)?.totalCents&&!(o.offer??o.assessment)?.lines?.length)o.acceptanceRelease={...release,status:input.status};
+      else if(skipsAcceptance){const base=o.offer??o.assessment??emptyAssessment();applyDocument(o,'offer',{...structuredClone(base),createdAt:o.offer?.createdAt??now,expiresAt:o.offer?.expiresAt??now},{mode:'ohne Unterschrift freigegeben',at:now,signature:null,release},now);}
+    }
     history(o,'statusHistory',{from:status,to:input.status,at:now,reason:text(input.reason)});
     // A status set by hand is kept; payments no longer move it back automatically.
     o.status=input.status;o.paidManually=o.status==='Bezahlt';if(['Erledigt','Bezahlt'].includes(o.status))o.completedAt??=now;
