@@ -31,6 +31,9 @@ export const isSigned=p=>Boolean(p&&p.customerSignature);
 // An offer counts as signed only with a customer signature; an unsigned acceptance stays editable.
 export const offerSigned=o=>Boolean(o?.acceptance?.signature);
 export const offerAccepted=o=>Boolean(o.acceptance)&&['Angenommen','Termin verbindlich','In Arbeit','Erledigt','Bezahlt'].includes(o.status);
+// Wiederholte Online-Annahme gilt nur als erledigt, wenn bereits eine Online-Unterschrift des Kunden gespeichert ist.
+// Ältere Online-Annahmen haben noch kein mode-Feld; sie gelten wie bisher als online.
+export const customerSignedOnline=o=>offerAccepted(o)&&Boolean(o.acceptance.signature)&&(o.acceptance.mode==='online'||!o.acceptance.mode);
 export const PROTOCOL_CHECKS=['valuablesRemoved','warningLights','damageKnown','waterAvailable','powerAvailable'];
 // Every protocol field is optional. Values are bounded and every referenced file must belong to this order.
 export function protocolValid(p,kind,assetIds) {
@@ -90,7 +93,7 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     if(o.offer&&!offerSigned(o)){history(o,'offerHistory',{offer:o.offer,acceptance:o.acceptance??null,replacedAt:now});o.offer={...structuredClone(o.assessment),createdAt:o.offer.createdAt,expiresAt:o.offer.expiresAt,editedAt:now};}
   }
   else if(action==='confirm') { need(['Preise prüfen','Abgelaufen'].includes(status)&&!o.acceptance,'Das Angebot ist bereits freigegeben.',409); if(o.offer)history(o,'offerHistory',{offer:o.offer,acceptance:null,replacedAt:now}); o.offer={...structuredClone(o.assessment??emptyAssessment()),createdAt:now,expiresAt:new Date(Date.parse(now)+14*86400000).toISOString()}; o.status='Angebot offen'; }
-  else if(action==='accept') { need(role==='customer','Annahme ist ausschließlich dem Kunden vorbehalten.',403); if(offerAccepted(o)) return o; need(status==='Angebot offen'&&!o.acceptance&&Date.parse(o.offer.expiresAt)>Date.parse(now),'Angebot geschlossen oder abgelaufen.',409); need(input.signature&&input.snapshotHash&&input.paymentObligation===true,'Eigene Unterschrift und zahlungspflichtige Annahme sind erforderlich.'); o.acceptance=acceptanceSnapshot(o,o.offer,{signature:input.signature,snapshotHash:input.snapshotHash,at:now,mode:'online',...consents(input)}); o.status=appointmentConfirmed(o)?'Termin verbindlich':'Angenommen'; }
+  else if(action==='accept') { need(role==='customer','Annahme ist ausschließlich dem Kunden vorbehalten.',403); if(customerSignedOnline(o)) return o; need(status==='Angebot offen'&&!o.acceptance&&Date.parse(o.offer.expiresAt)>Date.parse(now),'Angebot geschlossen oder abgelaufen.',409); need(input.signature&&input.snapshotHash&&input.paymentObligation===true,'Eigene Unterschrift und zahlungspflichtige Annahme sind erforderlich.'); o.acceptance=acceptanceSnapshot(o,o.offer,{signature:input.signature,snapshotHash:input.snapshotHash,at:now,mode:'online',...consents(input)}); o.status=appointmentConfirmed(o)?'Termin verbindlich':'Angenommen'; }
   else if(action==='onsiteAccept') {
     // The customer signs in person on the operator's device. A signed offer is only replaced by a new signature.
     const signature=text(input.signature,100)||null;
@@ -111,7 +114,8 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
       // Termine, die schon vor Einführung der Kundenbestätigung verbindlich waren, bleiben es beim unveränderten Speichern.
       else if(sameAppointment(previous,o.appointment)&&status==='Termin verbindlich')o.appointment.confirmation={mode:'bereits verbindlich (vor Einführung der Bestätigung)',at:now,legacy:true};
       else if(previous?.confirmation)history(o,'appointmentHistory',{...previous,replacedAt:now});
-      if(input.release===true)o.appointment.confirmation={mode:'ohne Unterschrift freigegeben',at:now,release:ownerRelease(input,now,'Der Termin')};
+      // Eine Freigabe ersetzt nie eine bestehende (unterschriebene) Bestätigung eines unveränderten Termins.
+      if(input.release===true&&!o.appointment.confirmation)o.appointment.confirmation={mode:'ohne Unterschrift freigegeben',at:now,release:ownerRelease(input,now,'Der Termin')};
       if(status==='Angenommen'&&appointmentConfirmed(o))o.status='Termin verbindlich';
       if(status==='Termin verbindlich'&&!appointmentConfirmed(o)){history(o,'statusHistory',{from:status,to:'Angenommen',at:now,reason:'Termin geändert – neue Bestätigung des Kunden nötig'});o.status='Angenommen';}}
   }

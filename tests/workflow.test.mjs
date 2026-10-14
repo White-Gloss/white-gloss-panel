@@ -126,3 +126,29 @@ test('D1 trigger-inclusive change counts acknowledge a saved order and preserve 
 test('paused cloud schedule is not advertised as running despite manual heartbeat',async()=>{const e=env();e.BACKGROUND_CADENCE='hourly';e.BACKGROUND_STATE='paused';await req(e,'background',{});const s=await(await req(e,'state')).json();assert.match(s.integrations.background,/Cloudlauf pausiert/);assert.match(s.integrations.background,/Letzte erfolgreiche Fälligkeitsprüfung/);assert.doesNotMatch(s.integrations.background,/eingerichtet/);});
 
 test('offer page serves the app shell without index canonical redirect or losing its URL',async()=>{const e=env();const seen=[];e.ASSETS.fetch=async request=>{const path=new URL(request.url).pathname;seen.push(path);if(path==='/index.html')return new Response(null,{status:301,headers:{Location:'/'}});return path==='/'?new Response('<html>Offer app</html>',{headers:{'Content-Type':'text/html'}}):new Response('missing',{status:404});};const r=await worker.fetch(new Request('https://panel.example.invalid/angebot/synthetic-link'),e);assert.equal(r.status,200);assert.equal(r.headers.get('Location'),null);assert.deepEqual(seen,['/']);assert.match(r.headers.get('Content-Security-Policy'),/frame-ancestors/);assert.match(await r.text(),/Offer app/);assert.equal((await worker.fetch(new Request('https://panel.example.invalid/missing.js'),e)).status,404);});
+
+test('repeated online acceptance is only idempotent for an online customer signature',()=>{
+  const released=transition(offered(),'setStatus',{status:'Angenommen',reason:'mündlich zugesagt'},now);
+  assert.throws(()=>transition(released,'accept',{signature:'x',snapshotHash:'y',paymentObligation:true},now,'customer'),/geschlossen/);
+  const signed=accepted();assert.deepEqual(transition(signed,'accept',{signature:'z',snapshotHash:'w',paymentObligation:true},now,'customer'),signed);
+});
+
+test('legacy online acceptances stay idempotent and a release never replaces an existing confirmation',()=>{
+  const legacy=accepted();delete legacy.acceptance.mode;assert.deepEqual(transition(legacy,'accept',{signature:'z',snapshotHash:'w',paymentObligation:true},now,'customer'),legacy);
+  const proposed=transition(accepted(),'appointment',{start:'2026-10-05T09:00',duration:180},now);
+  const signed=transition(proposed,'confirmAppointment',{signature:'kunde',confirmed:true,snapshotHash:'h'},now,'customer');
+  const resaved=transition({...signed,status:'In Arbeit'},'appointment',{start:'2026-10-05T09:00',duration:180,release:true,releaseReason:'versehentlich angehakt'},now);
+  assert.equal(resaved.appointment.confirmation.signature,'kunde');assert.equal(resaved.appointment.confirmation.mode,'online');
+});
+test('a customer acceptance after an owner release is rejected without leaving a stored signature',async()=>{
+  const e=env();e.CUSTOMER_ACCESS_APPROVED='true';const puts=[];const put=e.BUCKET.put.bind(e.BUCKET);e.BUCKET.put=async(id,...rest)=>{puts.push(id);return put(id,...rest);};
+  let o=await(await req(e,'create',{source:{name:'Test',vehicle:'Test'},synthetic:true})).json();
+  o=await(await req(e,'action',{id:o.id,version:o.version,action:'price',input:{services:'Test',totalCents:1000}})).json();
+  o=await(await req(e,'action',{id:o.id,version:o.version,action:'confirm',input:{}})).json();
+  const route='offer/'+o.offerToken;
+  o=await(await req(e,'action',{id:o.id,version:o.version,action:'setStatus',input:{status:'Angenommen',reason:'telefonisch zugesagt'}})).json();assert.equal(o.acceptance.release.reason,'telefonisch zugesagt');
+  // The customer reloads the offer page, so the displayed snapshot matches the current state.
+  const displayed=await(await req(e,route,undefined,'synthetisch@example.invalid')).json();
+  const r=await req(e,route,{snapshotHash:createHash('sha256').update(JSON.stringify(displayed)).digest('hex'),signature:'data:image/png;base64,iVBORw0KGgo'+'A'.repeat(601),paymentObligation:true},'synthetisch@example.invalid');
+  assert.equal(r.status,409);assert.deepEqual(puts,[],'no signature file is stored for a rejected acceptance');
+});
