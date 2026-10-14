@@ -11,16 +11,16 @@ async function accepted(e,path,data){const r=await request(e,path,data),body=awa
 
 test('on-site booking rejects changed displayed withdrawal text before creating any order',async t=>{
   const e=environment(t);await accepted(e,'state');await setting(e,'withdrawalText','Aktueller Text');
-  const stale=await request(e,'onsite',{synthetic:true,source:{name:'Nur Test'},acceptance:{displayedWithdrawalText:'Vorheriger Text'},appointment:{skip:true}});
+  const stale=await request(e,'onsite',{synthetic:true,source:{name:'Nur Test'},acceptance:{displayedWithdrawalText:'Vorheriger Text',release:true,releaseReason:'Test ohne Unterschrift'},appointment:{skip:true}});
   assert.equal(stale.status,409);assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM orders').get().n,0);
-  const order=await accepted(e,'onsite',{synthetic:true,source:{name:'Nur Test'},acceptance:{displayedWithdrawalText:'Aktueller Text'},appointment:{skip:true}});
+  const order=await accepted(e,'onsite',{synthetic:true,source:{name:'Nur Test'},acceptance:{displayedWithdrawalText:'Aktueller Text',release:true,releaseReason:'Test ohne Unterschrift'},appointment:{skip:true}});
   assert.equal(order.acceptance.withdrawalText,'Aktueller Text');
 });
 
 test('operator acceptance and replacement offer preserve exactly the text displayed to the customer',async t=>{
   const e=environment(t);let order=await accepted(e,'create',{synthetic:true,source:{name:'Nur Test'}});
   await setting(e,'withdrawalText','Text nach Formularöffnung');
-  const stale=await request(e,'action',{id:order.id,version:order.version,action:'onsiteAccept',input:{displayedWithdrawalText:'Text bei Formularöffnung'}});
+  const stale=await request(e,'action',{id:order.id,version:order.version,action:'onsiteAccept',input:{displayedWithdrawalText:'Text bei Formularöffnung',release:true,releaseReason:'Test ohne Unterschrift'}});
   assert.equal(stale.status,409);assert.equal((await getOrder(e,order.id)).acceptance,undefined);
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ypcAAAAASUVORK5CYII=','base64');
   const signature='data:image/png;base64,'+Buffer.concat([png,Buffer.alloc(300)]).toString('base64');

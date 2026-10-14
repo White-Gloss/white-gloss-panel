@@ -12,6 +12,7 @@ import {chatNotificationsSettled} from '../server/chat.mjs';
 
 const origin='https://panel.example.invalid',owner='owner@example.invalid',customer='kundin@example.invalid';
 let loads=0;
+const signatureURL='data:image/png;base64,'+Buffer.concat([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ypcAAAAASUVORK5CYII=','base64'),Buffer.alloc(300)]).toString('base64');
 async function setup(t){
   const files=new Map();
   const env={PANEL_ORIGIN:origin,OWNER_EMAIL_SHA256:digest(owner),CONFIG_KEY:Buffer.alloc(32,3).toString('base64'),DB:new PanelDatabase(':memory:'),BUCKET:{async put(id,bytes,o){files.set(id,{body:new Uint8Array(bytes),httpMetadata:o?.httpMetadata??{}});},async get(id){return files.get(id)??null;},async delete(id){files.delete(id);}},
@@ -28,6 +29,7 @@ async function boot(t,{app,path,cookie}){
   const html=readFileSync(new URL('../dist/client/kunde.html',import.meta.url),'utf8').replace(/<script[^>]*><\/script>/g,'');
   const dom=new JSDOM(html,{url:origin+path,pretendToBeVisual:true});const w=dom.window;
   w.Element.prototype.scrollIntoView=()=>{};w.matchMedia??=()=>({matches:false});
+  const ctx=new Proxy({},{get:(_target,key)=>key==='canvas'?null:()=>{},set:()=>true});w.HTMLCanvasElement.prototype.getContext=()=>ctx;w.HTMLCanvasElement.prototype.toDataURL=()=>signatureURL;w.Element.prototype.setPointerCapture=()=>{};
   let pending=0;const errors=[];
   const fetchImpl=async(url,options={})=>{const target=new URL(url,origin),live=Number(target.searchParams.get('wait')??0)>0;if(!live)pending++;try{const headers=new Headers(options.headers);headers.set('origin',origin);headers.set('cookie',cookie);const {signal:_signal,...rest}=options;return await app.fetch(new Request(target,{...rest,headers}));}finally{if(!live)pending--;}};
   for(const [key,value] of Object.entries({window:w,document:w.document,location:w.location,history:w.history,localStorage:w.localStorage,FormData:w.FormData,HTMLElement:w.HTMLElement,Event:w.Event,AbortController:w.AbortController,matchMedia:w.matchMedia,fetch:fetchImpl}))Object.defineProperty(globalThis,key,{value,configurable:true,writable:true});
@@ -86,5 +88,19 @@ test('free-text desired dates render and the preview opens the clicked order',as
   const ui=await boot(t,{app:f.app,path:'/kunde?vorschau='+id,cookie:f.ownerCookie});
   assert.match(ui.$('.portal-hero').textContent,/Audi A4/,'preview opens the order it was started from');
   assert.match(ui.text(),/Ihr Wunschtermin: KW 42, vormittags/);
+  assert.deepEqual(ui.errors,[]);
+});
+
+test('portal: proposed appointment is confirmed with a drawn signature',async t=>{
+  const f=await setup(t);
+  await f.env.DB.prepare("UPDATE orders SET status='Angenommen',version=version+1,data=json_set(data,'$.status','Angenommen') WHERE id=?").bind(f.order.id).run();
+  const ui=await boot(t,{app:f.app,path:'/kunde',cookie:f.customerCookie});
+  assert.match(ui.$('.portal-pending').textContent,/noch nicht bestätigt/);
+  assert.ok(ui.$('.portal-todo a[href^="#termin-"]'),'todo links to the confirmation');
+  const form=ui.$('[data-form="confirm"]');form.requestSubmit();await ui.settle();assert.match(form.querySelector('.error').textContent,/bestätigen/);
+  form.elements.confirmed.checked=true;form.requestSubmit();await ui.settle();assert.match(ui.$('[data-form="confirm"] .error').textContent,/unterschreiben/);
+  const canvas=ui.$('[data-form="confirm"] canvas');for(const type of ['pointerdown','pointermove','pointerup'])canvas.dispatchEvent(new ui.w.Event(type,{bubbles:true}));
+  ui.$('[data-form="confirm"]').elements.confirmed.checked=true;ui.$('[data-form="confirm"]').requestSubmit();await ui.settle();
+  assert.match(ui.$('#toast').textContent,/verbindlich bestätigt/);assert.match(ui.$('.portal-confirmed').textContent,/Verbindlich bestätigt/);
   assert.deepEqual(ui.errors,[]);
 });

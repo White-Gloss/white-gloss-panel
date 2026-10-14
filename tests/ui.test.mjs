@@ -54,7 +54,16 @@ test('panel: create, edit every step, sign on site, protocol with paint thicknes
   await ui.click('[data-click="onsiteAccept"]');ui.draw(ui.$('#customerSign'));ui.fill(ui.$('#signform'),{paymentObligation:true,immediateStart:true});await ui.submit('#signform');
   let current=await getOrder(ui.env,o.id);assert.equal(current.status,'Angenommen');assert.equal(current.acceptance.mode,'vor Ort');assert.ok(current.acceptance.signature);
   // Appointment now.
-  await ui.click('[data-tab="appointment"]');await ui.click('[data-click="appointmentNow"]');current=await getOrder(ui.env,o.id);assert.equal(current.status,'Termin verbindlich');
+  await ui.click('[data-tab="appointment"]');await ui.click('[data-click="appointmentNow"]');current=await getOrder(ui.env,o.id);assert.equal(current.status,'Angenommen','proposed until confirmed');
+  assert.match(ui.text(),/Termin vorgeschlagen – noch nicht bestätigt/);
+  // The customer confirms the appointment on the operator's device.
+  await ui.click('[data-click="confirmAppointmentSign"]');await ui.submit('#signform');assert.match(ui.$('#modal-error').textContent,/ankreuzen/);
+  ui.draw(ui.$('#customerSign'));ui.fill(ui.$('#signform'),{confirmed:true});await ui.submit('#signform');
+  current=await getOrder(ui.env,o.id);assert.equal(current.status,'Termin verbindlich');assert.equal(current.appointment.confirmation.mode,'vor Ort');assert.ok(current.appointment.confirmation.signature);
+  // Moving the appointment needs a new confirmation; the owner can release it with a reason.
+  ui.fill(ui.$('#appointmentform'),{start:'2030-01-03T10:00'});await ui.submit('#appointmentform');current=await getOrder(ui.env,o.id);assert.equal(current.status,'Angenommen');
+  await ui.click('[data-click="confirmAppointmentRelease"]');ui.fill(ui.$('#appointmentreleaseform'),{releaseReason:'telefonisch bestätigt'});await ui.submit('#appointmentreleaseform');
+  current=await getOrder(ui.env,o.id);assert.equal(current.status,'Termin verbindlich');assert.equal(current.appointment.confirmation.release.reason,'telefonisch bestätigt');
   // Intake without required fields including a paint reading and a damage from the sketch.
   await ui.click('[data-tab="intake"]');const form=ui.$('#protocolform');assert.ok(form.querySelector('[data-zone="Motorhaube"]'));
   await ui.click(form.querySelector('[data-zone="Motorhaube"]'));form.querySelector('[data-damage-kind]').value='Kratzer';

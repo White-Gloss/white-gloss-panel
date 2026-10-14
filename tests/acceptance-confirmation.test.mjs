@@ -22,7 +22,7 @@ async function fixture(t){
   }
   return {env,base,save};
 }
-function accept(base,title,amountCents){const priced=transition(base,'price',{lines:[{id:'p',kind:'custom',title,amountCents}]},at);return transition(priced,'onsiteAccept',{paymentObligation:true},at);}
+function accept(base,title,amountCents){const priced=transition(base,'price',{lines:[{id:'p',kind:'custom',title,amountCents}]},at);return transition(priced,'onsiteAccept',{paymentObligation:true,release:true,releaseReason:'Test ohne Unterschrift'},at);}
 async function pdfText(bytes){
   const doc=await PDFDocument.load(bytes),mapping=new Map(),texts=[];
   for(const page of doc.getPages()){

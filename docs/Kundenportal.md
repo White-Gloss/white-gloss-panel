@@ -22,6 +22,27 @@ wie bisher beim Angebot) und sieht dort **alle seine Aufträge** an einem Ort.
 | Rechnung | Betrag, Status, Fälligkeit, Bankverbindung, PDF und „Online bezahlen“ (Qonto) |
 | Bewertung | Nach „Erledigt“/„Bezahlt“: „Auf Google bewerten“ (Link aus Einstellungen → Bewertungslink) |
 
+## Unterschrift für Angebot und Termin
+
+- **Angebot:** Angenommen ist ein Auftrag nur mit der Unterschrift des Kunden – online über den
+  Angebotslink, im Kundenportal (Ersatzangebot) oder vor Ort auf deinem Gerät. Ohne Unterschrift geht
+  es nur mit deiner ausdrücklichen Freigabe („Kunde kann nicht unterschreiben?“ → „Ohne
+  Kundenunterschrift freigeben“ + Grund). Die Annahme zeigt dann „ohne Unterschrift freigegeben“
+  mit Grund und Zeitpunkt.
+- **Termin:** Ein eingetragener Termin ist zuerst **vorgeschlagen** (Kalender reserviert, Status bleibt
+  „Angenommen“). Verbindlich wird er, wenn der Kunde ihn im Portal unter „Für Sie zu erledigen →
+  Termin bestätigen und unterschreiben“ bestätigt, wenn er im Auftrag unter „Termin“ → „Kunde
+  unterschreibt hier“ vor Ort unterschreibt, oder wenn du „Ohne Unterschrift verbindlich machen“
+  mit Grund wählst (z. B. telefonisch bestätigt).
+- Wird ein bestätigter Termin verschoben oder entfernt, muss er neu bestätigt werden (oder du gibst
+  ihn frei). Unveränderte Speicherungen behalten die Bestätigung.
+- Erinnerungsmail und Google-Kalender gelten erst ab „Termin verbindlich“.
+- Sofort-Buchung vor Ort: Die Unterschrift unter dem Angebot bestätigt auch den sofortigen Termin.
+- **Status bearbeiten:** Ein Sprung über eine fehlende Unterschrift (z. B. direkt auf „Angenommen“
+  oder „Termin verbindlich“) braucht einen Grund und gilt als deine Freigabe.
+- Bitte den Kunden über einen neuen Terminvorschlag selbst informieren (Chat oder Telefon); das Portal
+  versendet keine Mails.
+
 ## Zusatzleistungen: Anfrage statt Sofortbuchung
 
 1. Kunde wählt Extras und sendet „Unverbindlich anfragen“.
