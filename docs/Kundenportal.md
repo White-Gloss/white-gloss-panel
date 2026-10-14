@@ -40,6 +40,12 @@ wie bisher beim Angebot) und sieht dort **alle seine Aufträge** an einem Ort.
 - Sofort-Buchung vor Ort: Die Unterschrift unter dem Angebot bestätigt auch den sofortigen Termin.
 - **Status bearbeiten:** Ein Sprung über eine fehlende Unterschrift (z. B. direkt auf „Angenommen“
   oder „Termin verbindlich“) braucht einen Grund und gilt als deine Freigabe.
+- Nach Arbeitsbeginn benötigen Terminänderungen eine ausdrückliche Freigabe mit Grund; das Entfernen
+  des Termins ist dann gesperrt. Protokolle können vorab gespeichert werden; sie überspringen dabei
+  keine fehlende Angebotsannahme oder Terminbestätigung.
+- Bei einem verschobenen Terminvorschlag bleibt eine bestehende Google-Reservierung bis zur erneuten
+  Bestätigung erhalten. Vor dem vollständigen Entfernen eines bei Google eingetragenen Termins zuerst
+  den Auftrag stornieren und den Google-Kalender abgleichen.
 - Bitte den Kunden über einen neuen Terminvorschlag selbst informieren (Chat oder Telefon); das Portal
   versendet keine Mails.
 

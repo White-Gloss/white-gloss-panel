@@ -175,3 +175,24 @@ test('customer confirms a proposed appointment with signature in the portal',asy
   view=(await f.ok(await f.get('/api/portal/me',f.customer))).orders[0];assert.equal(view.appointment.confirmed,true);assert.ok(!view.todo.some(x=>x.kind==='confirm-appointment'));
   assert.match((await f.ok(await f.post(route,f.customer,{signature,confirmed:true,snapshotHash:view.appointment.snapshotHash}))).message,/bereits/);
 });
+
+test('simultaneous appointment confirmations keep one signature and return successful retries',async t=>{
+  const f=await fixture(t),o=await order(f.env,{status:'Angenommen',extra:{acceptance:{at:new Date().toISOString()},appointment:{start:'2030-10-14T07:00:00.000Z',end:'2030-10-14T10:00:00.000Z',duration:180,delivery:'Kunde bringt',location:''}}});
+  const view=(await f.ok(await f.get('/api/portal/me',f.customer))).orders[0],route='/api/portal/o/'+o.id+'/termin-bestaetigen';
+  const input={signature,confirmed:true,snapshotHash:view.appointment.snapshotHash};
+  const responses=await Promise.all([f.post(route,f.customer,input),f.post(route,f.customer,input),f.post(route,f.customer,input)]);
+  for(const response of responses)await f.ok(response);
+  assert.equal((await getOrder(f.env,o.id)).status,'Termin verbindlich');assert.equal(f.files.size,1);
+  assert.equal((await f.env.DB.prepare("SELECT COUNT(*) n FROM audit WHERE action='Kunde hat den Termin im Kundenportal bestätigt und unterschrieben'").first()).n,1);
+});
+
+test('status-based offer release appears as an unsigned order confirmation in the customer portal',async t=>{
+  const f=await fixture(t),o=await order(f.env,{status:'Angebot offen',extra:{appointment:{start:'2030-10-14T07:00:00.000Z',end:'2030-10-14T10:00:00.000Z',duration:180,delivery:'Kunde bringt',location:''}}});
+  const current=await getOrder(f.env,o.id);
+  const released=await f.ok(await f.ownerApi('action',{id:o.id,version:current.version,action:'setStatus',input:{status:'Termin verbindlich',reason:'Kunde hat telefonisch bestätigt'}}));
+  assert.equal(released.acceptance.mode,'ohne Unterschrift freigegeben');assert.equal(released.acceptance.signature,null);
+  const view=(await f.ok(await f.get('/api/portal/me',f.customer))).orders[0];
+  assert.equal(view.appointment.confirmed,true);assert.equal(view.offer.signed,true);assert.equal(view.documents[0].signed,false);
+  assert.equal(view.documents[0].label,'Auftragsbestätigung ohne Kundenunterschrift');assert.equal(view.todo.length,0);
+  assert.equal((await f.get(view.documents[0].url,f.customer)).status,200);
+});

@@ -93,7 +93,7 @@ async function portalOrder(env,o,config,preview){
   if(restricted)return {id:o.id,wg:o.wg,status:o.status,statusText:'Dieser Vorgang ist derzeit gesperrt. Bitte kontaktieren Sie uns telefonisch oder per E-Mail.',step:null,steps:STEPS,closed:true,restricted:true,vehicle:o.source?.vehicle??'',plate:'',package:'',createdAt:null,appointment:null,offer:null,todo:[],documents:[],invoice:null,extras:[],requests:[],review:null,canReschedule:false};
   /** @type {{kind:string,label:string,at:string|null,signed:boolean|null,url:string}[]} */
   const documents=[];const pdf=kind=>'/api/portal/o/'+o.id+'/pdf/'+kind;
-  if(o.acceptance)documents.push({kind:'acceptance',label:o.acceptance.release?'Auftragsbestätigung':DOCUMENT_LABEL.acceptance,at:o.acceptance.at??null,signed:null,url:pdf('acceptance')});
+  if(o.acceptance)documents.push({kind:'acceptance',label:o.acceptance.signature?DOCUMENT_LABEL.acceptance:'Auftragsbestätigung ohne Kundenunterschrift',at:o.acceptance.at??null,signed:Boolean(o.acceptance.signature),url:pdf('acceptance')});
   for(const kind of ['intake','return'])if(o[kind])documents.push({kind,label:DOCUMENT_LABEL[kind],at:o[kind].signedAt??o[kind].at??o[kind].savedAt??null,signed:Boolean(o[kind].customerSignature),url:pdf(kind)});
   const todo=[];
   {
@@ -194,7 +194,11 @@ export async function handlePortal(env,request,identity,isOwner){
     const operationId=randomUUID(),guard={sql:"EXISTS(SELECT 1 FROM orders WHERE id=? AND version=? AND json_extract(data,'$.operationId')=?)",params:[o.id,o.version+1,operationId]};
     const signature=await storeDataSignature(env,o.id,input.signature,'signature',guard);
     const updated=transition(o,'confirmAppointment',{signature:signature.id,confirmed:true,snapshotHash:input.snapshotHash,customerName:input.customerName},new Date(now).toISOString(),'customer');updated.operationId=operationId;
-    try{await saveOrder(env,updated,o.version,'Kunde hat den Termin im Kundenportal bestätigt und unterschrieben','customer',[signature.statement]);}catch(error){await env.BUCKET.delete(signature.id);throw error;}
+    try{await saveOrder(env,updated,o.version,'Kunde hat den Termin im Kundenportal bestätigt und unterschrieben','customer',[signature.statement]);}catch(error){
+      await env.BUCKET.delete(signature.id);
+      if(error instanceof AppError&&error.status===409){const current=await getOrder(env,o.id);if(current.appointment?.confirmation&&input.snapshotHash===digest(JSON.stringify(appointmentSnapshot(current))))return json({ok:true,message:'Ihr Termin ist bereits bestätigt.'});}
+      throw error;
+    }
     await portalNotice(env,o.id,'Termin im Kundenportal bestätigt und unterschrieben.',now).catch(()=>null);
     return json({ok:true,message:'Vielen Dank! Ihr Termin ist jetzt verbindlich bestätigt.'});
   }

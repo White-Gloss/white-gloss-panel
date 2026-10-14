@@ -52,12 +52,15 @@ test('state lists compact orders and the detail view loads the complete order',a
   const full=await ok(e,'order/'+o.id);assert.equal(full.acceptance.signature,o.acceptance.signature);assert.ok(full.customer);
 });
 
-test('every step is editable: source, status, appointment removal and payments in any state',async t=>{
+test('source, status and payments stay editable while work preserves the confirmed appointment',async t=>{
   const e=env(t);let o=await ok(e,'create',{synthetic:true,source:{}});assert.equal(o.status,'Preise prüfen');
   o=await ok(e,'action',{id:o.id,version:o.version,action:'editSource',input:{source:{name:'Neu',phone:'0151 1111111',plate:'AB-C 1'}}});assert.equal(o.source.name,'Neu');assert.equal(o.sourceHistory.length,1);
+  o=await ok(e,'action',{id:o.id,version:o.version,action:'price',input:{totalCents:10000,services:'Testleistung'}});
   o=await ok(e,'action',{id:o.id,version:o.version,action:'appointment',input:{start:'2030-01-02T10:00',duration:60}});assert.equal(o.status,'Preise prüfen');assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM appointments').get().n,1);
   o=await ok(e,'action',{id:o.id,version:o.version,action:'setStatus',input:{status:'In Arbeit',reason:'Direkt begonnen'}});assert.equal(o.status,'In Arbeit');
-  o=await ok(e,'action',{id:o.id,version:o.version,action:'appointment',input:{start:''}});assert.equal(o.appointment,null);assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM appointments').get().n,0);
+  const confirmed=structuredClone(o.appointment);
+  assert.equal((await req(e,'action',{id:o.id,version:o.version,action:'appointment',input:{start:''}})).status,409);
+  assert.deepEqual((await getOrder(e,o.id)).appointment,confirmed);assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM appointments').get().n,1);
   o=await ok(e,'action',{id:o.id,version:o.version,action:'payment',input:{amountCents:5000,method:'Bar'}});assert.equal(o.payments.length,1);
   o=await ok(e,'action',{id:o.id,version:o.version,action:'paymentEdit',input:{id:o.payments[0].id,amountCents:4500}});assert.equal(o.payments[0].amountCents,4500);
   o=await ok(e,'action',{id:o.id,version:o.version,action:'cancel',input:{}});assert.equal(o.status,'Storniert');

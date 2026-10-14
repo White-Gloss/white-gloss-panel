@@ -243,3 +243,41 @@ test('Vor-Ort app retains an absent customer draft and shows extra work in the o
   assert.deepEqual(destinations,['/#auftrag='+encodeURIComponent(original.id)]);
   assert.equal((await getOrder(e,original.id)).pending.intake.content.notes,'Abholung dokumentiert');
 });
+
+
+test('panel: an operator release shows its reason and time without claiming a customer signature',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});await ui.click('[data-click="test"]');await ui.click('[data-click="create"]');
+  ui.fill(ui.$('#createform'),{name:'Freigabe Test'});await ui.submit('#createform');await ui.click('[data-tab="price"]');await ui.submit('#priceform');
+  await ui.click('[data-click="onsiteAccept"]');ui.fill(ui.$('#signform'),{release:true,releaseReason:'Telefonisch bestätigt <intern>'});await ui.submit('#signform');
+  const id=(await ui.env.DB.prepare('SELECT id FROM orders').first()).id,current=await getOrder(ui.env,id);
+  assert.equal(current.acceptance.signature,null);assert.equal(current.acceptance.release.reason,'Telefonisch bestätigt <intern>');
+  const acceptedAt=new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',dateStyle:'medium',timeStyle:'short'}).format(new Date(current.acceptance.release.at));
+  assert.match(ui.$('.detail').textContent,/Ohne Unterschrift freigegeben \(durch den Betrieb\)/);assert.ok(ui.$('.detail').textContent.includes('am '+acceptedAt));
+  assert.match(ui.$('.detail').textContent,/Grund: Telefonisch bestätigt <intern>/);assert.equal(ui.$('.detail intern'),null);assert.doesNotMatch(ui.$('.detail').textContent,/Online unterschrieben/);
+  // Editing an unsigned offer keeps the archived acceptance honest as well.
+  await ui.submit('#priceform');assert.ok(ui.$('.detail details.sectiongap'));assert.doesNotMatch(ui.$('.detail details.sectiongap').textContent,/unterschrieben/i);
+  assert.match(ui.$('.detail details.sectiongap').textContent,/Grund: Telefonisch bestätigt <intern>/);assert.deepEqual(ui.errors,[]);
+});
+
+test('panel: Google sync is available only after the proposed appointment becomes binding',async t=>{
+  const env=environment();env.STANDALONE_AUTH='true';
+  const call=async(path,body)=>{const response=await worker.fetch(new Request(origin+'/api/'+path,{method:'POST',headers:{origin,'oai-authenticated-user-email':owner,'Content-Type':'application/json'},body:JSON.stringify(body)}),env);const data=await response.json();assert.equal(response.status,200,JSON.stringify(data));return data;};
+  await call('settings',{numberAudit:true,lastNumber:0,numberEvidence:'Isolierter Oberflächentest'});
+  const initial=await call('create',{source:{name:'Kalender Test',email:'kalender@example.invalid'}});
+  const proposed={...initial,status:'Angenommen',calendar:{eventId:'isolated-calendar-event'},offer:{lines:[],totalCents:0,services:''},acceptance:{at:'2030-01-01T08:00:00Z'},appointment:{start:'2030-01-03T09:00:00.000Z',end:'2030-01-03T11:00:00.000Z',duration:120,delivery:'Kunde bringt',location:''}};
+  await saveOrder(env,proposed,initial.version,'Isolierter Terminvorschlag');
+  const ui=await boot(t,{page:'index.html',script:'app.js',env,hash:'#auftrag='+initial.id});await ui.click('[data-tab="appointment"]');
+  assert.match(ui.text(),/Termin vorgeschlagen/);assert.equal(ui.$('[data-click="calendarSync"]'),null);
+  await ui.click('[data-click="confirmAppointmentRelease"]');ui.fill(ui.$('#appointmentreleaseform'),{releaseReason:'Termin telefonisch bestätigt'});await ui.submit('#appointmentreleaseform');
+  assert.equal((await getOrder(env,initial.id)).status,'Termin verbindlich');assert.ok(ui.$('[data-click="calendarSync"]'));assert.doesNotMatch(ui.text(),/Der bisherige Google-Termin bleibt/);
+  ui.fill(ui.$('#appointmentform'),{start:'2030-01-04T10:00'});await ui.submit('#appointmentform');
+  assert.equal((await getOrder(env,initial.id)).status,'Angenommen');assert.equal(ui.$('[data-click="calendarSync"]'),null);assert.match(ui.text(),/Der bisherige Google-Termin bleibt bis zur erneuten Bestätigung reserviert/);assert.deepEqual(ui.errors,[]);
+});
+
+test('Vor-Ort app: an unsigned release never promises a signature in the shared confirmation',async t=>{
+  const ui=await boot(t,{page:'vor-ort.html',script:'vor-ort.js',storage:{'wg-vo-test':'1'}});
+  await ui.go('#buchung');await ui.submit('#c-new');await ui.settle();await ui.submit('#v-new');await ui.settle();await ui.submit('#s-form');await ui.settle();
+  ui.fill(ui.$('#a-form'),{release:true,releaseReason:'Kunde kann heute nicht unterschreiben'});await ui.submit('#a-form');await ui.settle();
+  const id=(await ui.env.DB.prepare('SELECT id FROM orders').first()).id;assert.equal((await getOrder(ui.env,id)).acceptance.signature,null);
+  await ui.go('#auftrag='+id);assert.match(ui.$('[data-share="acceptance"]').textContent,/Freigabe ohne Kundenunterschrift/);assert.doesNotMatch(ui.$('[data-share="acceptance"]').textContent,/, Unterschrift/);assert.deepEqual(ui.errors,[]);
+});
