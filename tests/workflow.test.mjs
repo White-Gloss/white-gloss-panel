@@ -42,11 +42,22 @@ test('offer acceptance and status jumps need the customer signature or an owner 
   const released=transition(offered(),'onsiteAccept',{release:true,releaseReason:'Kunde hat telefonisch zugesagt'},now);
   assert.equal(released.status,'Angenommen');assert.equal(released.acceptance.mode,'ohne Unterschrift freigegeben');assert.equal(released.acceptance.release.reason,'Kunde hat telefonisch zugesagt');assert.equal(released.acceptance.signature,null);
   assert.throws(()=>transition(offered(),'setStatus',{status:'Angenommen'},now),/Grund/);
-  const jumped=transition(offered(),'setStatus',{status:'Angenommen',reason:'mündlich zugesagt'},now);assert.equal(jumped.status,'Angenommen');assert.equal(jumped.acceptanceRelease.reason,'mündlich zugesagt');
+  const jumped=transition(offered(),'setStatus',{status:'Angenommen',reason:'mündlich zugesagt'},now);assert.equal(jumped.status,'Angenommen');assert.equal(jumped.acceptance.release.reason,'mündlich zugesagt');
   const proposed=transition(accepted(),'appointment',{start:'2026-10-05T09:00'},now);
   assert.throws(()=>transition(proposed,'setStatus',{status:'Termin verbindlich'},now),/nicht vom Kunden bestätigt/);
   const forced=transition(proposed,'setStatus',{status:'Termin verbindlich',reason:'per E-Mail bestätigt'},now);assert.equal(forced.appointment.confirmation.release.reason,'per E-Mail bestätigt');
   assert.equal(transition(offered(),'setStatus',{status:'Abgelehnt'},now).status,'Abgelehnt','no reason needed when nothing is skipped');
+  // Codex review: status releases create a real acceptance, skipping the appointment to later states also needs a reason.
+  assert.equal(jumped.acceptance.mode,'ohne Unterschrift freigegeben');assert.equal(jumped.acceptance.release.reason,'mündlich zugesagt');assert.equal(jumped.acceptance.signature,null);
+  assert.throws(()=>transition(proposed,'setStatus',{status:'In Arbeit'},now),/nicht vom Kunden bestätigt/);
+  assert.equal(transition(proposed,'setStatus',{status:'Erledigt',reason:'vor Ort erledigt'},now).appointment.confirmation.release.reason,'vor Ort erledigt');
+  // Once work started, appointment changes need a release.
+  const working={...transition(proposed,'confirmAppointment',{release:true,releaseReason:'telefonisch'},now),status:'In Arbeit'};
+  assert.throws(()=>transition(working,'appointment',{start:'2026-10-07T09:00'},now),/läuft bereits/);
+  assert.equal(transition(working,'appointment',{start:'2026-10-07T09:00',release:true,releaseReason:'länger gebraucht'},now).status,'In Arbeit');
+  // Acceptance after an early appointment confirmation stays idempotent.
+  const early=transition(transition(offered(),'appointment',{start:'2026-10-05T09:00'},now),'confirmAppointment',{signature:'s',confirmed:true,snapshotHash:'h'},now,'customer');
+  const done=transition(early,'accept',{signature:'x',snapshotHash:'y',paymentObligation:true},now,'customer');assert.deepEqual(transition(done,'accept',{signature:'z',snapshotHash:'w',paymentObligation:true},now,'customer'),done);
 });
 test('Berlin DST gap, ambiguity and invalid dates are rejected',()=>{for(const t of ['2026-03-29T02:30','2026-10-25T02:30','2026-02-30T12:00','2026-99-99T12:00'])assert.throws(()=>berlinISO(t));assert.equal(berlinISO('2026-12-01T14:00'),'2026-12-01T13:00:00.000Z');});
 test('intake and return can be saved at any step and keep earlier unsigned versions',()=>{const intake=transition(base(),'intake',{plate:'A'},now);assert.equal(intake.status,'In Arbeit');const edited=transition(intake,'intake',{plate:'B'},now);assert.equal(edited.intake.plate,'B');assert.equal(edited.intakeHistory[0].plate,'A');const returned=transition(edited,'return',{},now);assert.equal(returned.status,'Erledigt');assert.equal(returned.completedAt,now);const paid=transition(transition(returned,'setStatus',{status:'Bezahlt'},now),'return',{services:'X'},now);assert.equal(paid.status,'Bezahlt');});

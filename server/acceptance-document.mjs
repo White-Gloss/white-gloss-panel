@@ -38,7 +38,8 @@ export async function acceptanceDocument(env,order){
     const lines=offer.lines??[{title:offer.services||'Fahrzeugaufbereitung',amountCents:offer.totalCents}];for(const line of lines){amountLine(line.title||'Leistung',line.amountCents);if(line.description)paragraph(line.description,9,grey);}
     y-=4;amountLine('Gesamtfestpreis inklusive Umsatzsteuer',offer.totalCents);paragraph(a.snapshot?.priceNote??priceNote,9,grey);
     heading('Annahme');
-    field('Art und Zeitpunkt',(a.mode==='vor Ort'?'Persönlich vor Ort angenommen':'Über den persönlichen Kundenzugang angenommen')+' am '+berlin(a.at));
+    field('Art und Zeitpunkt',(a.release?'Ohne Unterschrift des Kunden vom Betrieb freigegeben':a.mode==='vor Ort'?'Persönlich vor Ort angenommen':'Über den persönlichen Kundenzugang angenommen')+' am '+berlin(a.at));
+    if(a.release)field('Grund der Freigabe',a.release.reason||'—');
     field('Zahlungspflichtige Annahme',a.paymentObligation?'Vom Kunden ausdrücklich bestätigt':'Nicht gesondert bestätigt');
     field('Beginn vor Ablauf der Widerrufsfrist',a.immediateStart?(a.immediateStartText||'Vom Kunden ausdrücklich verlangt'):'Nicht verlangt');
     if(a.withdrawalText)field('Widerrufsbelehrung',a.withdrawalNotice?'Vor der Annahme angezeigt und bestätigt':'Vor der Annahme angezeigt');
