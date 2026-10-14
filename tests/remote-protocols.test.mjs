@@ -10,9 +10,10 @@ import {transition,billedTotalCents} from '../src/domain.mjs';
 const origin='https://panel.example.invalid',owner='owner@example.invalid',customer='customer@example.invalid';
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ypcAAAAASUVORK5CYII=','base64');
 const signature='data:image/png;base64,'+Buffer.concat([png,Buffer.alloc(300)]).toString('base64');
-async function fixture(t){
+async function fixture(t,authorized=false){
   const files=new Map(),env={PANEL_ORIGIN:origin,OWNER_EMAIL_SHA256:digest(owner),CONFIG_KEY:Buffer.alloc(32,4).toString('base64'),DB:new PanelDatabase(':memory:'),BUCKET:{async put(id,bytes,options){files.set(id,{body:new Uint8Array(bytes),httpMetadata:options?.httpMetadata??{}});},async get(id){return files.get(id);},async delete(id){files.delete(id);}},ASSETS:{fetch:async()=>new Response('shell')}};t.after(()=>env.DB.close());await createApplication(env);
   const id=randomUUID(),initial={id,synthetic:false,status:'Termin verbindlich',source:{name:'TEST · Abwesende Kundin',email:customer,vehicle:'TEST · Fahrzeug'},offer:{totalCents:10000}};
+  if(authorized)Object.assign(initial,{acceptance:{at:'2026-10-01T12:00:00.000Z',signature:'existing-customer-signature'},appointment:{start:'2030-10-05T07:00:00.000Z',end:'2030-10-05T09:00:00.000Z',duration:120,delivery:'Kunde bringt',location:'',confirmation:{mode:'online',at:'2026-10-01T12:00:00.000Z',signature:'existing-appointment-signature'}}});
   await env.DB.prepare('INSERT INTO orders(id,wg,status,data,updated_at,actor,action) VALUES(?,?,?,?,?,?,?)').bind(id,'WG-TEST-'+id,initial.status,JSON.stringify(initial),new Date().toISOString(),'test','fixture').run();
   const request=(path,data,email=owner)=>worker.fetch(new Request(origin+'/api/'+path,{method:data===undefined?'GET':'POST',headers:{origin,'oai-authenticated-user-email':email,'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)}),env);
   const ok=async(path,data,email)=>{const response=await request(path,data,email),result=await response.json();assert.equal(response.status,200,JSON.stringify(result));return result;};
@@ -23,7 +24,7 @@ async function fixture(t){
 }
 
 test('absent customer signs a first intake in their own access; owner and other customers cannot sign',async t=>{
-  const f=await fixture(t),route=await f.pending('intake',{plate:'TEST-1',customerSignature:'forged',operatorSignature:'forged'});
+  const f=await fixture(t,true),route=await f.pending('intake',{plate:'TEST-1',customerSignature:'forged',operatorSignature:'forged'});
   let order=await getOrder(f.env,f.id);assert.equal(order.intake,undefined);assert.equal(order.pending.intake.replaces,null);assert.equal(order.pending.intake.content.customerSignature,null);assert.equal(order.pending.intake.content.operatorSignature,null);
   const shown=await f.ok(route,undefined,customer);assert.equal(shown.replaces,null);assert.equal(shown.document.plate,'TEST-1');assert.ok(shown.requestId);assert.ok(!JSON.stringify(shown).includes('baseSnapshot'));assert.ok(!('pending' in shown));
   const input=await f.signing(route);assert.equal((await f.request(route,input,owner)).status,403);assert.equal((await f.request(route,input,'other@example.invalid')).status,403);assert.equal((await f.request(route,{...input,snapshotHash:'wrong'},customer)).status,409);assert.equal((await f.request(route,{...input,confirmed:false},customer)).status,400);
@@ -32,7 +33,7 @@ test('absent customer signs a first intake in their own access; owner and other 
 });
 
 test('the first return protocol completes the order only after personal customer confirmation',async t=>{
-  const f=await fixture(t),route=await f.pending('return',{services:'TEST · Reinigung',workComplete:true});assert.equal((await getOrder(f.env,f.id)).status,'Termin verbindlich');await f.ok(route,await f.signing(route),customer);const order=await getOrder(f.env,f.id);assert.equal(order.status,'Erledigt');assert.ok(order.completedAt);assert.equal(order.return.workComplete,true);assert.equal(order.return.replaces,null);
+  const f=await fixture(t,true),route=await f.pending('return',{services:'TEST · Reinigung',workComplete:true});assert.equal((await getOrder(f.env,f.id)).status,'Termin verbindlich');await f.ok(route,await f.signing(route),customer);const order=await getOrder(f.env,f.id);assert.equal(order.status,'Erledigt');assert.ok(order.completedAt);assert.equal(order.return.workComplete,true);assert.equal(order.return.replaces,null);
 });
 
 test('replacement preserves the signed original and never inherits either prior signature',async t=>{
