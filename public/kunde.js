@@ -10,7 +10,8 @@ const money=cents=>cents===null||cents===undefined?'—':moneyFormat.format(cent
 const dateTime=new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'});
 const dateShort=new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',day:'2-digit',month:'2-digit',year:'numeric'});
 const when=iso=>iso?dateTime.format(new Date(iso))+' Uhr':'';
-const day=value=>!value?'':/^\d{4}-\d{2}-\d{2}$/.test(value)?value.slice(8,10)+'.'+value.slice(5,7)+'.'+value.slice(0,4):dateShort.format(new Date(value));
+// Freitext (z. B. „KW 42“) bleibt unverändert stehen statt die Seite abstürzen zu lassen.
+const day=value=>{if(!value)return '';if(/^\d{4}-\d{2}-\d{2}$/.test(value))return value.slice(8,10)+'.'+value.slice(5,7)+'.'+value.slice(0,4);const d=new Date(value);return Number.isFinite(+d)?dateShort.format(d):String(value);};
 const INVOICE_STATUS={open:'Offen',overdue:'Überfällig',paid:'Bezahlt',canceled:'Storniert'};
 const REQUEST_STATUS={offen:'Angefragt – wir prüfen',übernommen:'Übernommen – ergänztes Angebot folgt',erledigt:'Erledigt',abgelehnt:'Leider nicht möglich'};
 const icon=path=>`<svg class="portal-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>`;
@@ -30,7 +31,7 @@ async function load(){
   try{data=await api('me'+(previewId?'?vorschau='+encodeURIComponent(previewId):''));}
   catch(error){if(error.status===401){location.replace(loginUrl);return;}gate(error.message,error.status===403);return;}
   const wanted=location.hash.slice(1);
-  selectedId=data.orders.find(o=>o.id===wanted)?.id??data.orders.find(o=>o.todo?.length)?.id??data.orders.find(o=>!o.closed&&o.step!==null&&o.step<5)?.id??data.orders.find(o=>!o.closed)?.id??data.orders[0]?.id??null;
+  selectedId=data.orders.find(o=>o.id===wanted)?.id??data.orders.find(o=>o.id===previewId)?.id??data.orders.find(o=>o.todo?.length)?.id??data.orders.find(o=>!o.closed&&o.step!==null&&o.step<5)?.id??data.orders.find(o=>!o.closed)?.id??data.orders[0]?.id??null;
   render();
 }
 

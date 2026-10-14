@@ -70,11 +70,13 @@ function classOf(o){return vehicleClasses.find(c=>c.id===o.source?.classId)??veh
 function packageOf(o){return o.source?.packageId??(o.offer??o.assessment)?.lines?.find(l=>l.kind==='package')?.catalogId??packages.find(p=>p.name===o.source?.package)?.id??'';}
 // Bereits enthaltene Zusatzleistungen werden nicht erneut angeboten.
 function bookedExtras(o){const ids=new Set(o.source?.extraIds??[]);for(const doc of [o.offer,o.assessment,o.pending?.offer?.content])for(const l of doc?.lines??[])if(l.kind==='extra'&&l.catalogId)ids.add(l.catalogId);return ids;}
-export function availableExtras(o){
+// requested: Extras aus offenen oder übernommenen Kundenwünschen werden nicht erneut angeboten.
+export function availableExtras(o,requested=new Set()){
   if(!EXTRA_STATES.includes(o.status))return [];
-  const klass=classOf(o),pack=packageOf(o),booked=bookedExtras(o),factor=klass?.factorPercent??100;
+  const klass=classOf(o),pack=packageOf(o),booked=bookedExtras(o),factor=klass?.factorPercent??100;for(const id of requested)booked.add(id);
   return extras.filter(e=>e.requestable&&!booked.has(e.id)&&!extraIncluded(pack,e.id)).map(e=>({id:e.id,name:e.name,hint:e.hint,group:e.group,inspect:e.inspect===true,priceCents:Math.round(e.priceCents*factor/100),classKnown:Boolean(klass)}));
 }
+function requestedExtras(requests){return new Set(requests.filter(r=>r.kind==='extras'&&['offen','übernommen'].includes(r.status)).flatMap(r=>(r.extras??[]).map(e=>e.id)));}
 async function requestsOf(env,orderId){
   return (await env.DB.prepare('SELECT id,kind,data,status,created_at,decided_at FROM portal_requests WHERE order_id=? ORDER BY created_at DESC LIMIT 50').bind(orderId).all()).results.map(r=>({id:r.id,kind:r.kind,status:r.status,createdAt:r.created_at,decidedAt:r.decided_at,...JSON.parse(r.data)}));
 }
@@ -105,7 +107,7 @@ async function portalOrder(env,o,config,preview){
     id:o.id,wg:o.wg,status:o.status,statusText:STATUS_TEXT[o.status]??o.status,step:STEP_OF[o.status]??null,steps:STEPS,closed:CLOSED.includes(o.status),restricted:false,canReschedule:Boolean(a)&&RESCHEDULE.includes(o.status),
     createdAt:o.createdAt??null,vehicle:o.source?.vehicle??'',plate:o.source?.plate??'',package:packages.find(p=>p.id===packageOf(o))?.name??o.source?.package??'',vehicleClass:classOf(o)?.label??o.source?.vehicleClass??'',
     desiredDate:o.source?.desiredDate??'',delivery:o.source?.delivery??'',appointment:a,offer:offerView(o),todo,documents,invoice,
-    extras:availableExtras(o),requests:await requestsOf(env,o.id),
+    ...await (async()=>{const requests=await requestsOf(env,o.id);return {extras:availableExtras(o,requestedExtras(requests)),requests};})(),
     review:done&&/^https:\/\//.test(config.reviewUrl??'')?config.reviewUrl:null
   };
 }
@@ -139,6 +141,7 @@ export async function handlePortal(env,request,identity,isOwner){
   need(rest[0]==='o'&&rest.length>=3,'Funktion nicht gefunden.',404);
   const o=await owned(env,email,rest[1],isOwner),op=rest.slice(2).join('/');
   if(request.method==='GET'){
+    assertRecordOperation(o,'customer-document');
     if(/^pdf\/(acceptance|intake|return)$/.test(op)){
       const kind=op.slice(4);need(kind==='acceptance'?o.acceptance:o[kind],'Dieses Dokument liegt noch nicht vor.',404);
       const r=await protocolDownload(env,o.id,kind);return new Response(r.body,{headers:{...Object.fromEntries(r.headers),...headers}});
@@ -167,7 +170,7 @@ export async function handlePortal(env,request,identity,isOwner){
     return json({url:'/dokument/'+saved.pending[kind].token});
   }
   if(op==='extras'){
-    const offered=new Map(availableExtras(o).map(e=>[e.id,e]));
+    const offered=new Map(availableExtras(o,requestedExtras(await requestsOf(env,o.id))).map(e=>[e.id,e]));
     const ids=[...new Set(Array.isArray(input.extraIds)?input.extraIds:[])];
     need(ids.length>0&&ids.length<=10&&ids.every(id=>offered.has(id)),'Bitte mindestens eine verfügbare Zusatzleistung auswählen.');
     const note=text(input.note,500),chosen=ids.map(id=>offered.get(id)),id=randomUUID(),at=new Date(now).toISOString();

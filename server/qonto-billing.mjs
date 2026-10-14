@@ -730,6 +730,7 @@ export function invoiceMail(env, order, kind, today = berlinDay()) {
           ({ Bar: " (bar)", Karte: " (Karte)", Überweisung: " (Überweisung)" }[inv.paymentMethod] ?? "") +
           "; die Rechnung gilt zugleich als Quittung." +
           (portal ? "\n\nIhr Kundenbereich (Anmeldung mit Ihrer E-Mail-Adresse):\n" + portal : "") +
+          (portal ? "\n\nAlle Aufträge, Dokumente und Nachrichten finden Sie in Ihrem Kundenportal:\n" + env.PANEL_ORIGIN + "/kunde" : "") +
           signature,
       };
     return {

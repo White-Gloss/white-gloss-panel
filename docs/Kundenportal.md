@@ -49,6 +49,8 @@ antwortest, gilt der bisherige Termin. „Erledigt“ oder „Ablehnen“ zeigt 
   ohne dich als Kunde anzumelden.
 - Oben im Auftrag: Kundenwünsche aus dem Portal mit „In Leistungen übernehmen“, „Erledigt“,
   „Ablehnen“.
+- Auf der Übersicht stehen alle offenen Kundenwünsche – auch dann, wenn der Chat eines Auftrags
+  beendet ist und deshalb keine Chatnachricht entsteht.
 - Der Portal-Link ist für alle Kunden gleich: `https://panel.white-gloss.de/kunde`. Er steht
   automatisch in den Mails mit Auftragsbestätigung/Protokoll-PDF und in Rechnungsmails.
   Tipp: Auf white-gloss.de im Menü „Kundenlogin“ auf diese Adresse verlinken.
@@ -56,7 +58,10 @@ antwortest, gilt der bisherige Termin. „Erledigt“ oder „Ablehnen“ zeigt 
 ## Datenschutz und Sicherheit
 
 - Anmeldung nur für E-Mail-Adressen mit mindestens einem echten Auftrag (nicht Papierkorb, nicht
-  Testbereich). Für andere Adressen kommt dieselbe neutrale Meldung, es wird keine Mail versendet.
+  Testbereich). Die Antwort ist immer dieselbe neutrale Meldung – auch wenn der Mailversand gerade
+  gestört ist –, damit niemand herausfinden kann, ob es zu einer Adresse einen Auftrag gibt.
+  Versandprobleme stehen nur im Serverprotokoll.
+- Bereits angefragte Zusatzleistungen werden nicht erneut angeboten (keine doppelten Wünsche).
 - Der Kunde sieht ausschließlich Aufträge, deren Kunden-E-Mail genau seiner Anmeldung entspricht
   (Groß-/Kleinschreibung egal). Testaufträge und Aufträge im Papierkorb erscheinen nie.
 - Dokumente, Rechnungs-PDF und Unterschriftslinks werden für jede Anfrage neu gegen die Anmeldung

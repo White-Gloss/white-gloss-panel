@@ -34,9 +34,10 @@ test('portal page needs a sign-in and the login accepts only emails with an orde
   const page=await f.get('/kunde');assert.equal(page.status,303);assert.equal(new URL(page.headers.get('location')).searchParams.get('returnTo'),'/kunde');
   assert.equal((await f.get('/api/portal/me')).status,401);
   assert.equal(await (await f.get('/kunde',f.customer)).text(),'asset:/kunde');
-  const unknown=await f.post('/auth/request',null,{email:'niemand@example.invalid',returnTo:'/kunde'});assert.equal(unknown.status,200);
+  const unknown=await f.post('/auth/request',null,{email:'niemand@example.invalid',returnTo:'/kunde'});assert.equal(unknown.status,200);const neutral=await unknown.json();
   await order(f.env);
-  const known=await f.post('/auth/request',null,{email:customer.toUpperCase(),returnTo:'/kunde'});assert.equal(known.status,503,'eligible: would send a link, mail is not configured in tests');
+  const known=await f.post('/auth/request',null,{email:customer.toUpperCase(),returnTo:'/kunde'});assert.equal(known.status,200,'same neutral answer while mail is not configured');
+  assert.deepEqual(await known.json(),neutral,'the response does not reveal whether an order exists');
   assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM auth_tokens').first()).n,0);
 });
 
@@ -146,4 +147,14 @@ test('existing chats without a link count as revoked after the update',async t=>
   assert.deepEqual(db.sql.prepare('SELECT id,link_revoked FROM chat_threads ORDER BY id').all().map(r=>[r.id,r.link_revoked]),[['a',1],['b',0]]);
   await createApplication({PANEL_ORIGIN:origin,OWNER_EMAIL_SHA256:digest(owner),CONFIG_KEY:Buffer.alloc(32,4).toString('base64'),DB:db,BUCKET:{async put(){},async get(){return null;},async delete(){}},ASSETS:{fetch:async()=>new Response('')}});
   assert.equal(db.sql.prepare('SELECT COUNT(*) n FROM chat_threads WHERE link_revoked=1').get().n,1,'migration runs once');
+});
+
+test('Codex review: no duplicate extra requests, restricted orders serve no files',async t=>{
+  const f=await fixture(t),o=await order(f.env,{extra:{acceptance:{at:new Date().toISOString()}}});
+  await f.ok(await f.post('/api/portal/o/'+o.id+'/extras',f.customer,{extraIds:['tierhaar']}));
+  assert.equal((await f.post('/api/portal/o/'+o.id+'/extras',f.customer,{extraIds:['tierhaar']})).status,400,'already requested');
+  const me=await f.ok(await f.get('/api/portal/me',f.customer));assert.ok(!me.orders[0].extras.some(e=>e.id==='tierhaar'));
+  const blocked=await order(f.env,{extra:{acceptance:{at:new Date().toISOString()},recordsRestriction:{status:'blocked'}}});
+  assert.equal((await f.get('/api/portal/o/'+blocked.id+'/pdf/acceptance',f.customer)).status,409);
+  assert.equal((await f.get('/api/portal/o/'+blocked.id+'/rechnung.pdf',f.customer)).status,409);
 });

@@ -78,3 +78,13 @@ test('a foreign signed-in visitor gets an empty portal, an expired session is se
   assert.match(ui.text(),/keinen aktiven Auftrag/);
   assert.ok(!ui.text().includes('Erika'));
 });
+
+test('free-text desired dates render and the preview opens the clicked order',async t=>{
+  const f=await setup(t);
+  const id=randomUUID(),data={id,wg:'WG-4712',status:'Preise prüfen',synthetic:false,source:{name:'Erika Muster',email:customer,vehicle:'Audi A4',desiredDate:'KW 42, vormittags'},notes:[],payments:[],createdAt:new Date(Date.now()-86400000).toISOString()};
+  await f.env.DB.prepare('INSERT INTO orders(id,wg,status,data,updated_at,actor,action,synthetic) VALUES(?,?,?,?,?,?,?,0)').bind(id,data.wg,data.status,JSON.stringify(data),new Date(Date.now()-86400000).toISOString(),'test','fixture').run();
+  const ui=await boot(t,{app:f.app,path:'/kunde?vorschau='+id,cookie:f.ownerCookie});
+  assert.match(ui.$('.portal-hero').textContent,/Audi A4/,'preview opens the order it was started from');
+  assert.match(ui.text(),/Ihr Wunschtermin: KW 42, vormittags/);
+  assert.deepEqual(ui.errors,[]);
+});
