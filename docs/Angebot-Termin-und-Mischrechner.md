@@ -15,6 +15,13 @@ gehört zum geprüften Dokumentstand und bleibt in der Auftragsbestätigung erha
 Eine spätere Verschiebung braucht eine erneute Terminbestätigung. Bestehende
 Angebote ohne Termin können weiterhin angenommen werden; der Termin folgt später.
 
+Bei der Sofort-Buchung zeigt die Annahmeseite Beginn, voraussichtliches Ende,
+Dauer, Übergabeart und Ort vor dem Unterschriftsfeld. Genau dieser angezeigte
+Termin wird mitgesendet und serverseitig geprüft. Eine geänderte Terminwahl
+löscht die bisherige Unterschrift und verlangt eine erneute Bestätigung.
+Ältere Vor-Ort-Clients behalten ihre getrennte Angebots- und Terminbestätigung;
+ihr Angebots-PDF weist den Termin nicht als gemeinsam unterschrieben aus.
+
 Betreiberfreigaben ohne Unterschrift bleiben ausdrücklich als solche erkennbar.
 Anmeldung, Kunden-PIN, Widerrufsangaben, Preisprüfung, Fotos, Protokolle,
 Rechnungen, Zahlungen und Anbieterfreigaben verwenden die bisherigen Abläufe.

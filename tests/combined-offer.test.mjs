@@ -108,3 +108,13 @@ test('confirmation PDF records the appointment signed with the offer even after 
   assert.equal(Buffer.from(pdf.bytes.subarray(0,5)).toString(),'%PDF-');assert.match(text,/Gemeinsam vereinbarter Termin/);
   assert.ok(text.includes(berlin(accepted.appointment.start)));assert.ok(!text.includes(berlin(moved.appointment.start)));assert.match(text,/gemeinsam vom Betreiber freigegeben/);
 });
+
+test('legacy immediate bookings do not describe their separately confirmed appointment as part of the signed offer PDF',async t=>{
+  const f=await fixture(t,false),drawn=[],addPage=PDFDocument.prototype.addPage;
+  t.mock.method(PDFDocument.prototype,'addPage',function(...args){const page=addPage.apply(this,args),drawText=page.drawText;page.drawText=function(value,options){drawn.push(value);return drawText.call(this,value,options);};return page;});
+  const legacy=await f.ok('onsite',{synthetic:true,source:{name:'Legacy'},assessment:{services:'TEST',totalCents:1000},acceptance:{signature},appointment:{start:'2035-10-15T09:00',duration:180}});
+  assert.equal(legacy.status,'Termin verbindlich');assert.equal(legacy.acceptance.snapshot.appointment,undefined);
+  const pdf=await acceptanceDocument(f.env,legacy),text=drawn.join('\n');
+  assert.equal(Buffer.from(pdf.bytes.subarray(0,5)).toString(),'%PDF-');
+  assert.doesNotMatch(text,/Gemeinsam vereinbarter Termin|dieser Termin wurden gemeinsam/);assert.ok(!text.includes(berlin(legacy.appointment.start)));
+});

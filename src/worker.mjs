@@ -99,10 +99,21 @@ async function onsiteBooking(env,b){
   const assessment=transition({id,source,status:'Preise prüfen'},'price',input,now).assessment;
   const appointmentInput={start:appointment.start||now,duration:appointment.duration??packageMinutes[b.selection?.packageId]??120,delivery:appointment.delivery||source.delivery||'Kunde bringt',location:appointment.location??source.address??''};
   const planned=appointment.skip===true?null:transition({id,source,status:'Preise prüfen'},'appointment',appointmentInput,now);
-  // The same signature covers the displayed prices, concrete appointment and consent texts.
-  const snapshotHash=await hash(JSON.stringify({offer:assessment,appointment:planned?appointmentSnapshot(planned):null,hints:{price:priceNote,withdrawal:s.withdrawalText??''}}));
+  const joint=b.acceptance?.confirmAppointment===true&&Boolean(planned);
+  let displayedAppointment=null;
+  if(b.acceptance?.confirmAppointment===true){
+    need(planned,'Es gibt keinen angezeigten Termin zum gemeinsamen Bestätigen.',409);
+    const displayed=b.acceptance.displayedAppointment,{wg:_wg,...expected}=appointmentSnapshot(planned);
+    const validTime=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}T/.test(value)&&Number.isFinite(Date.parse(value));
+    need(displayed&&typeof displayed==='object'&&!Array.isArray(displayed)&&validTime(displayed.start)&&validTime(displayed.end)&&typeof displayed.duration==='number'&&Number.isInteger(displayed.duration)&&typeof displayed.delivery==='string'&&typeof displayed.location==='string','Bitte den konkreten Termin vor der gemeinsamen Unterschrift anzeigen.',409);
+    displayedAppointment={start:new Date(displayed.start).toISOString(),end:new Date(displayed.end).toISOString(),duration:displayed.duration,delivery:displayed.delivery.trim(),location:displayed.location.trim()};
+    need(JSON.stringify(displayedAppointment)===JSON.stringify(expected),'Der angezeigte Termin stimmt nicht mit der Buchung überein. Bitte erneut anzeigen und unterschreiben.',409);
+  }
+  // Combined consent only covers the concrete appointment actually shown before signing.
+  // Older clients keep their offer-only signature snapshot and separate appointment confirmation.
+  const snapshotHash=await hash(JSON.stringify({offer:assessment,...(joint?{appointment:displayedAppointment}:{}),hints:{price:priceNote,withdrawal:s.withdrawalText??''}}));
   if(b.acceptance?.signature){signature=await storeDataSignature(env,id,b.acceptance.signature,'acceptance');extra.push(signature.statement);}
-  const operationId=crypto.randomUUID();const build=base=>{let o=transition(base,'price',input,now);if(planned)o=transition(o,'appointment',appointmentInput,now);o=transition(o,'onsiteAccept',{...(b.acceptance??{}),confirmAppointment:Boolean(planned),signature:signature?.id??null,snapshotHash,withdrawalText:s.withdrawalText??''},now);o.operationId=operationId;return o;};
+  const operationId=crypto.randomUUID();const build=base=>{let o=transition(base,'price',input,now);if(planned)o=transition(o,'appointment',appointmentInput,now);o=transition(o,'onsiteAccept',{...(b.acceptance??{}),confirmAppointment:joint,signature:signature?.id??null,snapshotHash,withdrawalText:s.withdrawalText??''},now);if(planned&&!joint)o=transition(o,'confirmAppointment',signature?{signature:signature.id,inPerson:true,customerName:b.acceptance?.customerName}:{release:b.acceptance?.release===true,releaseReason:b.acceptance?.releaseReason},now);o.operationId=operationId;return o;};
   try{const preview=build({id,source,synthetic,status:'Preise prüfen',notes:[],payments:[],createdAt:now,updatedAt:now});if(preview.appointment&&env.operations?.validateAppointment)await env.operations.validateAppointment(env,preview);if(preview.appointment)extra.push(env.DB.prepare('INSERT INTO appointments(order_id,start,end) VALUES(?,?,?)').bind(id,preview.appointment.start,preview.appointment.end));if(env.operations?.protocolQueue)extra.push(...env.operations.protocolQueue(env,preview,'acceptance',operationId,1));await createOrder(env,source,synthetic,{id,prepare:base=>({...base,...preview}),customerId:b.customerId||null,vehicleId:b.vehicleId||null,extra,action:'Sofort-Buchung vor Ort'});const detail=await orderDetail(env,id);if(env.operations?.protocolDelivery)detail.protocolDelivery=await env.operations.protocolDelivery(env,id,'acceptance').catch(()=>({state:'queued',message:'Auftragsbestätigung gespeichert; Versand steht zur Prüfung aus.'}));return detail;}
   catch(error){if(signature)await env.BUCKET.delete(signature.id);throw error;}
 }
