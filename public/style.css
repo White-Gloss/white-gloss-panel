@@ -79,6 +79,8 @@ input::placeholder,textarea::placeholder{color:#69798b;opacity:1}
 .sidebar{visibility:visible;height:100vh;height:100dvh;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;scrollbar-width:thin;scrollbar-color:#8ea1b6 transparent;scrollbar-gutter:stable}
 .sidebar>.brand,.sidebar>.navgroup,.sidebar>.nav,.sidebar>footer{flex-shrink:0}
 .sidebar .nav{align-content:start}
+.sidebar .nav button,.sidebar .nav .navlink{min-width:0;overflow-wrap:anywhere;hyphens:auto}
+.sidebar .nav .icon{flex-shrink:0}
 .sidebar footer{line-height:1.7}
 .sidebar-close,.sidebar-backdrop,.mobile-dock{display:none}
 .stat .value{font-weight:600;color:var(--ink);line-height:1.2}

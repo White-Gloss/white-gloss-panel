@@ -31,6 +31,7 @@ test('desktop menu still scrolls with enlarged text and its final link can recei
   await page.route(origin+'/text-scaling.css',route=>route.fulfill({contentType:'text/css',body:'.sidebar{font-size:200%}.sidebar .nav button,.sidebar .navlink{font-size:26px;line-height:1.5}'}));
   await page.addStyleTag({url:origin+'/text-scaling.css'});
   assert.equal(await page.locator('.sidebar .nav button').first().evaluate(el=>getComputedStyle(el).fontSize),'26px');
+  assert.ok(await page.locator('.sidebar .nav').evaluate(nav=>[...nav.querySelectorAll('button,a')].every(el=>el.scrollWidth<=el.clientWidth)),'enlarged German navigation labels wrap inside their controls');
   const last=page.locator('.sidebar a[href="/vor-ort"]');await last.focus();
   const box=await last.boundingBox();assert.ok(box.y>=0&&box.y+box.height<=600);assert.ok(await page.locator('.sidebar').evaluate(el=>el.scrollTop>0));assert.deepEqual(f.errors,[]);
 });
