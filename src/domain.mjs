@@ -82,6 +82,16 @@ export const appointmentConfirmed=o=>Boolean(o.appointment?.confirmation);
 const workAuthorized=o=>Boolean(o.acceptance)&&(appointmentConfirmed(o)||(o.status==='Termin verbindlich'&&Boolean(o.appointment)));
 const sameAppointment=(a,b)=>Boolean(a&&b)&&a.start===b.start&&a.duration===b.duration&&a.delivery===b.delivery&&a.location===b.location;
 export function appointmentSnapshot(o){const a=o.appointment;return a?{wg:o.wg,start:a.start,end:a.end,duration:a.duration,delivery:a.delivery,location:a.location??''}:null;}
+// One explicit consent signs the displayed offer and appointment together. Keep the
+// appointment evidence in the acceptance when a later reschedule needs a new signature.
+function confirmOfferAppointment(o,input,now){
+  if(input.confirmAppointment!==true)return;
+  need(o.appointment,'Es gibt keinen Termin zum gemeinsamen Bestätigen.',409);
+  need(!['Abgelehnt','Storniert','Abgelaufen','In Arbeit','Erledigt','Bezahlt'].includes(o.status),'Der Termin kann in diesem Auftragsstand nicht mehr bestätigt werden.',409);
+  const a=o.acceptance;need(a?.signature||a?.release,'Eine persönliche Unterschrift oder ausdrückliche Betreiberfreigabe ist erforderlich.',409);
+  a.snapshot.appointment=appointmentSnapshot(o);
+  if(!appointmentConfirmed(o))o.appointment.confirmation={mode:a.mode,at:now,signature:a.signature??null,snapshotHash:a.snapshotHash??null,customerName:a.customerName??'',acceptanceId:a.confirmationId,...(a.release?{release:structuredClone(a.release)}:{})};
+}
 export function transition(order,action,input,now=new Date().toISOString(),role='owner') {
   const o=structuredClone(order); const status=o.status; input=input??{};
   // Freeze legacy accepted data before the first edit can change its document.
@@ -93,7 +103,7 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     if(o.offer&&!offerSigned(o)){history(o,'offerHistory',{offer:o.offer,acceptance:o.acceptance??null,replacedAt:now});o.offer={...structuredClone(o.assessment),createdAt:o.offer.createdAt,expiresAt:o.offer.expiresAt,editedAt:now};}
   }
   else if(action==='confirm') { need(['Preise prüfen','Abgelaufen'].includes(status)&&!o.acceptance,'Das Angebot ist bereits freigegeben.',409); if(o.offer)history(o,'offerHistory',{offer:o.offer,acceptance:null,replacedAt:now}); o.offer={...structuredClone(o.assessment??emptyAssessment()),createdAt:now,expiresAt:new Date(Date.parse(now)+14*86400000).toISOString()}; o.status='Angebot offen'; }
-  else if(action==='accept') { need(role==='customer','Annahme ist ausschließlich dem Kunden vorbehalten.',403); if(customerSignedOnline(o)) return o; need(status==='Angebot offen'&&!o.acceptance&&Date.parse(o.offer.expiresAt)>Date.parse(now),'Angebot geschlossen oder abgelaufen.',409); need(input.signature&&input.snapshotHash&&input.paymentObligation===true,'Eigene Unterschrift und zahlungspflichtige Annahme sind erforderlich.'); o.acceptance=acceptanceSnapshot(o,o.offer,{signature:input.signature,snapshotHash:input.snapshotHash,at:now,mode:'online',...consents(input)}); o.status=appointmentConfirmed(o)?'Termin verbindlich':'Angenommen'; }
+  else if(action==='accept') { need(role==='customer','Annahme ist ausschließlich dem Kunden vorbehalten.',403); if(customerSignedOnline(o)) return o; need(status==='Angebot offen'&&!o.acceptance&&Date.parse(o.offer.expiresAt)>Date.parse(now),'Angebot geschlossen oder abgelaufen.',409); need(input.signature&&input.snapshotHash&&input.paymentObligation===true,'Eigene Unterschrift und zahlungspflichtige Annahme sind erforderlich.'); o.acceptance=acceptanceSnapshot(o,o.offer,{signature:input.signature,snapshotHash:input.snapshotHash,at:now,mode:'online',...consents(input)});confirmOfferAppointment(o,input,now); o.status=appointmentConfirmed(o)?'Termin verbindlich':'Angenommen'; }
   else if(action==='onsiteAccept') {
     // The customer signs in person on the operator's device. A signed offer is only replaced by a new signature.
     const signature=text(input.signature,100)||null;
@@ -102,7 +112,8 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     const base=signed?(o.assessment??emptyAssessment()):(o.offer??o.assessment??emptyAssessment());const previous=signed?{at:o.acceptance.at,signedAt:o.acceptance.at,offerCreatedAt:o.offer?.createdAt??null,snapshotHash:o.acceptance.snapshotHash??null}:null;
     const offer={...structuredClone(base),createdAt:signed||!o.offer?now:o.offer.createdAt,expiresAt:signed||!o.offer?now:o.offer.expiresAt,...(previous?{replaces:previous}:{})};
     applyDocument(o,'offer',offer,{mode:release?'ohne Unterschrift freigegeben':'vor Ort',at:now,signature,customerName:text(input.customerName,180),...consents(input),snapshotHash:text(input.snapshotHash,128)||null,...(release?{release}:{}),...(previous?{replaces:previous}:{})},now);
-    if(BEFORE_ACCEPT.includes(status))o.status=appointmentConfirmed(o)?'Termin verbindlich':'Angenommen';
+    confirmOfferAppointment(o,input,now);
+    if(BEFORE_ACCEPT.includes(status)||status==='Angenommen')o.status=appointmentConfirmed(o)?'Termin verbindlich':'Angenommen';
   }
   else if(action==='appointment') {
     const workStarted=['In Arbeit','Erledigt','Bezahlt'].includes(status);

@@ -8,6 +8,7 @@ import {digest} from '../server/auth.mjs';
 import {protocolDocument} from '../server/protocol-document.mjs';
 import {COMPANY} from '../src/company.mjs';
 import {priceNote} from '../src/catalog.mjs';
+import {appointmentSnapshot} from '../src/domain.mjs';
 
 const origin='https://panel.example.invalid',ownerEmail='test-owner@example.invalid';
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ypcAAAAASUVORK5CYII=','base64');
@@ -34,7 +35,8 @@ test('on-site booking stores customer, price, personal signature and immediate s
   assert.equal(o.status,'Termin verbindlich');assert.equal(o.offer.totalCents,48625);assert.equal(o.acceptance.mode,'vor Ort');assert.equal(o.acceptance.immediateStart,true);
   assert.ok(Date.parse(o.appointment.start)>=before-1000);assert.equal(o.appointment.duration,360);assert.match(o.source.name,/^TEST · Vor Ort/);assert.equal(o.customerId,c.id);
   const asset=e.DB.sql.prepare("SELECT kind FROM assets WHERE id=?").get(o.acceptance.signature);assert.equal(asset.kind,'acceptance');
-  assert.equal(o.acceptance.snapshotHash,createHash('sha256').update(JSON.stringify({offer:o.offer.lines?{condition:'Starke Verschmutzung',lines:o.offer.lines,totalCents:48625,pickupCents:0,pricesReviewed:true,services:o.offer.services}:null,hints:{price:priceNote,withdrawal:''}})).digest('hex'));
+  assert.equal(o.acceptance.snapshotHash,createHash('sha256').update(JSON.stringify({offer:o.offer.lines?{condition:'Starke Verschmutzung',lines:o.offer.lines,totalCents:48625,pickupCents:0,pricesReviewed:true,services:o.offer.services}:null,appointment:appointmentSnapshot({...o,wg:undefined}),hints:{price:priceNote,withdrawal:''}})).digest('hex'));
+  assert.equal(o.acceptance.signature,o.appointment.confirmation.signature);assert.equal(o.acceptance.snapshot.appointment.start,o.appointment.start);
   assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM appointments').get().n,1);
   const vehicles=(await ok(e,'customer/'+c.id)).vehicles;assert.equal(vehicles.length,1);assert.equal(vehicles[0].plate,'TÜ-AB 1');
   // A second immediate start at the same time is rejected as overlap and leaves nothing behind.

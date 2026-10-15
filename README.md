@@ -15,6 +15,7 @@ Jede Änderung benötigt einen eigenen geprüften IONOS-Release und einen Live-N
 - [Qonto: Rechnungen, Quittungen und Mahnwesen](docs/Qonto-Rechnungen-und-Mahnwesen.md)
 - [Vor-Ort-App, Kundenstamm und Bearbeitung](docs/Vor-Ort-App-und-Bearbeitung.md)
 - [Kundenchat mit Fotos, Videos und PDFs](docs/Kundenchat.md)
+- [Angebot, Termin, Mischrechner und mobile Bedienung](docs/Angebot-Termin-und-Mischrechner.md)
 
 ## Aufbau
 

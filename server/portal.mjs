@@ -95,11 +95,11 @@ async function portalOrder(env,o,config,preview){
   const documents=[];const pdf=kind=>'/api/portal/o/'+o.id+'/pdf/'+kind;
   if(o.acceptance)documents.push({kind:'acceptance',label:o.acceptance.signature?DOCUMENT_LABEL.acceptance:'Auftragsbestätigung ohne Kundenunterschrift',at:o.acceptance.at??null,signed:Boolean(o.acceptance.signature),url:pdf('acceptance')});
   for(const kind of ['intake','return'])if(o[kind])documents.push({kind,label:DOCUMENT_LABEL[kind],at:o[kind].signedAt??o[kind].at??o[kind].savedAt??null,signed:Boolean(o[kind].customerSignature),url:pdf(kind)});
-  const todo=[];
+  const todo=[],openOffer=o.status==='Angebot offen'&&!o.acceptance&&await validLink(env,'offer_tokens',o.offerToken,o.id);
   {
-    if(o.status==='Angebot offen'&&!o.acceptance&&await validLink(env,'offer_tokens',o.offerToken,o.id))todo.push({kind:'offer-open',label:'Angebot prüfen und annehmen',url:'/angebot/'+o.offerToken});
+    if(openOffer)todo.push({kind:'offer-open',label:o.appointment?'Angebot & Termin prüfen und unterschreiben':'Angebot prüfen und annehmen',url:'/angebot/'+o.offerToken});
     else if(o.status==='Angebot offen'&&!o.acceptance)todo.push({kind:'offer-expired',label:'Ihr Angebotslink ist abgelaufen. Bitte schreiben Sie uns – wir senden Ihnen einen neuen.',url:null});
-    if(o.appointment&&!o.appointment.confirmation&&CONFIRMABLE.includes(o.status))todo.push({kind:'confirm-appointment',label:'Termin bestätigen und unterschreiben',anchor:'termin-'+o.id});
+    if(!openOffer&&o.appointment&&!o.appointment.confirmation&&CONFIRMABLE.includes(o.status))todo.push({kind:'confirm-appointment',label:'Termin bestätigen und unterschreiben',anchor:'termin-'+o.id});
     for(const kind of ['offer','intake','return'])if(o.pending?.[kind])todo.push({kind:'sign-'+kind,document:kind,label:SIGN_LABEL[kind],action:'/api/portal/o/'+o.id+'/sign/'+kind});
   }
   let invoice=null;
@@ -107,7 +107,7 @@ async function portalOrder(env,o,config,preview){
   const a=o.appointment&&!CLOSED.includes(o.status)?{start:o.appointment.start,end:o.appointment.end,delivery:o.appointment.delivery??'',location:o.appointment.location??'',workDays:o.appointment.workDays??null,curingNote:o.appointment.curing?.note??'',
     confirmed:Boolean(o.appointment.confirmation)||!CONFIRMABLE.includes(o.status),confirmedAt:o.appointment.confirmation?.at??null,confirmedHow:o.appointment.confirmation?.mode??null,
     // Der Kunde unterschreibt genau diesen Stand; der Server prüft den Hash beim Absenden.
-    snapshotHash:digest(JSON.stringify(appointmentSnapshot(o))),canConfirm:!o.appointment.confirmation&&CONFIRMABLE.includes(o.status)}:null;
+    snapshotHash:digest(JSON.stringify(appointmentSnapshot(o))),canConfirm:!openOffer&&!o.appointment.confirmation&&CONFIRMABLE.includes(o.status)}:null;
   const done=['Erledigt','Bezahlt'].includes(o.status);
   return {
     id:o.id,wg:o.wg,status:o.status,statusText:o.status==='Angenommen'&&o.appointment&&!o.appointment.confirmation?'Ihr Termin ist vorgeschlagen. Bitte bestätigen Sie ihn mit Ihrer Unterschrift.':STATUS_TEXT[o.status]??o.status,step:STEP_OF[o.status]??null,steps:STEPS,closed:CLOSED.includes(o.status),restricted:false,canReschedule:Boolean(a)&&RESCHEDULE.includes(o.status),
