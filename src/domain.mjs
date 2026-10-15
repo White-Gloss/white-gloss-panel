@@ -39,7 +39,8 @@ export const PROTOCOL_CHECKS=['valuablesRemoved','warningLights','damageKnown','
 export function protocolValid(p,kind,assetIds) {
   need(p&&typeof p==='object'&&!Array.isArray(p),'Protokoll fehlt.');
   const own=id=>{need(typeof id==='string'&&assetIds.has(id),'Foto oder Unterschrift gehört nicht zu diesem Auftrag.');return id;};
-  const out={};for(const key of ['business','wg','customer','vehicle','snapshotHash','replaces','signedAt'])if(p[key]!==undefined&&p[key]!==null)out[key]=p[key];
+  const out={};for(const key of ['business','wg','customer','vehicle','snapshotHash','customerSnapshotHash','replaces','signedAt','operatorSignedAt'])if(p[key]!==undefined&&p[key]!==null)out[key]=p[key];
+  if(p.customerAbsent===true)out.customerAbsent=true;
   for(const [key,max] of Object.entries({plate:80,location:600,condition:4000,notes:4000,customerName:180,operatorName:180,services:6000,openPoints:4000,checklistNote:1000}))out[key]=field(p[key],max,key);
   out.at=optionalTime(p.at);
   out.mileage=count(p.mileage,0,9999999,'Kilometerstand');out.keys=count(p.keys,0,20,'Schlüsselanzahl');out.fuel=count(p.fuel,0,100,'Tank- bzw. Ladestand');
@@ -142,6 +143,8 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
   else if(action==='intake'||action==='return') {
     const current=o[action];
     need(!isSigned(current),'Ein unterschriebenes Protokoll bleibt unverändert. Bitte ein Ersatzprotokoll erstellen, das der Kunde neu unterschreibt.',409);
+    need(!o.pending?.[action]?.content?.operatorSignature,'Das bereits vom Betrieb unterschriebene Protokoll bleibt unverändert. Bitte ausdrücklich eine neue Fassung erstellen oder den offenen Entwurf verwerfen.',409);
+    need(input.customerAbsent!==true,'Für einen abwesenden Kunden bitte das Protokoll selbst unterschreiben und zur Kundenunterschrift bereitstellen.',409);
     clearPendingDocument(o,action,now);
     const content={...input,savedAt:now};
     if(isSigned(current))content.replaces={at:current.at??null,signedAt:current.signedAt??current.savedAt??null,snapshotHash:current.snapshotHash??null};
@@ -152,12 +155,13 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
   }
   else if(action==='replacement'||action==='protocolRequest') {
     const kind=input.kind;need(['offer','intake','return'].includes(kind),'Unbekanntes Dokument.');
-    const replacing=action==='replacement';
-    need(replacing?(kind==='offer'?offerSigned(o):isSigned(o[kind])):kind!=='offer'&&!isSigned(o[kind]),replacing?'Nicht unterschriebene Dokumente werden direkt bearbeitet.':'Für unterschriebene Dokumente bitte ein Ersatzdokument erstellen.',409);
+    const remote=action==='protocolRequest',replacing=action==='replacement'||(remote&&isSigned(o[kind]));
+    need(remote?kind!=='offer':(kind==='offer'?offerSigned(o):isSigned(o[kind])),remote?'Unbekanntes Protokoll.':'Nicht unterschriebene Dokumente werden direkt bearbeitet.',409);
     const content=kind==='offer'?{...structuredClone(o.assessment??emptyAssessment())}:structuredClone(input.content);need(content&&typeof content==='object','Ersatzdokument fehlt.');
     const current=kind==='offer'?o.offer:o[kind];
     clearPendingDocument(o,kind,now);
-    if(kind!=='offer'){content.customerSignature=null;content.operatorSignature=null;content.signaturesConfirmed=false;delete content.signedAt;delete content.snapshotHash;delete content.replaces;}
+    if(remote){need(input.customerAbsent===true&&content.customerAbsent===true,'Bitte ausdrücklich „Kunde nicht vor Ort“ auswählen.',409);need(content.operatorSignature&&content.snapshotHash&&content.signaturesConfirmed===true&&!content.customerSignature,'Zuerst muss der Betrieb das angezeigte Protokoll persönlich unterschreiben.',409);content.operatorSignedAt=now;delete content.signedAt;}
+    else if(kind!=='offer'){content.customerSignature=null;content.operatorSignature=null;content.signaturesConfirmed=false;delete content.signedAt;delete content.operatorSignedAt;delete content.customerSnapshotHash;delete content.customerAbsent;delete content.snapshotHash;delete content.replaces;}
     o.pending={...(o.pending??{}),[kind]:{content,createdAt:now,requestId:crypto.randomUUID(),baseSnapshot:documentBaseSnapshot(o,kind),replaces:replacing?{at:current?.at??current?.createdAt??null,signedAt:kind==='offer'?o.acceptance.at:(current.signedAt??current.savedAt??null),snapshotHash:kind==='offer'?(o.acceptance.snapshotHash??null):(current.snapshotHash??null)}:null}};
   }
   else if(action==='discardReplacement') { need(o.pending?.[input.kind],'Kein offenes Ersatzdokument.',409); history(o,'pendingHistory',{kind:input.kind,...o.pending[input.kind],discardedAt:now}); const {[input.kind]:_removed,...rest}=o.pending; o.pending=rest; }
@@ -166,7 +170,7 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     need(role==='customer'||input.inPerson===true,'Nur der Kunde unterschreibt das Ersatzdokument.',403);
     const kind=input.kind,pending=assertPendingDocument(o,kind);need(text(input.signature,100),'Unterschrift des Kunden fehlt.');need(input.snapshotHash,'Angezeigtes Dokument fehlt.',409);
     if(kind==='offer'){applyDocument(o,'offer',{...pending.content,createdAt:pending.createdAt,expiresAt:now,replaces:pending.replaces},{mode:role==='customer'?'online':'vor Ort',at:now,signature:text(input.signature,250000),...consents(input),snapshotHash:input.snapshotHash,replaces:pending.replaces},now);if(BEFORE_ACCEPT.includes(status))o.status='Angenommen';}
-    else {applyDocument(o,kind,{...pending.content,customerSignature:text(input.signature,100),operatorSignature:null,signaturesConfirmed:true,signedAt:now,savedAt:now,snapshotHash:input.snapshotHash,replaces:pending.replaces??null,signedRemotely:role==='customer'},null,now);if(!pending.replaces){if(kind==='intake'&&BEFORE_WORK.includes(status)&&workAuthorized(o))o.status='In Arbeit';if(kind==='return'){if((BEFORE_WORK.includes(status)&&workAuthorized(o))||status==='In Arbeit')o.status='Erledigt';if(['Erledigt','Bezahlt'].includes(o.status)){o.completedAt??=now;settle(o);}}}}
+    else {const absent=pending.content.customerAbsent===true;need(!absent||(pending.content.operatorSignature&&pending.content.snapshotHash&&pending.content.operatorSignedAt),'Die Unterschrift des Betriebs fehlt. Bitte eine neue Fassung erstellen.',409);need(input.signature!==pending.content.operatorSignature,'Zwei getrennte Unterschriften sind erforderlich.');applyDocument(o,kind,{...pending.content,customerSignature:text(input.signature,100),operatorSignature:absent?pending.content.operatorSignature:null,signaturesConfirmed:true,signedAt:now,savedAt:now,snapshotHash:absent?pending.content.snapshotHash:input.snapshotHash,...(absent?{customerSnapshotHash:input.snapshotHash}:{}),replaces:pending.replaces??null,signedRemotely:role==='customer'},null,now);if(!pending.replaces){if(kind==='intake'&&BEFORE_WORK.includes(status)&&workAuthorized(o))o.status='In Arbeit';if(kind==='return'){if((BEFORE_WORK.includes(status)&&workAuthorized(o))||status==='In Arbeit')o.status='Erledigt';if(['Erledigt','Bezahlt'].includes(o.status)){o.completedAt??=now;settle(o);}}}}
     const {[kind]:_done,...rest}=o.pending;o.pending=rest;
   }
   else if(action==='payment') {

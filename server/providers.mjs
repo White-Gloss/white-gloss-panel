@@ -7,6 +7,7 @@ import {digest,issueCustomerAccess} from './auth.mjs';
 import {bookingPhotos,syncBookingPhotos,bookingPhotoSchema} from './booking-photos.mjs';
 import {protocolMailSchema,protocolQueueStatements,deliverProtocol,pendingProtocolMails,protocolDownload} from './protocol-mail.mjs';
 import {recordOperationIssue,assertRecordOperation,assertCurrentRecordOperation} from '../src/record-compat.mjs';
+import {checkMailDelivery} from './mail-delivery-status.mjs';
 export async function providerSchema(env){await bookingPhotoSchema(env);await protocolMailSchema(env);await qontoSchema(env);await env.DB.prepare('CREATE TABLE IF NOT EXISTS runtime_locks(name TEXT PRIMARY KEY,owner TEXT NOT NULL,expires_at INTEGER NOT NULL)').run();}
 /** @param {RequestInit & {beforeSend?:()=>void}} options */
 async function providerJSON(url,options={}){const {beforeSend,...requestOptions}=options;if(beforeSend)beforeSend();const result=await fetch(url,{...requestOptions,redirect:'manual',signal:AbortSignal.timeout(20000)});const data=await result.json().catch(()=>null);if(!result.ok)throw new AppError('Anbieteranfrage nicht bestätigt: HTTP '+result.status,502);need(data&&typeof data==='object','Anbieterergebnis ist nicht lesbar.',502);return data;}
@@ -60,6 +61,7 @@ async function syncCalendar(env,order){assertRecordOperation(order,'calendarSync
 async function reconcile(env,order){
   need(!order.synthetic,'Testaufträge haben keine externen Anbieterresultate.',409);
   const jobs=await env.DB.prepare("SELECT * FROM jobs WHERE order_id=? AND state IN ('unknown','pending','draft','sent') ORDER BY created_at").bind(order.id).all();let current=order.invoice?.provider==='qonto'?await syncQontoInvoice(env,order):order;
+  let lastMailCheckAt=0;
   for(const job of jobs.results){
     if(job.kind==='calendar-cancel'&&['unknown','pending'].includes(job.state)){
       const config=await settings(env),access=await calendarAccessToken(env),eventId=digest('white-gloss-panel:'+current.id);const response=await fetch('https://www.googleapis.com/calendar/v3/calendars/'+encodeURIComponent(config.calendarId)+'/events/'+eventId,{headers:{Authorization:'Bearer '+access},redirect:'manual',signal:AbortSignal.timeout(20000)});
@@ -72,8 +74,11 @@ async function reconcile(env,order){
       if(response.status===404){if(Date.parse(job.updated_at)<Date.now()-60000)await finishJob(env,job.id,'failed',null,'Google bestätigt: Termin nicht vorhanden. Erneuter manueller Abgleich verwendet dieselbe eindeutige Termin-ID.');continue;}
       const remote=await response.json();need(remote.extendedProperties?.private?.whiteGlossOrder===current.id&&remote.extendedProperties?.private?.whiteGlossSnapshot===expected.extendedProperties.private.whiteGlossSnapshot&&Date.parse(remote.start?.dateTime)===Date.parse(current.appointment.start)&&Date.parse(remote.end?.dateTime)===Date.parse(current.appointment.end),'Google-Termin passt nicht zur aktuellen verbindlichen Vereinbarung.',409);
       await finishJob(env,job.id,'sent',remote.id);current.calendar={eventId:remote.id,snapshot:expected.extendedProperties.private.whiteGlossSnapshot,at:new Date().toISOString()};current=await saveOrder(env,current,current.version,'Vorhandenen Google-Termin lesend abgeglichen','provider');
-    }else if((['offer','reminder','review'].includes(job.kind)||job.kind.startsWith('offer-')||job.kind.startsWith('document-'))&&job.provider_id&&job.state==='unknown'){
-      const config=await configuration(env,['resendKey']);const remote=await providerJSON('https://api.resend.com/emails/'+encodeURIComponent(job.provider_id),{headers:{Authorization:'Bearer '+config.resendKey}});need(remote.id===job.provider_id&&remote.to?.includes(order.source.email),'E-Mail gehört nicht eindeutig zu diesem Auftrag.',409);await finishJob(env,job.id,'sent',remote.id,'Resend hat die vorhandene E-Mail lesend bestätigt.');
+    }else if((['offer','reminder','review'].includes(job.kind)||/^(offer|document|protocol)-/.test(job.kind))&&job.provider_id&&['unknown','sent'].includes(job.state)){
+      const storedRecipient=job.kind.startsWith('protocol-')?await env.DB.prepare('SELECT recipient FROM protocol_deliveries WHERE job_id=? UNION ALL SELECT recipient FROM acceptance_deliveries WHERE job_id=?').bind(job.id,job.id).first():null;
+      const delay=150-(Date.now()-lastMailCheckAt);if(delay>0)await new Promise(resolve=>setTimeout(resolve,delay));lastMailCheckAt=Date.now();
+      const result=await checkMailDelivery(env,job,storedRecipient?.recipient??order.source.email);
+      await env.DB.prepare('UPDATE jobs SET state=?,detail=?,updated_at=? WHERE id=? AND state=? AND provider_id=?').bind(result.state,result.detail,new Date().toISOString(),job.id,job.state,job.provider_id).run();
     }
   }
   return current;

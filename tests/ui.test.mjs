@@ -77,7 +77,7 @@ test('panel: create, edit every step, sign on site, protocol with paint thicknes
   current=await getOrder(ui.env,o.id);assert.equal(current.status,'In Arbeit');assert.equal(current.appointment.confirmation.release.reason,'länger gebraucht');await ui.click('[data-tab="intake"]');
   // Sign the protocol with both pads.
   await ui.submit(ui.$('#protocolform'),'[data-submit="sign"]');assert.ok(ui.$('#signatureform'));ui.draw(ui.$('#customerSign'));ui.draw(ui.$('#operatorSign'));ui.fill(ui.$('#signatureform'),{confirmed:true});await ui.submit('#signatureform');
-  current=await getOrder(ui.env,o.id);assert.ok(current.intake.customerSignature);assert.match(ui.text(),/Unterschriebenes Annahmeprotokoll/);
+  current=await getOrder(ui.env,o.id);assert.ok(current.intake.customerSignature);assert.notEqual(current.intake.customerAbsent,true);assert.equal(current.pending?.intake,undefined);assert.match(ui.text(),/Unterschriebenes Annahmeprotokoll/);
   // Replacement protocol signed in person replaces the signed one.
   await ui.click('[data-click="replaceProtocol"]');ui.fill(ui.$('#replacementform'),{mileage:'45100'});await ui.submit('#replacementform');
   current=await getOrder(ui.env,o.id);assert.equal(current.intake.mileage,45000);assert.equal(current.pending.intake.content.mileage,45100);
@@ -216,13 +216,19 @@ test('consent texts: immediate start is never pre-ticked, names the lapse of the
 
 
 test('panel: absent customer protocol and recoverable order deletion preserve documents',async t=>{
-  const ui=await boot(t,{page:'index.html',script:'app.js'});
+  const env=environment();env.STANDALONE_AUTH='true';const ui=await boot(t,{page:'index.html',script:'app.js',env});
   await ui.click('[data-click="test"]');await ui.click('[data-click="create"]');
   ui.fill(ui.$('#createform'),{name:'Remote Test',vehicle:'Testauto'});await ui.submit('#createform');
   const row=await ui.env.DB.prepare('SELECT * FROM orders').first();
-  await ui.click('[data-tab="intake"]');ui.fill(ui.$('#protocolform'),{mileage:'54321',notes:'Schlüssel im Briefkasten'});
+  await ui.click('[data-tab="intake"]');ui.fill(ui.$('#protocolform'),{mileage:'54321',notes:'Schlüssel im Briefkasten'});await ui.submit('#protocolform','[data-submit="save"]');assert.ok(ui.$('[data-click="sharePdf"]'));
   await ui.submit('#protocolform','[data-submit="remote"]');
-  let current=await getOrder(ui.env,row.id);assert.equal(current.pending.intake.content.mileage,54321);assert.equal(current.pending.intake.replaces,null);assert.equal(current.pending.intake.content.customerSignature,null);
+  assert.ok(ui.$('#operatorSign'));assert.equal(ui.$('#customerSign'),null);assert.equal(ui.$('#signatureform').elements.confirmed.checked,false);
+  assert.equal((await getOrder(ui.env,row.id)).pending?.intake,undefined);
+  await ui.submit('#signatureform');assert.match(ui.$('#modal-error').textContent,/bestätigen/);
+  ui.fill(ui.$('#signatureform'),{confirmed:true});await ui.submit('#signatureform');assert.match(ui.$('#modal-error').textContent,/Betrieb unterschreiben/);
+  ui.draw(ui.$('#operatorSign'));await ui.submit('#signatureform');
+  let current=await getOrder(ui.env,row.id);assert.equal(current.pending.intake.content.mileage,54321);assert.equal(current.pending.intake.replaces,null);assert.equal(current.pending.intake.content.customerSignature,null);assert.ok(current.pending.intake.content.operatorSignature);assert.equal(current.pending.intake.content.customerAbsent,true);
+  assert.equal(ui.$('#protocolform'),null);assert.equal(ui.$('[data-click="sharePdf"]'),null);assert.match(ui.text(),/Vom Betrieb unterschrieben – Kundenunterschrift ausstehend/);
   assert.match(ui.text(),/persönlichen Zugang/);assert.ok(ui.$('[data-click="documentLink"]'));
   const request=structuredClone(current.pending.intake);
   await ui.click('[data-click="deleteOrder"]');ui.fill(ui.$('#deleteorderform'),{reason:'Doppelte Anfrage'});await ui.submit('#deleteorderform');
@@ -245,8 +251,11 @@ test('Vor-Ort app retains an absent customer draft and shows extra work in the o
   await ui.go('#auftrag='+original.id+'/annahme');assert.equal(ui.$('#p-form').elements.mileage.value,'54321');assert.equal(ui.$('#p-form').elements.notes.value,'Schlüssel im Briefkasten');
   const destinations=[];Object.defineProperty(globalThis,'location',{value:{get hash(){return ui.w.location.hash;},set hash(value){ui.w.location.hash=value;},assign(value){destinations.push(value);}},configurable:true});
   ui.fill(ui.$('#p-form'),{notes:'Abholung dokumentiert'});await ui.submit('#p-form','[data-submit="remote"]');
+  assert.equal(ui.$('#sig-customer'),null);assert.ok(ui.$('#sig-operator'));assert.equal(ui.$('#sig-form').elements.confirmed.checked,false);assert.deepEqual(destinations,[]);
+  ui.draw(ui.$('#sig-operator'));ui.fill(ui.$('#sig-form'),{confirmed:true});await ui.submit('#sig-form');
   assert.deepEqual(destinations,['/#auftrag='+encodeURIComponent(original.id)]);
   assert.equal((await getOrder(e,original.id)).pending.intake.content.notes,'Abholung dokumentiert');
+  assert.ok((await getOrder(e,original.id)).pending.intake.content.operatorSignature);
 });
 
 
@@ -413,4 +422,35 @@ test('Vor-Ort app: changing workstart clears the old signature and confirmation 
   const id=(await ui.env.DB.prepare('SELECT id FROM orders').first()).id;
   assert.equal((await getOrder(ui.env,id)).acceptance.snapshot.appointment.start,start);
   assert.deepEqual(ui.errors,[]);
+});
+
+for(const kind of ['intake','return'])test(`panel: absent ${kind} needs a fresh operator signature for each revised version`,async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});
+  await ui.click('[data-click="test"]');await ui.click('[data-click="create"]');ui.fill(ui.$('#createform'),{name:'Fassungen Test'});await ui.submit('#createform');
+  const {id}=await ui.env.DB.prepare('SELECT id FROM orders').first();await ui.click('[data-tab="'+kind+'"]');
+  // Opening and cancelling the absent-customer dialog must not change the order.
+  await ui.submit('#protocolform','[data-submit="remote"]');await ui.click('#modal [data-click="close"]');assert.equal((await getOrder(ui.env,id)).pending?.[kind],undefined);
+  await ui.submit('#protocolform','[data-submit="sign"]');assert.ok(ui.$('#customerSign'));assert.ok(ui.$('#operatorSign'));await ui.click('#modal [data-click="close"]');
+  await ui.submit('#protocolform','[data-submit="remote"]');ui.draw(ui.$('#operatorSign'));ui.fill(ui.$('#signatureform'),{confirmed:true});await ui.submit('#signatureform');
+  const original=structuredClone((await getOrder(ui.env,id)).pending[kind]);await ui.click('[data-click="documentLink"]');assert.ok((await getOrder(ui.env,id)).pending[kind].token);
+  await ui.click('[data-click="replaceProtocol"][data-kind="'+kind+'"]');assert.equal(ui.$('#protocolform [data-submit="save"]'),null);ui.fill(ui.$('#protocolform'),{notes:'Neue überprüfte Fassung'});await ui.submit('#protocolform','[data-submit="remote"]');
+  assert.equal(ui.$('#signatureform').elements.confirmed.checked,false);ui.fill(ui.$('#signatureform'),{confirmed:true});await ui.submit('#signatureform');assert.match(ui.$('#modal-error').textContent,/Betrieb unterschreiben/);
+  assert.equal((await getOrder(ui.env,id)).pending[kind].content.operatorSignature,original.content.operatorSignature);
+  ui.draw(ui.$('#operatorSign'));await ui.submit('#signatureform');const current=await getOrder(ui.env,id);
+  assert.equal(current.pending[kind].content.notes,'Neue überprüfte Fassung');assert.notEqual(current.pending[kind].content.operatorSignature,original.content.operatorSignature);assert.equal(current.pending[kind].token,undefined);
+  assert.equal(current.pendingHistory.at(-1).content.operatorSignature,original.content.operatorSignature);assert.match(ui.text(),/Frühere Fassungen/);assert.equal(ui.$('#protocolform'),null);assert.deepEqual(ui.errors,[]);
+});
+
+for(const kind of ['intake','return'])test(`customer page: absent ${kind} displays operator signature before the customer signs`,async t=>{
+  const env=environment();env.CUSTOMER_ACCESS_APPROVED='true';
+  const call=async(path,body)=>{const r=await worker.fetch(new Request(origin+'/api/'+path,{method:'POST',headers:{origin,'oai-authenticated-user-email':owner,'Content-Type':'application/json'},body:JSON.stringify(body)}),env);const result=await r.json();assert.equal(r.status,200,JSON.stringify(result));return result;};
+  let o=await call('create',{synthetic:true,source:{name:'Abwesend Kunde',vehicle:'Testfahrzeug'}});
+  const draft=await call('protocol/prepare',{id:o.id,version:o.version,kind,protocol:{customerAbsent:true,customerName:'Abwesend Kunde',operatorName:'Betrieb Test',notes:'Vorab geprüft'}});
+  const response=await worker.fetch(new Request(origin+'/api/upload/'+o.id+'?kind=signature&draft='+draft.id+'&hash='+draft.hash,{method:'POST',headers:{origin,'oai-authenticated-user-email':owner,'Content-Type':'image/png'},body:png}),env);assert.equal(response.status,200);const operator=(await response.json()).id;
+  o=await call('action',{id:o.id,version:o.version,action:'protocolRequest',input:{kind,customerAbsent:true,draftId:draft.id,snapshotHash:draft.hash,operatorSignature:operator,signaturesConfirmed:true}});
+  o=await call('action',{id:o.id,version:o.version,action:'documentLink',input:{kind}});
+  const ui=await boot(t,{page:'index.html',script:'app.js',path:'/dokument/'+o.pending[kind].token,env,identity:'synthetisch@example.invalid'});
+  assert.match(ui.text(),/Betrieb Test/);assert.match(ui.text(),/Kundenunterschrift ausstehend/);const operatorImage=ui.$('img[alt="Unterschrift Betrieb"]');assert.ok(operatorImage);assert.ok(operatorImage.src.endsWith('/asset/'+operator));assert.equal(ui.$('#documentConfirmed').checked,false);
+  ui.draw(ui.$('#documentSignature'));ui.$('#documentConfirmed').checked=true;await ui.submit('#documentForm');assert.match(ui.text(),/Vielen Dank/);
+  const signed=(await getOrder(env,o.id))[kind];assert.equal(signed.operatorSignature,operator);assert.equal(signed.snapshotHash,draft.hash);assert.ok(signed.customerSignature);assert.notEqual(signed.customerSignature,operator);assert.deepEqual(ui.errors,[]);
 });

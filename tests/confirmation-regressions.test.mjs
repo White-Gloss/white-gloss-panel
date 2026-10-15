@@ -97,7 +97,7 @@ test('saving or signing protocols cannot advance work before the offer and appoi
     for(const kind of ['intake','return']){
       const saved=transition(original,kind,{notes:'Nur Dokumentation'},at);
       assert.equal(saved.status,original.status);assert.equal(saved[kind].notes,'Nur Dokumentation');assert.equal(saved.completedAt,undefined);
-      const pending=transition(original,'protocolRequest',{kind,content:{notes:'Zur Kundenunterschrift'}},at);
+      const pending=transition(original,'protocolRequest',{kind,customerAbsent:true,content:{notes:'Zur Kundenunterschrift',customerAbsent:true,operatorSignature:'operator-signature',snapshotHash:'prepared-hash',signaturesConfirmed:true}},at);
       const signed=transition(pending,'signReplacement',{kind,signature:'protocol-signature',snapshotHash:'protocol-hash'},at,'customer');
       assert.equal(signed.status,original.status);assert.equal(signed[kind].customerSignature,'protocol-signature');assert.equal(signed.completedAt,undefined);
     }
@@ -105,7 +105,7 @@ test('saving or signing protocols cannot advance work before the offer and appoi
   const authorized=confirmed();
   assert.equal(transition(authorized,'intake',{},at).status,'In Arbeit');assert.equal(transition(authorized,'return',{},at).status,'Erledigt');
   for(const kind of ['intake','return']){
-    const pending=transition(authorized,'protocolRequest',{kind,content:{}},at);
+    const pending=transition(authorized,'protocolRequest',{kind,customerAbsent:true,content:{customerAbsent:true,operatorSignature:'operator-signature',snapshotHash:'prepared-hash',signaturesConfirmed:true}},at);
     assert.equal(transition(pending,'signReplacement',{kind,signature:'protocol-signature',snapshotHash:'protocol-hash'},at,'customer').status,kind==='intake'?'In Arbeit':'Erledigt');
   }
 });
