@@ -37,6 +37,6 @@ export async function browserFixture(t,{viewport={width:1280,height:720},identit
     const order={id,wg:'WG-'+id.slice(0,8),synthetic:false,status:'Angenommen',source:{name:'Erika Muster',email:customer,vehicle:'VW Golf',plate:'FDS-WG 1',packageId:'premium',classId:'suv'},assessment:{lines:[line],condition:'',totalCents:43625,pickupCents:0,pricesReviewed:true,services:''},offer:{lines:[line],totalCents:43625,pickupCents:0,services:''},acceptance:{at},appointment:{start:'2035-10-15T07:00:00.000Z',end:'2035-10-15T10:00:00.000Z',duration:180,delivery:'Kunde bringt',location:'Teststraße 1, Horb'},notes:[],payments:[],createdAt:at,updatedAt:at,...overrides};
     await env.DB.prepare('INSERT INTO orders(id,wg,status,data,updated_at,actor,action,synthetic) VALUES(?,?,?,?,?,?,?,?)').bind(order.id,order.wg,order.status,JSON.stringify(order),at,'test','fixture',Number(order.synthetic)).run();return order;
   };
-  const screenshot=async name=>{await mkdir('test-results',{recursive:true});await page.screenshot({path:'test-results/'+name+'.png',fullPage:true});};
+  const screenshot=async(name,{fullPage=true}={})=>{await mkdir('test-results',{recursive:true});await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:'test-results/'+name+'.png',fullPage});};
   return {env,app,page,context,files,errors,requests,seedOrder,screenshot};
 }

@@ -196,9 +196,8 @@ export async function handlePortal(env,request,identity,isOwner){
     if(env.operations?.validateAppointment)await env.operations.validateAppointment(env,preview);
     const operationId=randomUUID(),guard={sql:"EXISTS(SELECT 1 FROM orders WHERE id=? AND version=? AND json_extract(data,'$.operationId')=?)",params:[o.id,o.version+1,operationId]};
     const signature=await storeDataSignature(env,o.id,input.signature,'signature',guard);
-    const updated=transition(o,'confirmAppointment',{...confirmation,signature:signature.id},new Date(now).toISOString(),'customer');updated.operationId=operationId;
-    try{await saveOrder(env,updated,o.version,'Kunde hat den Termin im Kundenportal bestätigt und unterschrieben','customer',[signature.statement]);}catch(error){
-      await env.BUCKET.delete(signature.id);
+    try{const updated=transition(o,'confirmAppointment',{...confirmation,signature:signature.id},new Date(now).toISOString(),'customer');updated.operationId=operationId;await saveOrder(env,updated,o.version,'Kunde hat den Termin im Kundenportal bestätigt und unterschrieben','customer',[signature.statement]);}catch(error){
+      const bound=await env.DB.prepare('SELECT id FROM assets WHERE id=?').bind(signature.id).first();if(!bound)await env.BUCKET.delete(signature.id);
       if(error instanceof AppError&&error.status===409){const current=await getOrder(env,o.id);if(current.appointment?.confirmation&&input.snapshotHash===digest(JSON.stringify(appointmentSnapshot(current))))return json({ok:true,message:'Ihr Termin ist bereits bestätigt.'});}
       throw error;
     }

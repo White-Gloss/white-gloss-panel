@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import worker,{getOrder,saveOrder,setting,protect} from '../src/worker.mjs';
-import {transition} from '../src/domain.mjs';
+import {transition,appointmentSnapshot} from '../src/domain.mjs';
 import {PanelDatabase} from '../server/storage.mjs';
 import {createApplication} from '../server/application.mjs';
 import {digest} from '../server/auth.mjs';
 import {deliverProtocol} from '../server/protocol-mail.mjs';
 import {handleChat,notifyThread} from '../server/chat.mjs';
+import {handlePortal} from '../server/portal.mjs';
 import {COMPANY} from '../src/company.mjs';
 
 const origin='https://panel.example.invalid',owner='owner@example.invalid';
@@ -23,6 +24,30 @@ async function insertOrder(env,overrides={}){
   const at=new Date().toISOString(),order={id:randomUUID(),wg:'TEST-'+randomUUID().slice(0,8),version:1,status:'Angenommen',synthetic:false,source:{name:'TEST · Kunde',email:'old@example.invalid',vehicle:'TEST · Fahrzeug'},offer:{services:'TEST · Leistung',totalCents:10000},payments:[],notes:[],...overrides};
   await env.DB.prepare('INSERT INTO orders(id,wg,status,data,updated_at,actor,action,synthetic) VALUES(?,?,?,?,?,?,?,?)').bind(order.id,order.wg,order.status,JSON.stringify(order),at,'test','Synthetischer Operator-Test',order.synthetic?1:0).run();
   return order;
+}
+
+async function customerSignatureFlow(t,kind){
+  const f=await fixture(t),at=new Date().toISOString(),token='a'.repeat(64);f.env.operations={};
+  let order=await insertOrder(f.env,kind==='offer'?{status:'Angebot offen',offer:{services:'TEST · Leistung',totalCents:10000,expiresAt:new Date(Date.now()+86400000).toISOString()}}:{acceptance:{at,signature:'existing-offer-signature'},appointment:{start:'2035-10-15T07:00:00.000Z',end:'2035-10-15T10:00:00.000Z',duration:180,delivery:'Kunde bringt',location:'TEST'},...(kind==='replacement'?{intake:{plate:'TEST · original',customerSignature:'existing-protocol-signature',savedAt:at}}:{})});
+  const customerRequest=(path,input)=>worker.fetch(new Request(origin+'/api/'+path,{method:input===undefined?'GET':'POST',headers:{origin,'Content-Type':'application/json','oai-authenticated-user-email':order.source.email},body:input===undefined?undefined:JSON.stringify(input)}),f.env);
+  let sign,signatureOf;
+  if(kind==='portal'){
+    const input={signature,confirmed:true,customerName:'TEST · Kunde',snapshotHash:digest(JSON.stringify(appointmentSnapshot(order)))};
+    sign=()=>handlePortal(f.env,new Request(origin+'/api/portal/o/'+order.id+'/termin-bestaetigen',{method:'POST',headers:{origin,'Content-Type':'application/json'},body:JSON.stringify(input)}),order.source.email,false).catch(error=>Response.json({error:error.message},{status:error.status??500}));
+    signatureOf=o=>o.appointment?.confirmation?.signature;
+  }else{
+    const route=(kind==='offer'?'offer/':'document/')+token;
+    if(kind==='offer')await f.env.DB.prepare('INSERT INTO offer_tokens(hash,order_id,expires_at) VALUES(?,?,?)').bind(digest(token),order.id,order.offer.expiresAt).run();
+    else{
+      order=transition(order,'replacement',{kind:'intake',content:{plate:'TEST · replacement'}},at);order.pending.intake.token=token;
+      await f.env.DB.prepare('UPDATE orders SET data=?,version=version+1 WHERE id=?').bind(JSON.stringify(order),order.id).run();order=await getOrder(f.env,order.id);
+      await f.env.DB.prepare('INSERT INTO document_requests(hash,order_id,kind,expires_at,created_at) VALUES(?,?,?,?,?)').bind(digest(token),order.id,'intake',new Date(Date.now()+86400000).toISOString(),at).run();
+    }
+    const shown=await customerRequest(route);assert.equal(shown.status,200,await shown.clone().text());
+    const input={signature,confirmed:true,paymentObligation:true,snapshotHash:digest(JSON.stringify(await shown.json()))};
+    sign=()=>customerRequest(route,input);signatureOf=o=>kind==='offer'?o.acceptance?.signature:o.intake?.customerSignature;
+  }
+  return {...f,order,sign,signatureOf};
 }
 
 test('correcting a customer email prevents queued signed documents from being sent to the previous address',async t=>{
@@ -78,6 +103,28 @@ test('a committed signature survives a failed response read because its file is 
   assert.ok((await f.env.DB.prepare('SELECT id FROM assets WHERE id=? AND order_id=?').bind(saved.acceptance.signature,order.id).first()).id);
   assert.ok(f.files.has(saved.acceptance.signature),'a persisted signature file must never be removed by failure cleanup');
 });
+
+for(const kind of ['portal','offer','replacement']){
+  test(kind+' customer signature survives a response read failure after its transaction commits',async t=>{
+    const f=await customerSignatureFlow(t,kind),prepare=f.env.DB.prepare.bind(f.env.DB);let reads=0;
+    t.mock.method(f.env.DB,'prepare',query=>{const statement=prepare(query);if(query==='SELECT * FROM orders WHERE id=?'){const first=statement.first.bind(statement);statement.first=async()=>{reads++;if(reads===2)throw Error('Synthetic customer response read failure after commit');return first();};}return statement;});
+    const response=await f.sign();assert.equal(response.status,500);t.mock.restoreAll();
+    const saved=await getOrder(f.env,f.order.id),id=f.signatureOf(saved);assert.equal(saved.version,f.order.version+1);assert.ok(id);
+    assert.ok(await f.env.DB.prepare('SELECT id FROM assets WHERE id=? AND order_id=?').bind(id,f.order.id).first(),'committed handwriting has a database record');
+    assert.ok(f.files.has(id),'committed customer handwriting must remain in private storage');
+    if(kind==='replacement')assert.equal(saved.intakeHistory.at(-1).customerSignature,'existing-protocol-signature');
+  });
+
+  test(kind+' rejected customer signature removes its new unbound file after a version conflict',async t=>{
+    const f=await customerSignatureFlow(t,kind),put=f.env.BUCKET.put.bind(f.env.BUCKET);
+    t.mock.method(f.env.BUCKET,'put',async(...args)=>{await put(...args);await f.env.DB.prepare('UPDATE orders SET version=version+1 WHERE id=?').bind(f.order.id).run();});
+    const response=await f.sign();assert.equal(response.status,409,await response.clone().text());t.mock.restoreAll();
+    assert.equal(f.puts.length,1,'the rejection occurs after creating the new private file');
+    assert.equal(f.files.size,0,'the rejected new signature is not left without a database binding');
+    assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM assets WHERE order_id=?').bind(f.order.id).first()).n,0);
+    const saved=await getOrder(f.env,f.order.id);assert.equal(saved.version,f.order.version+1);assert.equal(f.signatureOf(saved),kind==='replacement'?'existing-protocol-signature':undefined,'the previous record remains unchanged');
+  });
+}
 
 test('chat customer emails stop when the recipient changes while a personal login is being prepared',async t=>{
   for(const mode of ['invite','notification']){
