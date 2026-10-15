@@ -191,9 +191,12 @@ export async function handlePortal(env,request,identity,isOwner){
     need(o.appointment&&CONFIRMABLE.includes(o.status),'Für diesen Auftrag gibt es keinen Termin zum Bestätigen.',409);
     need(input.confirmed===true,'Bitte bestätigen Sie den angezeigten Termin.');
     need(input.snapshotHash===digest(JSON.stringify(appointmentSnapshot(o))),'Der Termin wurde inzwischen geändert. Bitte die Seite neu laden und den aktuellen Termin bestätigen.',409);
+    const confirmation={confirmed:true,snapshotHash:input.snapshotHash,customerName:input.customerName};
+    const preview=transition(o,'confirmAppointment',{...confirmation,signature:'pruefung'},new Date(now).toISOString(),'customer');
+    if(env.operations?.validateAppointment)await env.operations.validateAppointment(env,preview);
     const operationId=randomUUID(),guard={sql:"EXISTS(SELECT 1 FROM orders WHERE id=? AND version=? AND json_extract(data,'$.operationId')=?)",params:[o.id,o.version+1,operationId]};
     const signature=await storeDataSignature(env,o.id,input.signature,'signature',guard);
-    const updated=transition(o,'confirmAppointment',{signature:signature.id,confirmed:true,snapshotHash:input.snapshotHash,customerName:input.customerName},new Date(now).toISOString(),'customer');updated.operationId=operationId;
+    const updated=transition(o,'confirmAppointment',{...confirmation,signature:signature.id},new Date(now).toISOString(),'customer');updated.operationId=operationId;
     try{await saveOrder(env,updated,o.version,'Kunde hat den Termin im Kundenportal bestätigt und unterschrieben','customer',[signature.statement]);}catch(error){
       await env.BUCKET.delete(signature.id);
       if(error instanceof AppError&&error.status===409){const current=await getOrder(env,o.id);if(current.appointment?.confirmation&&input.snapshotHash===digest(JSON.stringify(appointmentSnapshot(current))))return json({ok:true,message:'Ihr Termin ist bereits bestätigt.'});}
