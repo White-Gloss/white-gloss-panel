@@ -100,7 +100,7 @@ async function portalOrder(env,o,config,preview){
     if(openOffer)todo.push({kind:'offer-open',label:o.appointment?'Angebot & Termin prüfen und unterschreiben':'Angebot prüfen und annehmen',url:'/angebot/'+o.offerToken});
     else if(o.status==='Angebot offen'&&!o.acceptance)todo.push({kind:'offer-expired',label:'Ihr Angebotslink ist abgelaufen. Bitte schreiben Sie uns – wir senden Ihnen einen neuen.',url:null});
     if(!openOffer&&o.appointment&&!o.appointment.confirmation&&CONFIRMABLE.includes(o.status))todo.push({kind:'confirm-appointment',label:'Termin bestätigen und unterschreiben',anchor:'termin-'+o.id});
-    for(const kind of ['offer','intake','return'])if(o.pending?.[kind])todo.push({kind:'sign-'+kind,document:kind,label:SIGN_LABEL[kind],action:'/api/portal/o/'+o.id+'/sign/'+kind});
+    for(const kind of ['offer','intake','return']){const pending=o.pending?.[kind];if(pending&&(pending.content?.customerAbsent!==true||pending.releasedAt))todo.push({kind:'sign-'+kind,document:kind,label:SIGN_LABEL[kind],action:'/api/portal/o/'+o.id+'/sign/'+kind});}
   }
   let invoice=null;
   if(o.invoice?.provider==='qonto'&&o.invoice.number&&!o.synthetic){try{const view=invoicePortalView(o,preview);invoice={...view.invoice,lines:view.lines,payment:view.payment,payUrl:view.payUrl,vat:view.vat,pdfUrl:'/api/portal/o/'+o.id+'/rechnung.pdf'};}catch{invoice=null;}}
@@ -171,8 +171,9 @@ export async function handlePortal(env,request,identity,isOwner){
   need(!await limited(env,'portal:'+email,now,30),'Zu viele Anfragen in kurzer Zeit. Bitte später erneut versuchen.',429);
   if(/^sign\/(offer|intake|return)$/.test(op)){
     const kind=op.slice(5),pending=o.pending?.[kind];need(pending,'Dieses Dokument wartet nicht mehr auf Ihre Unterschrift.',409);
+    need(pending.content?.customerAbsent!==true||pending.releasedAt,'Der Betrieb hat dieses Protokoll noch nicht zur Kundenunterschrift freigegeben.',409);
     if(pending.token&&await validLink(env,'document_requests',pending.token,o.id))return json({url:'/dokument/'+pending.token});
-    const {updated,statements}=await documentLinkUpdate(env,o,kind);
+    const {updated,statements}=await documentLinkUpdate(env,o,kind,undefined,'customer');
     const saved=await saveOrder(env,updated,o.version,'Kunde hat Dokument im Kundenportal zur Unterschrift geöffnet','customer',statements);
     return json({url:'/dokument/'+saved.pending[kind].token});
   }

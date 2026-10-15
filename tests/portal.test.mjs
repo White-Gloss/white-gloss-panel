@@ -92,11 +92,18 @@ test('appointment wishes and the chat link work for the customer; a revoked chat
 test('pending protocol: the portal opens the signing link once and the customer signs it',async t=>{
   const f=await fixture(t),o=await order(f.env);
   let current=await getOrder(f.env,o.id);
-  await f.ok(await f.ownerApi('action',{id:o.id,version:current.version,action:'protocolRequest',input:{kind:'intake',protocol:{plate:'FDS-WG 1'}}}));
+  const draft=await f.ok(await f.ownerApi('protocol/prepare',{id:o.id,version:current.version,kind:'intake',protocol:{plate:'FDS-WG 1',customerAbsent:true}}));
+  const uploaded=await f.ok(await worker.fetch(new Request(origin+'/api/upload/'+o.id+'?kind=signature&draft='+draft.id+'&hash='+draft.hash,{method:'POST',headers:{origin,'oai-authenticated-user-email':owner,'Content-Type':'image/png'},body:png}),f.env));
+  await f.ok(await f.ownerApi('action',{id:o.id,version:current.version,action:'protocolRequest',input:{kind:'intake',customerAbsent:true,draftId:draft.id,snapshotHash:draft.hash,operatorSignature:uploaded.id,signaturesConfirmed:true}}));
+  const privateView=await f.ok(await f.get('/api/portal/me',f.customer));assert.deepEqual(privateView.orders[0].todo,[],'operator signing alone does not release the protocol');
+  assert.equal((await f.post('/api/portal/o/'+o.id+'/sign/intake',f.customer,{})).status,409);current=await getOrder(f.env,o.id);assert.equal(current.pending.intake.token,undefined);assert.equal(current.pending.intake.releasedAt,undefined);
+  await f.ok(await f.ownerApi('action',{id:o.id,version:current.version,action:'documentLink',input:{kind:'intake'}}));
   const me=await f.ok(await f.get('/api/portal/me',f.customer));assert.deepEqual(me.orders[0].todo.map(x=>x.kind),['sign-intake']);
   const first=await f.ok(await f.post('/api/portal/o/'+o.id+'/sign/intake',f.customer,{}));assert.match(first.url,/^\/dokument\/[a-f0-9]{64}$/);
   const second=await f.ok(await f.post('/api/portal/o/'+o.id+'/sign/intake',f.customer,{}));assert.equal(second.url,first.url,'valid link is reused');
-  const route='/api/document/'+first.url.split('/').pop(),shown=await f.ok(await f.get(route,f.customer));
+  const releasedAt=(await getOrder(f.env,o.id)).pending.intake.releasedAt;assert.ok(releasedAt);await f.env.DB.prepare('UPDATE document_requests SET expires_at=? WHERE order_id=?').bind('2000-01-01T00:00:00Z',o.id).run();
+  const renewed=await f.ok(await f.post('/api/portal/o/'+o.id+'/sign/intake',f.customer,{}));assert.notEqual(renewed.url,first.url);assert.equal((await getOrder(f.env,o.id)).pending.intake.releasedAt,releasedAt,'customer renewal preserves owner release');
+  const route='/api/document/'+renewed.url.split('/').pop(),shown=await f.ok(await f.get(route,f.customer));
   await f.ok(await f.post(route,f.customer,{signature,confirmed:true,snapshotHash:digest(JSON.stringify(shown))}));
   current=await getOrder(f.env,o.id);assert.equal(current.intake.signedRemotely,true);
   const after=await f.ok(await f.get('/api/portal/me',f.customer));assert.equal(after.orders[0].todo.length,0);

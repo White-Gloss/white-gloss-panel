@@ -48,10 +48,10 @@ async function persistedPDF(env,order,record){
   return pdf;
 }
 export async function deliverProtocol(env,orderId,kind,jobId=null){
-  const table=deliveryTable(kind),query=kind==='acceptance'?"SELECT d.*,'acceptance' AS kind,j.state,j.updated_at FROM acceptance_deliveries d JOIN jobs j ON j.id=d.job_id WHERE d.order_id=?"+(jobId?' AND d.job_id=?':' ORDER BY j.rowid DESC LIMIT 1'):'SELECT d.*,j.state,j.updated_at FROM protocol_deliveries d JOIN jobs j ON j.id=d.job_id WHERE d.order_id=? AND d.kind=?'+(jobId?' AND d.job_id=?':'');
+  const table=deliveryTable(kind),query=kind==='acceptance'?"SELECT d.*,'acceptance' AS kind,j.state,j.detail,j.updated_at FROM acceptance_deliveries d JOIN jobs j ON j.id=d.job_id WHERE d.order_id=?"+(jobId?' AND d.job_id=?':' ORDER BY j.rowid DESC LIMIT 1'):'SELECT d.*,j.state,j.detail,j.updated_at FROM protocol_deliveries d JOIN jobs j ON j.id=d.job_id WHERE d.order_id=? AND d.kind=?'+(jobId?' AND d.job_id=?':'');
   const record=await env.DB.prepare(query).bind(orderId,...(kind==='acceptance'?[]:[kind]),...(jobId?[jobId]:[])).first();
   if(!record)return {state:'test',message:'Gespeichert. Keine E-Mail versendet (Testauftrag, keine Kunden-E-Mail oder keine Unterschrift). Das PDF kannst du herunterladen oder teilen.'};
-  if(!['queued','failed'].includes(record.state))return {state:record.state,message:record.state==='sent'?'Protokoll-PDF an den Kunden mit Kopie an dich versendet.':'Protokoll gespeichert; Versandergebnis wird geprüft. Keine zweite E-Mail erzeugt.'};
+  if(!['queued','failed'].includes(record.state))return {state:record.state,message:record.state==='sent'?(record.detail&&record.detail!=='PDF an Kunden und Betreiber bestätigt'?record.detail:'Protokoll-PDF an den Versanddienst übergeben. Zustellung noch nicht geprüft.'):'Protokoll gespeichert; Versandergebnis wird geprüft. Keine zweite E-Mail erzeugt.'};
   const now=Date.now(),leaseOwner=randomUUID(),lease=await env.DB.prepare('UPDATE '+table+" SET processing_until=?,lease_owner=? WHERE job_id=? AND processing_until<=? AND EXISTS(SELECT 1 FROM jobs WHERE id=? AND state IN ('queued','failed'))").bind(now+120000,leaseOwner,record.job_id,now,record.job_id).run();
   if(!lease.meta.changes)return {state:'queued',message:'Protokoll gespeichert; PDF-Versand läuft bereits.'};
   let attempted=false,providerId=null;
@@ -74,7 +74,7 @@ export async function deliverProtocol(env,orderId,kind,jobId=null){
     attempted=true;
     const result=await fetch('https://api.resend.com/emails',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(20000),headers:{Authorization:'Bearer '+config.resendKey,'Content-Type':'application/json','Idempotency-Key':'wg-protocol-'+record.job_id},body:JSON.stringify(payload)});
     const data=await result.json();need(result.ok&&typeof data.id==='string','Versandergebnis ist nicht eindeutig bestätigt.',502);providerId=data.id;
-    await env.DB.prepare("UPDATE jobs SET state='sent',provider_id=?,detail='PDF an Kunden und Betreiber bestätigt',updated_at=? WHERE id=?").bind(providerId,new Date().toISOString(),record.job_id).run();
+    await env.DB.prepare("UPDATE jobs SET state='sent',provider_id=?,detail='Protokoll-PDF an den Versanddienst übergeben. Zustellung noch nicht geprüft.',updated_at=? WHERE id=?").bind(providerId,new Date().toISOString(),record.job_id).run();
     return {state:'sent',message:labels[kind]+' als PDF an den Kunden mit Kopie an dich versendet.'};
   }catch(error){const state=attempted?'unknown':'failed',detail=attempted?'Versandergebnis ungeklärt. Keine automatische Wiederholung.':'PDF-Versand steht aus: '+error.message;await env.DB.prepare("UPDATE jobs SET state=?,provider_id=?,detail=?,updated_at=? WHERE id=? AND state<>'paused' AND EXISTS(SELECT 1 FROM "+table+' WHERE job_id=? AND lease_owner=?)').bind(state,providerId,detail,new Date().toISOString(),record.job_id,record.job_id,leaseOwner).run();return {state,message:'Protokoll und Unterschriften sind gespeichert. '+detail};}
   finally{await env.DB.prepare('UPDATE '+table+" SET processing_until=0,lease_owner='' WHERE job_id=? AND lease_owner=?").bind(record.job_id,leaseOwner).run();}
