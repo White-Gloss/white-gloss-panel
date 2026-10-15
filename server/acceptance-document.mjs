@@ -37,6 +37,8 @@ export async function acceptanceDocument(env,order){
     heading('Vereinbarte Leistungen');
     const lines=offer.lines??[{title:offer.services||'Fahrzeugaufbereitung',amountCents:offer.totalCents}];for(const line of lines){amountLine(line.title||'Leistung',line.amountCents);if(line.description)paragraph(line.description,9,grey);}
     y-=4;amountLine('Gesamtfestpreis inklusive Umsatzsteuer',offer.totalCents);paragraph(a.snapshot?.priceNote??priceNote,9,grey);
+    const appointment=a.snapshot?.appointment;
+    if(appointment){heading('Gemeinsam vereinbarter Termin');field('Beginn',berlin(appointment.start));field('Voraussichtlich fertig',berlin(appointment.end));field('Übergabe',appointment.delivery);if(appointment.location)field('Ort',appointment.location);paragraph(a.signature?'Angebot und dieser Termin wurden gemeinsam mit einer Kundenunterschrift bestätigt.':'Angebot und dieser Termin wurden gemeinsam vom Betreiber freigegeben.',9,grey);}
     heading('Annahme');
     const released=a.mode==='ohne Unterschrift freigegeben';
     field('Art und Zeitpunkt',(released?'Vom Betreiber ohne Kundenunterschrift freigegeben':a.mode==='vor Ort'?'Persönlich vor Ort angenommen':'Über den persönlichen Kundenzugang angenommen')+' am '+berlin(a.at));

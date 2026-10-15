@@ -8,6 +8,7 @@ import {digest} from '../server/auth.mjs';
 import {protocolDocument} from '../server/protocol-document.mjs';
 import {COMPANY} from '../src/company.mjs';
 import {priceNote} from '../src/catalog.mjs';
+import {appointmentSnapshot} from '../src/domain.mjs';
 
 const origin='https://panel.example.invalid',ownerEmail='test-owner@example.invalid';
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ypcAAAAASUVORK5CYII=','base64');
@@ -30,11 +31,15 @@ test('customers and vehicles are created, found by name, phone or plate and neve
 
 test('on-site booking stores customer, price, personal signature and immediate start in one step',async t=>{
   const e=env(t);const c=await ok(e,'customer',{synthetic:true,customer:{name:'Vor Ort',phone:'0152 7654321'}});
-  const before=Date.now();const o=await ok(e,'onsite',{synthetic:true,customerId:c.id,source:{vehicle:'BMW 320d',plate:'TÜ-AB 1'},selection:{packageId:'premium',classId:'suv',extraIds:[],delivery:'Kunde bringt'},assessment:{lines,condition:'Starke Verschmutzung',pricesReviewed:true},acceptance:{signature,customerName:'Vor Ort',paymentObligation:true,immediateStart:true}});
+  const start=new Date(Math.floor(Date.now()/60000)*60000).toISOString(),displayedAppointment={start,end:new Date(Date.parse(start)+360*60000).toISOString(),duration:360,delivery:'Kunde bringt',location:'TEST · Werkstatt'};
+  const {end:_end,...bookingAppointment}=displayedAppointment;
+  const o=await ok(e,'onsite',{synthetic:true,customerId:c.id,source:{vehicle:'BMW 320d',plate:'TÜ-AB 1'},selection:{packageId:'premium',classId:'suv',extraIds:[],delivery:'Kunde bringt'},assessment:{lines,condition:'Starke Verschmutzung',pricesReviewed:true},acceptance:{signature,customerName:'Vor Ort',paymentObligation:true,immediateStart:true,confirmAppointment:true,displayedAppointment},appointment:bookingAppointment});
   assert.equal(o.status,'Termin verbindlich');assert.equal(o.offer.totalCents,48625);assert.equal(o.acceptance.mode,'vor Ort');assert.equal(o.acceptance.immediateStart,true);
-  assert.ok(Date.parse(o.appointment.start)>=before-1000);assert.equal(o.appointment.duration,360);assert.match(o.source.name,/^TEST · Vor Ort/);assert.equal(o.customerId,c.id);
+  assert.equal(o.appointment.start,displayedAppointment.start);assert.equal(o.appointment.end,displayedAppointment.end);assert.equal(o.appointment.duration,360);assert.match(o.source.name,/^TEST · Vor Ort/);assert.equal(o.customerId,c.id);
   const asset=e.DB.sql.prepare("SELECT kind FROM assets WHERE id=?").get(o.acceptance.signature);assert.equal(asset.kind,'acceptance');
-  assert.equal(o.acceptance.snapshotHash,createHash('sha256').update(JSON.stringify({offer:o.offer.lines?{condition:'Starke Verschmutzung',lines:o.offer.lines,totalCents:48625,pickupCents:0,pricesReviewed:true,services:o.offer.services}:null,hints:{price:priceNote,withdrawal:''}})).digest('hex'));
+  assert.equal(o.acceptance.snapshotHash,createHash('sha256').update(JSON.stringify({offer:o.offer.lines?{condition:'Starke Verschmutzung',lines:o.offer.lines,totalCents:48625,pickupCents:0,pricesReviewed:true,services:o.offer.services}:null,appointment:appointmentSnapshot({...o,wg:undefined}),hints:{price:priceNote,withdrawal:''}})).digest('hex'));
+  assert.equal(o.acceptance.signature,o.appointment.confirmation.signature);assert.equal(o.acceptance.snapshot.appointment.start,o.appointment.start);
+  assert.deepEqual(o.acceptance.snapshot.appointment,displayedAppointment);
   assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM appointments').get().n,1);
   const vehicles=(await ok(e,'customer/'+c.id)).vehicles;assert.equal(vehicles.length,1);assert.equal(vehicles[0].plate,'TÜ-AB 1');
   // A second immediate start at the same time is rejected as overlap and leaves nothing behind.
@@ -42,6 +47,33 @@ test('on-site booking stores customer, price, personal signature and immediate s
   assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM orders').get().n,1);assert.equal(e.files.size,1);
   // Without signature or price the booking is still possible (no required fields).
   const bare=await ok(e,'onsite',{synthetic:true,source:{name:'Ohne Angaben'},acceptance:{release:true,releaseReason:'Test ohne Unterschrift'},appointment:{skip:true}});assert.equal(bare.status,'Angenommen');assert.equal(bare.offer.totalCents,0);
+});
+
+test('legacy on-site clients keep the offer-only signature snapshot and separate binding appointment',async t=>{
+  for(const acceptance of [{signature,customerName:'Legacy'},{release:true,releaseReason:'TEST · telefonisch bestätigt'}]){
+    const e=env(t),before=Date.now();
+    const o=await ok(e,'onsite',{synthetic:true,source:{name:'Legacy'},assessment:{lines,condition:'Legacy',pricesReviewed:true},acceptance});
+    assert.equal(o.status,'Termin verbindlich');assert.ok(Date.parse(o.appointment.start)>=before-1000);
+    assert.equal(o.acceptance.snapshot.appointment,undefined);
+    assert.equal(o.appointment.confirmation.acceptanceId,undefined);
+    const {createdAt:_created,expiresAt:_expires,...offer}=o.offer;
+    assert.equal(o.acceptance.snapshotHash,createHash('sha256').update(JSON.stringify({offer,hints:{price:priceNote,withdrawal:''}})).digest('hex'));
+    if(acceptance.signature){assert.equal(o.appointment.confirmation.signature,o.acceptance.signature);assert.equal(o.appointment.confirmation.mode,'vor Ort');}
+    else assert.equal(o.appointment.confirmation.release.reason,acceptance.releaseReason);
+  }
+});
+
+test('combined immediate bookings reject missing or changed displayed appointments before writing files or orders',async t=>{
+  const e=env(t),puts=[],put=e.BUCKET.put;e.BUCKET.put=async(...args)=>{puts.push(args[0]);return put(...args);};
+  const displayed={start:'2030-10-15T07:00:00.000Z',end:'2030-10-15T10:00:00.000Z',duration:180,delivery:'Kunde bringt',location:'TEST · Werkstatt'},appointment={start:displayed.start,duration:displayed.duration,delivery:displayed.delivery,location:displayed.location};
+  const invalid=[undefined,null,[],{...displayed,start:'2030-10-15T08:00:00.000Z'},{...displayed,end:'2030-10-15T11:00:00.000Z'},{...displayed,duration:181},{...displayed,delivery:'Abholung'},{...displayed,location:'Anderer Ort'},{...displayed,end:undefined}];
+  for(const displayedAppointment of invalid){
+    const response=await req(e,'onsite',{synthetic:true,source:{name:'TEST'},assessment:{lines},acceptance:{signature,confirmAppointment:true,displayedAppointment},appointment});
+    assert.equal(response.status,409,JSON.stringify(displayedAppointment));
+    assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM orders').get().n,0);assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM assets').get().n,0);assert.deepEqual(puts,[]);assert.equal(e.files.size,0);
+  }
+  const response=await req(e,'onsite',{synthetic:true,source:{name:'TEST'},assessment:{lines},acceptance:{signature,confirmAppointment:true,displayedAppointment:displayed},appointment:{skip:true}});
+  assert.equal(response.status,409);assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM orders').get().n,0);assert.deepEqual(puts,[]);
 });
 
 test('real on-site orders still respect the WG number audit',async t=>{const e=env(t);assert.equal((await req(e,'onsite',{source:{name:'Echt'}})).status,409);});

@@ -1,7 +1,7 @@
 // Service worker of the Vor-Ort app: keeps only the program files for poor reception.
 // Customer data, API answers and sign-in pages are never stored.
-const CACHE='wg-vor-ort-v1';
-const SHELL=['/vor-ort','/style.css','/vor-ort.js','/protocol-form.js','/protocol-photos.js','/signature.js','/pricing.js','/catalog.mjs','/assessment.mjs','/manifest.webmanifest','/icon-192.png'];
+const CACHE='wg-vor-ort-v2';
+const SHELL=['/vor-ort','/style.css','/vor-ort.js','/dilution.js','/protocol-form.js','/protocol-photos.js','/signature.js','/pricing.js','/catalog.mjs','/assessment.mjs','/manifest.webmanifest','/icon-192.png'];
 // Installation succeeds only with a complete shell; otherwise the previous worker and cache stay in use.
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE+'-install').then(async staging=>{await Promise.all(SHELL.map(async url=>{const response=await fetch(url,{credentials:'same-origin',redirect:'manual'});if(!response.ok||response.redirected||response.type!=='basic')throw Error('Programmdatei fehlt: '+url);await staging.put(url,response);}));const cache=await caches.open(CACHE);for(const request of await staging.keys())await cache.put(request,await staging.match(request));await caches.delete(CACHE+'-install');}).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim()));});

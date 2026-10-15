@@ -54,7 +54,7 @@ test('panel: create, edit every step, sign on site, protocol with paint thicknes
   await ui.click('[data-click="onsiteAccept"]');ui.draw(ui.$('#customerSign'));ui.fill(ui.$('#signform'),{paymentObligation:true,immediateStart:true});await ui.submit('#signform');
   let current=await getOrder(ui.env,o.id);assert.equal(current.status,'Angenommen');assert.equal(current.acceptance.mode,'vor Ort');assert.ok(current.acceptance.signature);
   // Appointment now.
-  await ui.click('[data-tab="appointment"]');await ui.click('[data-click="appointmentNow"]');current=await getOrder(ui.env,o.id);assert.equal(current.status,'Angenommen','proposed until confirmed');
+  await ui.click('[data-tab="price"]');await ui.click('[data-click="appointmentNow"]');current=await getOrder(ui.env,o.id);assert.equal(current.status,'Angenommen','proposed until confirmed');
   assert.match(ui.text(),/Termin vorgeschlagen – noch nicht bestätigt/);
   // The customer confirms the appointment on the operator's device.
   await ui.click('[data-click="confirmAppointmentSign"]');await ui.submit('#signform');assert.match(ui.$('#modal-error').textContent,/ankreuzen/);
@@ -71,7 +71,7 @@ test('panel: create, edit every step, sign on site, protocol with paint thicknes
   ui.fill(form,{mileage:'45000'});await ui.submit(form,'[data-submit="save"]');
   current=await getOrder(ui.env,o.id);assert.equal(current.status,'In Arbeit');assert.deepEqual(current.intake.paint.readings,[{panel:'Dach',values:[110,260]}]);assert.equal(current.intake.damages[0].area,'Motorhaube');assert.equal(current.intake.mileage,45000);
   // After work started the appointment changes only with a release; removal is gone.
-  await ui.click('[data-tab="appointment"]');assert.ok(!ui.$('[data-click="removeAppointment"]'));
+  await ui.click('[data-tab="price"]');assert.ok(!ui.$('[data-click="removeAppointment"]'));
   ui.fill(ui.$('#appointmentform'),{start:'2030-01-04T10:00'});await ui.submit('#appointmentform');assert.match(ui.$('#appointmentform .error').textContent,/Freigabe/);
   ui.fill(ui.$('#appointmentform'),{start:'2030-01-04T10:00',release:true,releaseReason:'länger gebraucht'});await ui.submit('#appointmentform');
   current=await getOrder(ui.env,o.id);assert.equal(current.status,'In Arbeit');assert.equal(current.appointment.confirmation.release.reason,'länger gebraucht');await ui.click('[data-tab="intake"]');
@@ -176,10 +176,10 @@ test('customer offer page shows the price note and withdrawal text and records t
 test('panel: every page and every order tab renders without errors on desktop and phone layouts',async t=>{
   const env=environment();await signedOrderWithPendingIntake(env);
   const ui=await boot(t,{page:'index.html',script:'app.js',env});await ui.click('[data-click="test"]');
-  for(const view of ['overview','orders','customers','calendar','protocols','finance','care','settings']){await ui.click(`[data-view="${view}"]`);await ui.settle();assert.ok(ui.$('#content').textContent.length>50,view);}
+  for(const view of ['overview','orders','customers','calendar','protocols','finance','care','dilution','settings']){await ui.click(`[data-view="${view}"]`);await ui.settle();assert.ok(ui.$('#content').textContent.length>50,view);}
   assert.ok(ui.$('#settingsform [name="withdrawalText"]'));
   await ui.click('[data-view="orders"]');await ui.click(ui.$('tr[data-order]'));
-  for(const tab of ['source','price','appointment','intake','return','payment','notes']){await ui.click(`[data-tab="${tab}"]`);assert.ok(ui.$('.detail').textContent.length>20,tab);}
+  for(const tab of ['source','price','intake','return','payment','notes']){await ui.click(`[data-tab="${tab}"]`);assert.ok(ui.$('.detail').textContent.length>20,tab);}
   await ui.click('[data-tab="intake"]');assert.match(ui.text(),/wartet auf Kundenunterschrift/);assert.match(ui.text(),/Persönlicher Link für den Kunden/);
   await ui.click('[data-tab="notes"]');await ui.click('[data-click="audit"]');assert.match(ui.$('#modal').textContent,/Änderungsprotokoll/);
   assert.deepEqual(ui.errors,[]);
@@ -271,7 +271,7 @@ test('panel: Google sync is available only after the proposed appointment become
   const initial=await call('create',{source:{name:'Kalender Test',email:'kalender@example.invalid'}});
   const proposed={...initial,status:'Angenommen',calendar:{eventId:'isolated-calendar-event'},offer:{lines:[],totalCents:0,services:''},acceptance:{at:'2030-01-01T08:00:00Z'},appointment:{start:'2030-01-03T09:00:00.000Z',end:'2030-01-03T11:00:00.000Z',duration:120,delivery:'Kunde bringt',location:''}};
   await saveOrder(env,proposed,initial.version,'Isolierter Terminvorschlag');
-  const ui=await boot(t,{page:'index.html',script:'app.js',env,hash:'#auftrag='+initial.id});await ui.click('[data-tab="appointment"]');
+  const ui=await boot(t,{page:'index.html',script:'app.js',env,hash:'#auftrag='+initial.id});await ui.click('[data-tab="price"]');
   assert.match(ui.text(),/Termin vorgeschlagen/);assert.equal(ui.$('[data-click="calendarSync"]'),null);
   await ui.click('[data-click="confirmAppointmentRelease"]');ui.fill(ui.$('#appointmentreleaseform'),{releaseReason:'Termin telefonisch bestätigt'});await ui.submit('#appointmentreleaseform');
   assert.equal((await getOrder(env,initial.id)).status,'Termin verbindlich');assert.ok(ui.$('[data-click="calendarSync"]'));assert.doesNotMatch(ui.text(),/Der bisherige Google-Termin bleibt/);
@@ -285,4 +285,132 @@ test('Vor-Ort app: an unsigned release never promises a signature in the shared 
   ui.fill(ui.$('#a-form'),{release:true,releaseReason:'Kunde kann heute nicht unterschreiben'});await ui.submit('#a-form');await ui.settle();
   const id=(await ui.env.DB.prepare('SELECT id FROM orders').first()).id;assert.equal((await getOrder(ui.env,id)).acceptance.signature,null);
   await ui.go('#auftrag='+id);assert.match(ui.$('[data-share="acceptance"]').textContent,/Freigabe ohne Kundenunterschrift/);assert.doesNotMatch(ui.$('[data-share="acceptance"]').textContent,/, Unterschrift/);assert.deepEqual(ui.errors,[]);
+});
+
+test('panel: offer and appointment share one tab and one customer signature',async t=>{
+  const env=environment();
+  const call=async(path,body)=>{const response=await worker.fetch(new Request(origin+'/api/'+path,{method:'POST',headers:{origin,'oai-authenticated-user-email':owner,'Content-Type':'application/json'},body:JSON.stringify(body)}),env);const data=await response.json();assert.equal(response.status,200,JSON.stringify(data));return data;};
+  let order=await call('create',{synthetic:true,source:{name:'Gemeinsame Bestätigung',vehicle:'VW Golf'}});
+  order=await call('action',{id:order.id,version:order.version,action:'price',input:{services:'Innenreinigung',totalCents:15000}});
+  order=await call('action',{id:order.id,version:order.version,action:'appointment',input:{start:'2030-01-03T10:00',duration:120,delivery:'Kunde bringt',location:'Horb'}});
+  const ui=await boot(t,{page:'index.html',script:'app.js',env,hash:'#auftrag='+order.id});
+  await ui.click('[data-tab="price"]');
+  assert.match(ui.$('[data-tab="price"]').textContent,/Angebot & Termin/);
+  assert.equal(ui.$('[data-tab="appointment"]'),null);
+  assert.ok(ui.$('#priceform'));assert.ok(ui.$('#appointmentform'));
+  await ui.click('[data-click="onsiteAccept"]');
+  assert.match(ui.$('#modal').textContent,/Ihr Termin/);assert.match(ui.$('#modal').textContent,/Horb/);
+  ui.draw(ui.$('#customerSign'));ui.fill(ui.$('#signform'),{paymentObligation:true});await ui.submit('#signform');
+  assert.match(ui.$('#modal-error').textContent,/gemeinsam bestätigen/);
+  assert.equal((await getOrder(env,order.id)).acceptance,undefined);
+  ui.fill(ui.$('#signform'),{confirmAppointment:true});await ui.submit('#signform');
+  const accepted=await getOrder(env,order.id);
+  assert.equal(accepted.status,'Termin verbindlich');
+  assert.equal(accepted.acceptance.signature,accepted.appointment.confirmation.signature);
+  assert.equal(accepted.acceptance.snapshot.appointment.start,order.appointment.start);
+  ui.fill(ui.$('#appointmentform'),{start:'2030-01-04T10:00'});await ui.submit('#appointmentform');
+  const moved=await getOrder(env,order.id);assert.equal(moved.status,'Angenommen');assert.equal(moved.appointment.confirmation,undefined);
+  assert.equal(moved.acceptance.snapshot.appointment.start,order.appointment.start,'signed appointment stays in the original confirmation');
+  assert.deepEqual(ui.errors,[]);
+});
+
+test('panel: mobile navigation opens the mixer and the complete menu closes by keyboard',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});
+  await ui.click('.mobile-dock [data-view="dilution"]');
+  assert.equal(ui.$('[data-dilution-concentrate]').textContent,'90,91 ml');
+  assert.equal(ui.$('.mobile-dock [aria-current="page"]').dataset.view,'dilution');
+  const amount=ui.$('[data-dilution-field="total"]');amount.value='0,5';amount.dispatchEvent(new ui.w.Event('input',{bubbles:true}));
+  assert.equal(ui.$('[data-dilution-concentrate]').textContent,'45,45 ml');
+  await ui.click('.mobile-dock [data-click="menu"]');
+  assert.ok(ui.$('.sidebar.open'));assert.equal(ui.$('.sidebar-backdrop').hidden,false);
+  assert.equal(ui.$('.mobile-dock [data-click="menu"]').getAttribute('aria-expanded'),'true');
+  ui.w.document.dispatchEvent(new ui.w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+  assert.equal(ui.$('.sidebar.open'),null);assert.equal(ui.$('.sidebar-backdrop').hidden,true);
+  await ui.click('.mobile-dock [data-view="orders"]');assert.match(ui.$('h1').textContent,/Anfragen & Aufträge/);
+  assert.equal((await ui.env.DB.prepare('SELECT COUNT(*) n FROM orders').first()).n,0);
+  assert.deepEqual(ui.errors,[]);
+});
+
+test('Vor-Ort app: the mixer is directly available with the existing app navigation',async t=>{
+  const ui=await boot(t,{page:'vor-ort.html',script:'vor-ort.js',hash:'#mischrechner'});
+  assert.equal(ui.$('[data-dilution-concentrate]').textContent,'90,91 ml');
+  assert.equal(ui.$('.vo-dock [aria-current="page"]').getAttribute('href'),'#mischrechner');
+  await ui.click('[data-dilution-preset="20"]');assert.equal(ui.$('[data-dilution-water]').textContent,'952,38 ml');
+  await ui.go('#');assert.match(ui.$('.vo-intro').textContent,/Alles für deinen Auftrag/);
+  assert.ok(ui.$('[href="#buchung"]'));assert.ok(ui.$('[href="#mischrechner"]'));
+  assert.deepEqual(ui.errors,[]);
+});
+
+test('panel: saving prices or appointment preserves the other form and blocks signing unsaved terms',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});
+  await ui.click('[data-click="test"]');await ui.click('[data-click="create"]');await ui.submit('#createform');await ui.click('[data-tab="price"]');
+  await ui.click('[data-price-add-custom]');
+  const price=ui.$('[data-kind="custom"] [data-line-price]');price.value='123,45';price.dispatchEvent(new ui.w.Event('input',{bubbles:true}));
+  ui.fill(ui.$('#appointmentform'),{start:'2030-02-01T10:00',duration:'120'});await ui.submit('#appointmentform');
+  assert.equal(ui.$('[data-kind="custom"] [data-line-price]').value,'123,45');
+  await ui.click('[data-click="onsiteAccept"]');assert.match(ui.$('#priceform .error').textContent,/Preise zuerst speichern/);assert.equal(ui.$('#modal').open,false);
+  await ui.submit('#priceform');
+  ui.fill(ui.$('#appointmentform'),{start:'2030-02-02T11:00',duration:'90'});
+  const updatedPrice=ui.$('[data-kind="custom"] [data-line-price]');updatedPrice.value='150,00';updatedPrice.dispatchEvent(new ui.w.Event('input',{bubbles:true}));
+  await ui.submit('#priceform');
+  assert.equal(ui.$('#appointmentform').elements.start.value,'2030-02-02T11:00');assert.equal(ui.$('#appointmentform').elements.duration.value,'90');
+  await ui.click('[data-click="confirm"]');assert.equal(ui.$('#modal').open,false);assert.match(ui.$('#appointmentform .error').textContent,/Termin zuerst speichern/);
+  await ui.click('[data-click="onsiteAccept"]');assert.match(ui.$('#appointmentform .error').textContent,/Termin zuerst speichern/);
+  await ui.submit('#appointmentform');await ui.click('[data-click="onsiteAccept"]');assert.equal(ui.$('#modal').open,true);
+  assert.deepEqual(ui.errors,[]);
+});
+
+test('Vor-Ort app: new navigation does not interrupt a booking or its customer signature',async t=>{
+  const ui=await boot(t,{page:'vor-ort.html',script:'vor-ort.js',storage:{'wg-vo-test':'1'}});
+  assert.equal(ui.$('.vo-dock').hidden,false);
+  await ui.go('#buchung');assert.equal(ui.$('.vo-dock').hidden,true);
+  await ui.submit('#c-new');await ui.submit('#v-new');await ui.submit('#s-form');
+  assert.ok(ui.$('#a-form'));assert.equal(ui.$('.vo-dock').hidden,true);
+  ui.draw(ui.$('#a-sign'));ui.fill(ui.$('#a-form'),{paymentObligation:true,immediateStart:true});await ui.submit('#a-form');
+  assert.equal(ui.$('.vo-dock').hidden,true,'protocol form keeps focus on the active task');
+  const id=(await ui.env.DB.prepare('SELECT id FROM orders').first()).id;await ui.go('#auftrag='+id);
+  assert.equal(ui.$('.vo-dock').hidden,false);
+  assert.ok((await getOrder(ui.env,id)).acceptance.signature);
+  assert.deepEqual(ui.errors,[]);
+});
+
+test('Vor-Ort app: the concrete displayed appointment is visible before signing and remains identical in the signed snapshot',async t=>{
+  const ui=await boot(t,{page:'vor-ort.html',script:'vor-ort.js',storage:{'wg-vo-test':'1'}});
+  await ui.go('#buchung');ui.fill(ui.$('#c-new'),{name:'Terminprüfung',address:'Teststraße 1, 72160 Horb'});await ui.submit('#c-new');
+  await ui.submit('#v-new');await ui.submit('#s-form');
+  const review=ui.$('[data-onsite-appointment-review]'),canvas=ui.$('#a-sign');
+  assert.ok(review.compareDocumentPosition(canvas)&ui.w.Node.DOCUMENT_POSITION_FOLLOWING,'all appointment details precede the signature canvas');
+  const displayed={start:ui.$('[data-onsite-appointment-start]').getAttribute('datetime'),end:ui.$('[data-onsite-appointment-end]').getAttribute('datetime'),duration:Number(ui.$('[data-onsite-appointment-duration]').textContent.split(' ')[0]),delivery:ui.$('[data-onsite-appointment-delivery]').textContent,location:ui.$('[data-onsite-appointment-location]').textContent};
+  assert.equal(displayed.duration,180);assert.equal(Date.parse(displayed.end)-Date.parse(displayed.start),180*60000);
+  assert.equal(displayed.delivery,'Kunde bringt');assert.equal(displayed.location,'Teststraße 1, 72160 Horb');
+  assert.match(review.textContent,/Europe\/Berlin/);
+  ui.draw(canvas);ui.fill(ui.$('#a-form'),{paymentObligation:true,immediateStart:true});await ui.submit('#a-form');
+  const id=(await ui.env.DB.prepare('SELECT id FROM orders').first()).id,saved=await getOrder(ui.env,id);
+  assert.ok(saved.acceptance.signature);assert.equal(saved.appointment.confirmation.signature,saved.acceptance.signature);
+  for(const key of ['start','end','duration','delivery','location']){
+    assert.equal(saved.appointment[key],displayed[key],key+' stored exactly as shown');
+    assert.equal(saved.acceptance.snapshot.appointment[key],displayed[key],key+' belongs to the signed acceptance');
+  }
+  assert.deepEqual(ui.errors,[]);
+});
+
+test('Vor-Ort app: changing workstart clears the old signature and confirmation without changing the frozen appointment',async t=>{
+  const ui=await boot(t,{page:'vor-ort.html',script:'vor-ort.js',storage:{'wg-vo-test':'1'}});
+  await ui.go('#buchung');await ui.submit('#c-new');await ui.submit('#v-new');await ui.submit('#s-form');
+  const form=ui.$('#a-form'),start=ui.$('[data-onsite-appointment-start]').getAttribute('datetime');
+  assert.equal(ui.$('[data-onsite-appointment-location]').textContent,'Nicht angegeben');
+  ui.draw(ui.$('#a-sign'));ui.fill(form,{paymentObligation:true});
+  form.elements.startNow.click();
+  assert.equal(form.elements.paymentObligation.checked,false);assert.equal(ui.$('[data-onsite-appointment-start]'),null);
+  assert.match(ui.$('[data-onsite-appointment-review]').textContent,/Noch kein verbindlicher Termin/);
+  await ui.submit(form);assert.match(ui.$('#a-error').textContent,/unterschreiben lassen/);
+  assert.equal((await ui.env.DB.prepare('SELECT COUNT(*) count FROM orders').first()).count,0);
+  ui.draw(ui.$('#a-sign'));ui.fill(form,{paymentObligation:true});form.elements.startNow.click();
+  assert.equal(form.elements.paymentObligation.checked,false);assert.equal(ui.$('[data-onsite-appointment-start]').getAttribute('datetime'),start);
+  await ui.submit(form);assert.match(ui.$('#a-error').textContent,/unterschreiben lassen/);
+  assert.equal((await ui.env.DB.prepare('SELECT COUNT(*) count FROM orders').first()).count,0);
+  ui.draw(ui.$('#a-sign'));ui.fill(form,{paymentObligation:true,immediateStart:true});await ui.submit(form);
+  const id=(await ui.env.DB.prepare('SELECT id FROM orders').first()).id;
+  assert.equal((await getOrder(ui.env,id)).acceptance.snapshot.appointment.start,start);
+  assert.deepEqual(ui.errors,[]);
 });

@@ -17,6 +17,7 @@
   ],
   "shortcuts": [
     {"name": "Sofort-Buchung", "url": "/vor-ort#buchung", "icons": [{"src": "/icon-192.png", "sizes": "192x192"}]},
+    {"name": "Mischrechner", "url": "/vor-ort#mischrechner", "icons": [{"src": "/icon-192.png", "sizes": "192x192"}]},
     {"name": "Panel", "url": "/", "icons": [{"src": "/icon-192.png", "sizes": "192x192"}]}
   ]
 }
