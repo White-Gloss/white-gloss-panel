@@ -32,3 +32,24 @@ jobs:
       - run: npm run build
       - run: node --check dist/server/index.js
       - run: bash -n deploy/install-panel.sh
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: panel-browser-evidence
+          path: test-results/
+          if-no-files-found: ignore

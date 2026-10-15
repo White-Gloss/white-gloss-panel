@@ -1,0 +1,56 @@
+/* White Gloss: measured website colors and self-hosted Barlow.
+   Navigation uses the dark brand surfaces; documents and form fields stay light. */
+@font-face{font-family:Barlow;font-style:normal;font-weight:400;font-display:swap;src:url('/barlow-latin.woff2') format('woff2')}
+@font-face{font-family:Barlow;font-style:normal;font-weight:500;font-display:swap;src:url('/barlow-latin-medium.woff2') format('woff2')}
+@font-face{font-family:Barlow;font-style:normal;font-weight:600;font-display:swap;src:url('/barlow-latin-semibold.woff2') format('woff2')}
+:root{--wg-bg:#0e1218;--wg-surface:#151d27;--wg-elevated:#202c3a;--wg-fg:#f4f3ed;--wg-muted:#bbc5d1;--wg-accent:#bfcee0;--wg-line:#bfd1e540;font-family:Barlow,ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
+body,button,input,select,textarea{font-family:Barlow,ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
+.heading h1,.detail-header h2,.appoff h1,.portal-hello{font-weight:400;letter-spacing:-.025em}
+button,a.button{border-radius:4px}
+input:not([type=checkbox]):not([type=radio]),select,textarea{border-radius:4px}
+button.primary,a.button.primary,.chat-gate a.button.primary{color:var(--wg-bg);background:var(--wg-accent);border-color:var(--wg-accent)}
+button.primary:hover,a.button.primary:hover,.chat-gate a.button.primary:hover{color:var(--wg-bg);background:#d5e0ed;border-color:#d5e0ed}
+.card,.portal-card,.portal-orders button,.signaturebox,.protocolreview,.offer-document,.offer-appointment,.portal-confirm{border-radius:6px}
+.sidebar{background:var(--wg-bg);border-color:var(--wg-line)}
+.sidebar .brand strong,.sidebar footer strong,.sidebar .private{color:var(--wg-fg)}
+.sidebar .brand small,.sidebar .navgroup,.sidebar footer{color:var(--wg-muted)}
+.sidebar footer,.sidebar .nav .navlink{border-color:var(--wg-line)}
+.sidebar .nav button,.sidebar .nav .navlink{color:var(--wg-muted);border-radius:3px}
+.sidebar .nav button.active{background:var(--wg-elevated);color:var(--wg-accent);box-shadow:inset 3px 0 var(--wg-accent)}
+.sidebar .navcount{background:var(--wg-accent);color:var(--wg-bg)}
+.sidebar-close{background:var(--wg-surface);color:var(--wg-fg);border-color:var(--wg-line)}
+.topbar,.vo-top,.portal-top,.chat-head{background:var(--wg-bg);color:var(--wg-fg);border-color:var(--wg-line)}
+.crumb,.headerdate,.vo-title>small,.portal-brand small{color:var(--wg-muted)}
+.crumb strong,.vo-title h1,.portal-brand,.portal-brand strong,.chat-title strong{color:var(--wg-fg)}
+.topbar .mobile-menu,.topbar .testswitch,.top-actions .smallbtn,.vo-top>.button,.portal-logout{background:var(--wg-surface);color:var(--wg-fg);border-color:var(--wg-line)}
+.topbar .testswitch.on{background:#eadac0;color:#4c3b24;border-color:#d7bf99}
+.topbar .search input{background:var(--wg-surface);color:var(--wg-fg);border-color:var(--wg-line)}
+.topbar .search input::placeholder{color:var(--wg-muted);opacity:1}
+.topbar .avatar{background:var(--wg-elevated);color:var(--wg-accent)}
+.mobile-dock,.vo-dock{background:var(--wg-bg);border-color:var(--wg-line)}
+.mobile-dock button,.vo-dock a{color:var(--wg-muted);border-radius:3px}
+.mobile-dock button.active,.mobile-dock button[aria-current=page],.vo-dock a.active,.vo-dock a[aria-current=page]{background:var(--wg-elevated);color:var(--wg-accent)}
+.vo .vo-intro{background:var(--wg-bg);border-color:var(--wg-bg);border-radius:6px}
+.vo-intro .eyebrow,.vo-intro p{color:var(--wg-muted)}
+.vo-intro a.button.primary{background:var(--wg-accent);color:var(--wg-bg);border-color:var(--wg-accent)}
+.portal-hero{background:linear-gradient(145deg,var(--wg-elevated),var(--wg-bg) 70%);border:1px solid var(--wg-line);border-radius:6px}
+.chat-title small{color:var(--wg-muted)}
+.chat-head-call{color:var(--wg-bg);background:var(--wg-accent)}
+.chat-back{color:var(--wg-fg);background:var(--wg-surface)}
+.chat-head .chat-menu summary{color:var(--wg-fg);background:var(--wg-surface);border-color:var(--wg-line)}
+/* Authentication alone receives a dark surrounding card with a light form.
+   Its descendants remain unchanged so e-mail, password and PIN states all work. */
+.appoff:has(#auth-form),.appoff:has(#password-form){background:var(--wg-bg);color:var(--wg-fg);border-color:var(--wg-line);border-radius:6px}
+.appoff:has(#auth-form)>h1,.appoff:has(#password-form)>h1{color:var(--wg-fg);line-height:1.2}
+.appoff:has(#auth-form)>p,.appoff:has(#password-form)>p{color:var(--wg-muted)}
+.appoff:has(#auth-form)>p a,.appoff:has(#password-form)>p a{color:var(--wg-accent)}
+#auth-form,#password-form{background:#fff;color:#263142;border:1px solid #dfe5eb;border-radius:4px;padding:22px}
+.appoff #auth-recovery{background:var(--wg-surface);color:var(--wg-fg);border-color:var(--wg-line)}
+.sidebar-close:hover,.topbar .mobile-menu:hover,.topbar .testswitch:not(.on):hover,.top-actions .smallbtn:hover,.vo-top>.button:hover,.portal-logout:hover,.appoff #auth-recovery:hover{background:var(--wg-elevated);color:var(--wg-fg)}
+@media(hover:hover) and (pointer:fine){
+  .sidebar .nav button:hover,.sidebar .nav .navlink:hover,.mobile-dock button:hover,.vo-dock a:hover{color:var(--wg-fg);background:var(--wg-elevated)}
+}
+@media(max-width:760px){
+  .appoff:has(#auth-form),.appoff:has(#password-form){padding:24px 20px}
+  #auth-form,#password-form{padding:18px 16px}
+}

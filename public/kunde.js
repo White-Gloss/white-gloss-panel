@@ -17,7 +17,7 @@ const INVOICE_STATUS={open:'Offen',overdue:'Überfällig',paid:'Bezahlt',cancele
 const REQUEST_STATUS={offen:'Angefragt – wir prüfen',übernommen:'Übernommen – ergänztes Angebot folgt',erledigt:'Erledigt',abgelehnt:'Leider nicht möglich'};
 const icon=path=>`<svg class="portal-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>`;
 const ICONS={doc:'M6 3h8l4 4v14H6zM14 3v5h4M9 13h6M9 17h6',down:'M12 4v11M7 10l5 5 5-5M5 20h14',sign:'M4 18c3-6 5-9 7-9s-1 9 2 9 3-4 4-4 1 2 3 2M4 21h16',star:'M12 3l2.6 5.5 6 .7-4.5 4.1 1.2 5.9L12 16.3 6.7 19.2l1.2-5.9L3.4 9.2l6-.7z',phone:'M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2',mail:'M3 6h18v12H3zM3 7l9 6 9-6',cal:'M4 5h16v16H4zM8 3v4M16 3v4M4 10h16',camera:'M4 8h4l2-3h4l2 3h4v11H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8',plus:'M12 5v14M5 12h14'};
-let data=null,selectedId=null,chat=null,pads={};
+let data=null,selectedId=null,chat=null,pads={},chatOpening=null,chatGeneration=0;
 
 async function api(path,body){
   const r=await fetch('/api/portal/'+path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),credentials:'same-origin'});
@@ -37,6 +37,7 @@ async function load(){
 }
 
 function render(){
+  chatGeneration++;chatOpening=null;
   chat?.destroy();chat=null;
   const o=data.orders.find(x=>x.id===selectedId);
   const first=(data.customer.name||'').split(/\s+/)[0];
@@ -119,16 +120,25 @@ function review(o){
 }
 
 async function openChat(attach=false,scroll=true){
-  const o=data.orders.find(x=>x.id===selectedId),box=document.querySelector('#portal-chat');
+  const o=data.orders.find(x=>x.id===selectedId),box=document.querySelector('#portal-chat'),generation=chatGeneration;
+  if(!o||!box)return;
+  const current=()=>generation===chatGeneration&&selectedId===o.id&&box.isConnected&&document.querySelector('#portal-chat')===box;
   // Ist der Chat schon offen, öffnet „Fotos senden“ die Auswahl direkt (noch innerhalb des Tippens).
   if(chat&&attach){box.querySelector('input[type=file]')?.click();return;}
   if(!chat){
-    const result=await api('o/'+o.id+'/chat',{});
-    if(!result.available){toast(result.message);return;}
-    box.hidden=false;
-    chat=mountConversation(box,{base:result.base,role:'customer',header:null,emptyText:'Schreiben Sie uns – zum Beispiel Fragen zum Termin oder Fotos von Ihrem Fahrzeug. Wir antworten so schnell wie möglich.',onData(d){if(d?.error)toast(d.error);}});
-    document.querySelector('[data-act="chat"]').textContent='Chat ist geöffnet';
+    if(chatOpening?.generation===generation&&chatOpening.box===box)return;
+    const opening={generation,box};chatOpening=opening;
+    try{
+      const result=await api('o/'+o.id+'/chat',{});
+      if(!current()||chatOpening!==opening)return;
+      if(!result.available){toast(result.message);return;}
+      box.hidden=false;
+      chat=mountConversation(box,{base:result.base,role:'customer',header:null,emptyText:'Schreiben Sie uns – zum Beispiel Fragen zum Termin oder Fotos von Ihrem Fahrzeug. Wir antworten so schnell wie möglich.',onData(d){if(current()&&d?.error)toast(d.error);}});
+      document.querySelector('[data-act="chat"]').textContent='Chat ist geöffnet';
+    }catch(error){if(current())throw error;return;}
+    finally{if(chatOpening===opening)chatOpening=null;}
   }
+  if(!current())return;
   if(scroll)box.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});
   if(attach)toast('Tippen Sie unten im Chat auf die Büroklammer, um Fotos aus der Kamera oder Galerie zu senden.');
 }

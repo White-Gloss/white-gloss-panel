@@ -9,6 +9,7 @@ import {recordOperationIssue,assertCurrentRecordOperation} from '../src/record-c
 // Delivered documents: intake and return protocols and the order confirmation ("acceptance").
 const DOCUMENT_KINDS=['intake','return','acceptance'];
 const labels={intake:'Annahmeprotokoll',return:'Rückgabeprotokoll',acceptance:'Auftragsbestätigung'};
+const recipientEmail=value=>String(value??'').trim().toLowerCase();
 const documentOf=(order,kind)=>kind==='acceptance'?order.acceptance:order[kind];
 const deliverable=(kind,p)=>kind==='acceptance'?Boolean(p):Boolean(p?.customerSignature);
 const versionOf=(kind,p)=>kind==='acceptance'?(p?.confirmationId??p?.at??''):protocolVersion(p);
@@ -55,7 +56,9 @@ export async function deliverProtocol(env,orderId,kind,jobId=null){
   if(!lease.meta.changes)return {state:'queued',message:'Protokoll gespeichert; PDF-Versand läuft bereits.'};
   let attempted=false,providerId=null;
   try{
-    const order=deliveryOrder(await getOrder(env,orderId),record),p=documentOf(order,kind);need(!order.synthetic&&deliverable(kind,p),'Versand gehört nicht zu einem gespeicherten Dokument.',409);
+    const current=await getOrder(env,orderId),order=deliveryOrder(current,record),p=documentOf(order,kind);need(!order.synthetic&&deliverable(kind,p),'Versand gehört nicht zu einem gespeicherten Dokument.',409);
+    const stopChangedRecipient=async()=>{const message='Kunden-E-Mail wurde geändert. Der vorbereitete Versand an die bisherige Adresse wurde gestoppt. Bitte die aktuelle Adresse prüfen und das unveränderte PDF bei Bedarf manuell herunterladen oder teilen. Eine neue Unterschrift ist dafür nicht nötig.';await env.DB.prepare("UPDATE jobs SET state='cancelled',detail=?,updated_at=? WHERE id=? AND state<>'paused' AND EXISTS(SELECT 1 FROM "+table+' WHERE job_id=? AND lease_owner=?)').bind(message,new Date().toISOString(),record.job_id,record.job_id,leaseOwner).run();return {state:'cancelled',message};};
+    if(recipientEmail(current.source?.email)!==recipientEmail(record.recipient))return await stopChangedRecipient();
     const config=await configuration(env,['resendKey']);need(config.emailVerified&&config.sendApproved&&config.resendKey&&config.sender,'Protokoll gespeichert. E-Mail-Versand zuerst prüfen und freigeben.',409);
     const pdf=await persistedPDF(env,order,record),label=labels[kind],business=kind==='acceptance'?COMPANY:p.business;
     const replaced=p.replaces?(kind==='acceptance'?'\n\nDiese Annahme ersetzt ausdrücklich das zuvor'+(p.replaces.signedAt?' am '+berlin(p.replaces.signedAt):'')+' unterschriebene Angebot.':'\n\nDieses '+label+' ersetzt ausdrücklich das zuvor'+(p.replaces.signedAt?' am '+berlin(p.replaces.signedAt):'')+' unterschriebene '+label+'.'):'';
@@ -63,7 +66,12 @@ export async function deliverProtocol(env,orderId,kind,jobId=null){
     const payload={from:config.sender,to:[record.recipient],...(record.copy_to&&record.copy_to!==record.recipient?{cc:[record.copy_to]}:{}),reply_to:record.copy_to||config.sender,subject:'White Gloss · '+label+(p.replaces?' (Ersatz)':'')+' · '+order.wg,text:'Guten Tag '+(p.customerName||order.source.name||'')+',\n\n'+intro+replaced+(env.PANEL_ORIGIN?'\n\nAlle Unterlagen, Termine und Nachrichten zu Ihrem Auftrag finden Sie jederzeit in Ihrem Kundenportal (Anmeldung mit Ihrer E-Mail-Adresse):\n'+env.PANEL_ORIGIN+'/kunde':'')+'\n\nBei Rückfragen antworten Sie bitte auf diese E-Mail.\n\n'+business.name+'\n'+business.owner+'\n'+business.street+'\n'+business.city+'\n'+business.phone+'\n'+business.email,attachments:[{filename:pdf.filename,content:Buffer.from(pdf.bytes).toString('base64')}]};
     const reserved=await env.DB.prepare("UPDATE jobs SET state='pending',detail='Versand wird angefordert',updated_at=? WHERE id=? AND state IN ('queued','failed') AND EXISTS(SELECT 1 FROM "+table+' WHERE job_id=? AND lease_owner=?)').bind(new Date().toISOString(),record.job_id,record.job_id,leaseOwner).run();
     if(!reserved.meta.changes)return {state:'queued',message:'Protokoll gespeichert; Versand wurde bereits übernommen.'};
-    assertCurrentRecordOperation(env,order,'send');attempted=true;
+    assertCurrentRecordOperation(env,order,'send');
+    // Rendering and reading the PDF can yield. Recheck the live recipient in the
+    // same synchronous turn as fetch; immutable document contents stay unchanged.
+    const latest=env.DB.sql.prepare('SELECT data FROM orders WHERE id=?').get(orderId);
+    if(!latest||recipientEmail(JSON.parse(latest.data).source?.email)!==recipientEmail(record.recipient))return await stopChangedRecipient();
+    attempted=true;
     const result=await fetch('https://api.resend.com/emails',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(20000),headers:{Authorization:'Bearer '+config.resendKey,'Content-Type':'application/json','Idempotency-Key':'wg-protocol-'+record.job_id},body:JSON.stringify(payload)});
     const data=await result.json();need(result.ok&&typeof data.id==='string','Versandergebnis ist nicht eindeutig bestätigt.',502);providerId=data.id;
     await env.DB.prepare("UPDATE jobs SET state='sent',provider_id=?,detail='PDF an Kunden und Betreiber bestätigt',updated_at=? WHERE id=?").bind(providerId,new Date().toISOString(),record.job_id).run();

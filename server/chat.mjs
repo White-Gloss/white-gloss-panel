@@ -279,6 +279,12 @@ async function sendMail(config,{to,subject,text,key,beforeSend}){
 const signature='\n\n'+COMPANY.name+' · '+COMPANY.owner+'\n'+COMPANY.street+', '+COMPANY.city+'\nTelefon '+COMPANY.phone+' · '+COMPANY.email;
 
 function customerMailAllowed(order){return order&&!order.synthetic&&emailPattern.test(order.source?.email??'');}
+function assertCurrentCustomerRecipient(env,order){
+  assertCurrentRecordOperation(env,order,'send');
+  const current=env.DB.sql.prepare('SELECT data FROM orders WHERE id=?').get(order.id);
+  const email=value=>String(value??'').trim().toLowerCase();
+  need(current&&email(JSON.parse(current.data).source?.email)===email(order.source?.email),'Kunden-E-Mail wurde geändert. Der Versand an die bisherige Adresse wurde gestoppt. Bitte die aktuelle Adresse prüfen.',409);
+}
 
 async function invite(env,thread,now){
   const order=await getOrder(env,thread.order_id);
@@ -291,7 +297,7 @@ async function invite(env,thread,now){
   need(!await limited(env,'chat-invite:'+thread.id,now,5),'Bitte später erneut einladen.',429);
   const link=await createLink(env,thread,false,now),token=link.url.slice(link.url.lastIndexOf('/')+1);
   const access=await issueCustomerAccess(env,order.source.email,'/chat/'+token,now,now+86400000);
-  const id=await sendMail(config,{to:order.source.email,key:'wg-chat-invite-'+access.hash,beforeSend:()=>assertCurrentRecordOperation(env,order,'send'),subject:'Ihr direkter Chat mit White Gloss · '+order.wg,
+  const id=await sendMail(config,{to:order.source.email,key:'wg-chat-invite-'+access.hash,beforeSend:()=>assertCurrentCustomerRecipient(env,order),subject:'Ihr direkter Chat mit White Gloss · '+order.wg,
     text:'Guten Tag '+(order.source.name||'')+',\n\nfür Ihren Auftrag '+order.wg+' können Sie uns ab sofort direkt schreiben und Fotos, Videos oder PDF-Dateien senden – ganz ohne Telefon-Warteschleife.\n\nZum Chat:\n'+access.url+'\n\nIhre persönliche einmalige PIN: '+access.pin+'\n\nDer Link gilt 24 Stunden und kann einmal verwendet werden. Danach erreichen Sie Ihren Chat jederzeit hier und erhalten mit Ihrer E-Mail-Adresse einen neuen Zugang:\n'+link.url+signature});
   return {ok:true,message:'Einladung mit persönlichem Link und PIN an '+order.source.email+' versendet.',providerId:id,link};
 }
@@ -328,7 +334,7 @@ export async function notifyThread(env,threadId,now=Date.now()){
       const token=await unprotect(env,thread.token_sealed),chatUrl=env.PANEL_ORIGIN+'/chat/'+token;
       const access=await issueCustomerAccess(env,order.source.email,'/chat/'+token,now,now+86400000);
       const text=await preview('owner',Math.max(Number(thread.customer_read_id),Number(thread.customer_notified_id)));
-      await sendMail(config,{to:order.source.email,key:'wg-chat-customer-'+thread.id+'-'+ownerLatest,beforeSend:()=>assertCurrentRecordOperation(env,order,'send'),subject:'Neue Nachricht von White Gloss · '+order.wg,
+      await sendMail(config,{to:order.source.email,key:'wg-chat-customer-'+thread.id+'-'+ownerLatest,beforeSend:()=>assertCurrentCustomerRecipient(env,order),subject:'Neue Nachricht von White Gloss · '+order.wg,
         text:'Guten Tag '+(order.source.name||'')+',\n\nSie haben eine neue Nachricht zu Ihrem Auftrag '+order.wg+':\n\n'+text+'\n\nZum Chat:\n'+access.url+'\n\nIhre persönliche einmalige PIN: '+access.pin+'\n\nDer Link gilt 24 Stunden und kann einmal verwendet werden. Ihren Chat erreichen Sie jederzeit hier:\n'+chatUrl+signature});
       sent.customer=true;
     }catch(error){await release('customer',ownerLatest,thread.customer_notified_id,thread.customer_notified_at);throw error;}

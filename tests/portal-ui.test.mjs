@@ -9,6 +9,7 @@ import {PanelDatabase} from '../server/storage.mjs';
 import {createApplication} from '../server/application.mjs';
 import {digest} from '../server/auth.mjs';
 import {chatNotificationsSettled} from '../server/chat.mjs';
+import {setting} from '../src/worker.mjs';
 
 const origin='https://panel.example.invalid',owner='owner@example.invalid',customer='kundin@example.invalid';
 let loads=0;
@@ -23,7 +24,7 @@ async function setup(t){
   const id=randomUUID(),line={id:'package',kind:'package',catalogId:'premium',title:'Reinigung & Politur',description:'',amountCents:43625};
   const data={id,wg:'WG-4711',status:'Termin verbindlich',synthetic:false,source:{name:'Erika Muster',email:customer,vehicle:'VW Golf',plate:'FDS-WG 1',packageId:'premium',classId:'suv'},assessment:{lines:[line],condition:'',totalCents:43625,pickupCents:0,pricesReviewed:true,services:''},offer:{lines:[line],totalCents:43625,pickupCents:0,services:''},acceptance:{at:new Date().toISOString()},appointment:{start:'2030-10-14T07:00:00.000Z',end:'2030-10-14T13:00:00.000Z',delivery:'Kunde bringt',location:''},notes:[],payments:[],createdAt:new Date().toISOString()};
   await env.DB.prepare('INSERT INTO orders(id,wg,status,data,updated_at,actor,action,synthetic) VALUES(?,?,?,?,?,?,?,0)').bind(id,data.wg,data.status,JSON.stringify(data),new Date().toISOString(),'test','fixture').run();
-  return {env,app,order:data,ownerCookie:await session(owner),customerCookie:await session(customer)};
+  return {env,app,files,order:data,ownerCookie:await session(owner),customerCookie:await session(customer)};
 }
 async function boot(t,{app,path,cookie}){
   const html=readFileSync(new URL('../dist/client/kunde.html',import.meta.url),'utf8').replace(/<script[^>]*><\/script>/g,'');
@@ -103,4 +104,44 @@ test('portal: proposed appointment is confirmed with a drawn signature',async t=
   ui.$('[data-form="confirm"]').elements.confirmed.checked=true;ui.$('[data-form="confirm"]').requestSubmit();await ui.settle();
   assert.match(ui.$('#toast').textContent,/verbindlich bestätigt/);assert.match(ui.$('.portal-confirmed').textContent,/Verbindlich bestätigt/);
   assert.deepEqual(ui.errors,[]);
+});
+
+for(const failed of [false,true])test('a '+(failed?'failed':'late')+' chat response for the previous order cannot capture the newly selected order',async t=>{
+  const f=await setup(t),secondId=randomUUID(),second={...structuredClone(f.order),id:secondId,wg:'WG-4712',source:{...f.order.source,vehicle:'Audi A4'},createdAt:new Date(Date.now()-86400000).toISOString()};
+  await f.env.DB.prepare('INSERT INTO orders(id,wg,status,data,updated_at,actor,action,synthetic) VALUES(?,?,?,?,?,?,?,0)').bind(secondId,second.wg,second.status,JSON.stringify(second),second.createdAt,'test','fixture').run();
+  const ui=await boot(t,{app:f.app,path:'/kunde#'+f.order.id,cookie:f.customerCookie}),fetchBefore=globalThis.fetch;
+  let release;const gate=new Promise(resolve=>{release=resolve;});let firstCalls=0,secondCalls=0;
+  globalThis.fetch=async(url,options={})=>{const path=new URL(url,origin).pathname;if(path==='/api/portal/o/'+f.order.id+'/chat'&&options.method==='POST'){firstCalls++;await gate;if(failed)return Response.json({error:'TEST · verspäteter Fehler zum vorherigen Auftrag'},{status:502});}if(path==='/api/portal/o/'+secondId+'/chat'&&options.method==='POST')secondCalls++;return fetchBefore(url,options);};
+  t.after(()=>{globalThis.fetch=fetchBefore;});
+  await ui.click('[data-act="chat"]');assert.equal(firstCalls,1);await ui.click('[data-order="'+secondId+'"]');assert.match(ui.$('.portal-hero').textContent,/Audi A4/);release();await ui.settle();
+  assert.equal(ui.$('[data-act="chat"]').textContent,'Chat öffnen','the previous order cannot change the current chat button');assert.ok(!ui.$('#portal-chat .chat'),'no detached order conversation is reused');assert.ok(!ui.$('#toast').textContent.includes('vorherigen Auftrag'),'stale errors are not shown on another order');
+  await ui.click('[data-act="chat"]');assert.equal(firstCalls,1);assert.equal(secondCalls,1,'current order opens exactly its own conversation');assert.ok(ui.$('#portal-chat .chat'));assert.equal(ui.$('#portal-chat').hidden,false);assert.deepEqual(ui.errors,[]);
+  await ui.click('[data-order="'+f.order.id+'"]');
+});
+
+test('repeated taps while the customer chat opens send one request and mount one conversation',async t=>{
+  const f=await setup(t),ui=await boot(t,{app:f.app,path:'/kunde',cookie:f.customerCookie}),fetchBefore=globalThis.fetch;
+  let release;const gate=new Promise(resolve=>{release=resolve;});let calls=0;
+  globalThis.fetch=async(url,options={})=>{if(new URL(url,origin).pathname==='/api/portal/o/'+f.order.id+'/chat'&&options.method==='POST'){calls++;await gate;}return fetchBefore(url,options);};t.after(()=>{globalThis.fetch=fetchBefore;});
+  await ui.click('[data-act="chat"]');await ui.click('[data-act="chat"]');release();await ui.settle();assert.equal(calls,1,'a pending chat opening is shared instead of requested twice');assert.equal(ui.w.document.querySelectorAll('#portal-chat .chat').length,1);assert.deepEqual(ui.errors,[]);
+});
+
+test('a stale appointment form displays the conflict without confirming the newly changed date',async t=>{
+  const f=await setup(t);await f.env.DB.prepare("UPDATE orders SET status='Angenommen',version=version+1,data=json_set(data,'$.status','Angenommen') WHERE id=?").bind(f.order.id).run();
+  const ui=await boot(t,{app:f.app,path:'/kunde',cookie:f.customerCookie}),form=ui.$('[data-form="confirm"]'),canvas=form.querySelector('canvas');
+  for(const type of ['pointerdown','pointermove','pointerup'])canvas.dispatchEvent(new ui.w.Event(type,{bubbles:true}));form.elements.confirmed.checked=true;
+  await f.env.DB.prepare("UPDATE orders SET version=version+1,data=json_set(data,'$.appointment.start','2030-10-15T07:00:00.000Z','$.appointment.end','2030-10-15T13:00:00.000Z') WHERE id=?").bind(f.order.id).run();
+  form.requestSubmit();await ui.settle();assert.match(form.querySelector('.error').textContent,/inzwischen geändert/);assert.equal(form.querySelector('[type=submit]').disabled,false);assert.equal(f.files.size,0);assert.equal((await f.env.DB.prepare('SELECT status FROM orders WHERE id=?').bind(f.order.id).first()).status,'Angenommen');assert.deepEqual(ui.errors,[]);
+});
+
+test('customer portal renders issued invoice amounts, own PDF downloads and the completed review link',async t=>{
+  const f=await setup(t),at=new Date().toISOString(),invoiceId=randomUUID(),assetId=randomUUID(),bytes=Buffer.from('%PDF-1.7\nTEST · cached customer invoice');
+  const invoice={provider:'qonto',id:invoiceId,number:'WG-4711',status:'unpaid',issueDate:'2030-10-01',dueDate:'2030-10-08',totalCents:45625,vatBasisPoints:1900,mode:'invoice',lines:[{title:'Reinigung und vereinbarte Mehrarbeit',amountCents:45625}],payment:{beneficiary:'TEST · White Gloss',iban:'DE89370400440532013000'},url:'https://pay.qonto.com/invoices/synthetic'};
+  const order={...f.order,status:'Erledigt',completedAt:at,invoice};await f.env.DB.prepare("UPDATE orders SET status='Erledigt',version=version+1,data=? WHERE id=?").bind(JSON.stringify(order),order.id).run();
+  await f.env.BUCKET.put(assetId,bytes,{httpMetadata:{contentType:'application/pdf'}});await f.env.DB.prepare('INSERT INTO assets VALUES(?,?,?,?,?,?,?)').bind(assetId,order.id,'invoice','application/pdf',digest(bytes),bytes.length,at).run();await f.env.DB.prepare('INSERT INTO invoice_documents VALUES(?,?,?,?)').bind(order.id,invoiceId,assetId,at).run();await setting(f.env,'reviewUrl','https://g.page/r/white-gloss-test/review');
+  const ui=await boot(t,{app:f.app,path:'/kunde',cookie:f.customerCookie});assert.match(ui.$('.portal-invoice').textContent,/456,25/);assert.match(ui.$('.portal-invoice').textContent,/Offen/);assert.match(ui.$('.portal-invoice').textContent,/DE89370400440532013000/);
+  const pay=ui.$('.portal-invoice a[target="_blank"]');assert.equal(pay.href,invoice.url);assert.match(pay.rel,/noopener/);assert.match(pay.rel,/noreferrer/);
+  const pdf=ui.$('.portal-invoice a[download]'),response=await f.app.fetch(new Request(new URL(pdf.getAttribute('href'),origin),{headers:{cookie:f.customerCookie}}));assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'application/pdf');assert.deepEqual(Buffer.from(await response.arrayBuffer()),bytes);
+  const doc=ui.$('.portal-docs a');assert.ok(doc.hasAttribute('download'));assert.match(doc.textContent,/ohne Kundenunterschrift/);const confirmation=await f.app.fetch(new Request(new URL(doc.getAttribute('href'),origin),{headers:{cookie:f.customerCookie}}));assert.equal(confirmation.status,200);assert.equal(Buffer.from(await confirmation.arrayBuffer()).subarray(0,5).toString(),'%PDF-');
+  assert.equal(ui.$('.portal-review a').href,'https://g.page/r/white-gloss-test/review');assert.deepEqual(ui.errors,[]);
 });

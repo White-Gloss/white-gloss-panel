@@ -19,7 +19,7 @@ export async function createApplication(env){
       const url=new URL(request.url);if(url.origin!==env.PANEL_ORIGIN)return errorResponse('Ungültiger Host.',400);
       if(url.pathname==='/healthz')return new Response('ok',{headers:{'Content-Type':'text/plain'}});
       // Scripts, styles, the web app manifest and icons are public; customer data never is.
-      if(request.method==='GET'&&/^\/[a-zA-Z0-9_-]+\.(css|js|mjs|webmanifest|png|svg)$/.test(url.pathname))return env.ASSETS.fetch(request);
+      if(request.method==='GET'&&/^\/[a-zA-Z0-9_-]+\.(css|js|mjs|webmanifest|png|svg|woff2)$/.test(url.pathname))return env.ASSETS.fetch(request);
       if(request.method==='GET'&&['/auth/login','/auth/verify'].includes(url.pathname))return loginPage();
       if(request.method==='POST'&&url.pathname==='/auth/request')return await requestLogin(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/redeem')return await redeemLogin(env,request);

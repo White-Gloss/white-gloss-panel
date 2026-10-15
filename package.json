@@ -6,6 +6,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node --test tests/*.test.mjs",
+    "test:browser": "node --test --test-timeout=90000 browser-tests/*.test.mjs",
     "pretest": "node scripts/build.mjs",
     "lint": "eslint src public server deploy && node scripts/check.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json"
@@ -15,6 +16,7 @@
     "esbuild": "0.25.12",
     "eslint": "^9.36.0",
     "jsdom": "^25.0.1",
+    "playwright": "1.64.1",
     "typescript": "~5.9.3"
   },
   "dependencies": {

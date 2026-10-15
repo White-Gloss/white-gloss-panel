@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes,randomUUID} from 'node:crypto';
 import worker,{getOrder,setting} from '../src/worker.mjs';
+import {AppError} from '../src/domain.mjs';
 import {PanelDatabase} from '../server/storage.mjs';
 import {createApplication} from '../server/application.mjs';
 import {digest} from '../server/auth.mjs';
@@ -195,4 +196,18 @@ test('status-based offer release appears as an unsigned order confirmation in th
   assert.equal(view.appointment.confirmed,true);assert.equal(view.offer.signed,true);assert.equal(view.documents[0].signed,false);
   assert.equal(view.documents[0].label,'Auftragsbestätigung ohne Kundenunterschrift');assert.equal(view.todo.length,0);
   assert.equal((await f.get(view.documents[0].url,f.customer)).status,200);
+});
+
+for(const status of [409,502])test('separate customer appointment confirmation stops before signatures when calendar validation returns '+status,async t=>{
+  const f=await fixture(t),o=await order(f.env,{status:'Angenommen',extra:{acceptance:{at:new Date().toISOString(),signature:'existing-offer-signature'},appointment:{start:'2030-10-14T07:00:00.000Z',end:'2030-10-14T10:00:00.000Z',duration:180,delivery:'Kunde bringt',location:''}}});
+  const original=await getOrder(f.env,o.id),view=(await f.ok(await f.get('/api/portal/me',f.customer))).orders[0];
+  let calls=0;
+  f.env.operations={...f.env.operations,validateAppointment:async(_env,preview)=>{calls++;assert.equal(preview.appointment.start,original.appointment.start);assert.equal(preview.status,'Termin verbindlich');assert.equal(f.files.size,0,'calendar is checked before storing customer handwriting');throw new AppError(status===409?'TEST · Zeitraum inzwischen belegt':'TEST · Kalender nicht erreichbar',status);}};
+  const input={signature,confirmed:true,customerName:'Erika Muster',snapshotHash:view.appointment.snapshotHash};
+  const response=await f.post('/api/portal/o/'+o.id+'/termin-bestaetigen',f.customer,input);
+  assert.equal(response.status,status,JSON.stringify(await response.json()));assert.equal(calls,1);
+  assert.deepEqual(await getOrder(f.env,o.id),original);assert.equal(f.files.size,0);assert.equal((await f.env.DB.prepare("SELECT COUNT(*) n FROM assets WHERE kind='signature'").first()).n,0);
+  assert.equal((await f.env.DB.prepare("SELECT COUNT(*) n FROM audit WHERE actor='customer'").first()).n,0);
+  f.env.operations.validateAppointment=async()=>{calls++;assert.equal(f.files.size,0);};
+  await f.ok(await f.post('/api/portal/o/'+o.id+'/termin-bestaetigen',f.customer,input));assert.equal(calls,2);assert.equal((await getOrder(f.env,o.id)).status,'Termin verbindlich');assert.equal(f.files.size,1);
 });
