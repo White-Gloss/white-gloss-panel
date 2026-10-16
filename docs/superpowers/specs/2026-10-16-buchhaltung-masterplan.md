@@ -64,10 +64,11 @@ Belege (Upload/Mail) ─► [Beleg-Inbox] ─► [KI-Vorschlag] ─► Freigabe 
    1. exakter Treffer Rechnungsnummer im Verwendungszweck,
    2. Betrag + Kundenname + offener Posten eindeutig,
    3. sonst Warteschlange „manuell zuordnen“ (KI darf Vorschlag machen, nicht buchen).
-   Treffer → Buchung „1200 Bank an 1400 Forderungen“, Rechnung „bezahlt“, Mahnlauf stoppt.
+   Treffer → Buchung „1200 Bank an 1400 Forderungen“ über den **tatsächlichen Betrag**. Der Status wird aus der **Summe aller Zahlungen** abgeleitet (wie `paidCents` in `src/domain.mjs`): Teilzahlung = „teilbezahlt“, Mahnlauf läuft für den Rest weiter; erst Summe ≥ Rechnungsbetrag = „bezahlt“. Überzahlung → eigene Klärungsposition (z. B. Verbindlichkeit/Erlösschmälerung nach Rücksprache mit dem Steuerberater), nie stillschweigend verrechnen.
 3. **Barzahlung:** eigener Kassenpfad (Konto 1000), erst nach Klärung Rechtsfrage 1.
 4. **Ausgaben:** Beleg-Upload/Mail → KI-Vorschlag → Freigabe → Buchung „Aufwand + Vorsteuer an 1200 (oder 1610/Verbindlichkeit)“. Bankumsatz wird später dem Beleg zugeordnet.
 5. **Qonto-Altbestand:** Bereits über Qonto ausgestellte Rechnungen werden als **historisch importiert** (read-only, Original-PDF behalten). Eigene Ausstellung startet an einem festen **Umstellungsstichtag**; bis dahin bleibt der Qonto-Pfad unverändert.
+   **Offene Posten zum Stichtag:** Jede am Stichtag ganz oder teilweise unbezahlte Qonto-Rechnung wird als **Eröffnungsbuchung** (1400 an Eröffnungsbilanzkonto bzw. nach Vorgabe des Steuerberaters) mit dem offenen Restbetrag übernommen und mit Bank-/Teilzahlungen abgeglichen. Alternativ bleibt sie bis zur Begleichung im Altpfad; das legt der Steuerberater fest. Ohne Eröffnungsposten gibt es später Zahlungen auf nie gebuchte Forderungen.
 
 ### 2.3 Überweisungen aus dem Panel (Ausgang)
 
@@ -75,20 +76,22 @@ Belege (Upload/Mail) ─► [Beleg-Inbox] ─► [KI-Vorschlag] ─► Freigabe 
 - Sicherer Stufenplan:
   - **Stufe A:** Panel erzeugt *Zahlungsvorschlag* (Empfänger, IBAN, Betrag, Verwendungszweck, Beleg-Link) + Export zum Hochladen/Freigeben in Qonto. Freigabe bleibt in der Bank.
   - **Stufe B:** direkte API-Auslösung **nur**, wenn Qonto sie mit SCA/Operator-Freigabe unterstützt. Zwei-Augen-Regel im Panel, IBAN-Whitelist, Limit, Idempotenzschlüssel, kein automatisches Auslösen durch KI.
-- Jede Überweisung = Ereignis im Journal (Vorschlag, Freigabe, Ausführung, Bankbestätigung).
+- Jeder Schritt (Vorschlag, Freigabe, Ausführung, Bankbestätigung) wird in `acc_workflow_log` festgehalten (append-only). Ins **Journal** kommt erst die tatsächliche Zahlung, nämlich wenn der Bankumsatz bestätigt ist.
 
 ### 2.4 Datenmodell (SQLite, Beträge **immer ganze Cent**)
 
 ```sql
 -- Nummernkreise (gaplos; Vergabe nur in finalisierender Transaktion)
-CREATE TABLE acc_sequences(series TEXT PRIMARY KEY, last_value INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS acc_sequences(series TEXT PRIMARY KEY, last_value INTEGER NOT NULL);
 
 -- Journal: append-only, Hash-Kette
-CREATE TABLE acc_journal(
-  seq            INTEGER PRIMARY KEY AUTOINCREMENT,   -- lückenlos prüfbar
+CREATE TABLE IF NOT EXISTS acc_journal(
+  seq            INTEGER PRIMARY KEY,                 -- explizit vergeben (MAX+1 in der Schreibtransaktion), KEIN AUTOINCREMENT
   entry_id       TEXT NOT NULL UNIQUE,                -- UUID
   booked_at      TEXT NOT NULL,                       -- Erfassungszeit UTC (System)
-  doc_date       TEXT NOT NULL,                       -- Belegdatum
+  doc_date       TEXT NOT NULL,                       -- Belegdatum (unverändert wie auf dem Beleg)
+  posting_date   TEXT NOT NULL,                       -- Buchungsdatum; bestimmt Buchungsperiode, Periodensperre und DATEV-Export
+  posting_period TEXT NOT NULL,                       -- 'JJJJ-MM'; Nachzügler-Belege landen in der offenen Periode
   voucher_no     TEXT NOT NULL,                       -- Rechnungs-/Belegnummer
   debit_account  TEXT NOT NULL,
   credit_account TEXT NOT NULL,
@@ -97,36 +100,50 @@ CREATE TABLE acc_journal(
   text           TEXT NOT NULL,
   source_type    TEXT NOT NULL,                       -- invoice|bank|expense|manual|reversal
   source_id      TEXT NOT NULL,
+  source_component TEXT NOT NULL,                     -- z. B. 'net:19', 'tax:19', 'payment:<bank_id>'
+  currency       TEXT NOT NULL DEFAULT 'EUR' CHECK(currency='EUR'),
   reverses       TEXT,                                -- entry_id bei Stornobuchung
   actor          TEXT NOT NULL,                       -- Operator oder 'system'
   ai_suggestion_id TEXT,                              -- Nachweis, was die KI vorschlug
   prev_hash      TEXT NOT NULL,
-  entry_hash     TEXT NOT NULL UNIQUE
+  entry_hash     TEXT NOT NULL UNIQUE,
+  UNIQUE(source_type, source_id, source_component)    -- Idempotenz: Wiederholung/Doppellieferung kann nicht doppelt buchen
 );
-CREATE TRIGGER acc_journal_no_update BEFORE UPDATE ON acc_journal BEGIN SELECT RAISE(ABORT,'Journal ist unveränderlich'); END;
-CREATE TRIGGER acc_journal_no_delete BEFORE DELETE ON acc_journal BEGIN SELECT RAISE(ABORT,'Journal ist unveränderlich'); END;
+CREATE TRIGGER IF NOT EXISTS acc_journal_no_update BEFORE UPDATE ON acc_journal BEGIN SELECT RAISE(ABORT,'Journal ist unveränderlich'); END;
+CREATE TRIGGER IF NOT EXISTS acc_journal_no_delete BEFORE DELETE ON acc_journal BEGIN SELECT RAISE(ABORT,'Journal ist unveränderlich'); END;
 
-CREATE TABLE acc_invoices(   -- nach Finalisierung unveränderlich (Trigger wie oben, außer Statusfelder in eigener Tabelle)
+CREATE TABLE IF NOT EXISTS acc_invoices(   -- nach Finalisierung unveränderlich (Trigger wie oben, außer Statusfelder in eigener Tabelle)
   id TEXT PRIMARY KEY, number TEXT NOT NULL UNIQUE, order_id TEXT, customer_snapshot TEXT NOT NULL,
   lines_json TEXT NOT NULL, net_cents INT, tax_cents INT, gross_cents INT, tax_regime TEXT,
   issue_date TEXT, service_date TEXT, due_date TEXT, pdf_key TEXT, pdf_sha256 TEXT, finalized_at TEXT);
-CREATE TABLE acc_invoice_status(invoice_id TEXT, status TEXT, changed_at TEXT, journal_seq INT); -- append-only
+CREATE TABLE IF NOT EXISTS acc_invoice_status(invoice_id TEXT, status TEXT, changed_at TEXT, journal_seq INT); -- append-only
+CREATE TRIGGER IF NOT EXISTS acc_invoice_status_no_update BEFORE UPDATE ON acc_invoice_status BEGIN SELECT RAISE(ABORT,'Statushistorie ist unveränderlich'); END;
+CREATE TRIGGER IF NOT EXISTS acc_invoice_status_no_delete BEFORE DELETE ON acc_invoice_status BEGIN SELECT RAISE(ABORT,'Statushistorie ist unveränderlich'); END;
+-- gleiche Update-/Delete-Trigger auch für acc_invoices (nach Finalisierung), acc_ai_suggestions und acc_workflow_log
 
-CREATE TABLE acc_documents(   -- Eingangsbelege
+-- Ablauf-Log (Überweisungsvorschlag, Freigabe, Ausführung, Bankbestätigung): KEINE Buchung, daher nicht im Journal
+CREATE TABLE IF NOT EXISTS acc_workflow_log(id INTEGER PRIMARY KEY, kind TEXT, ref TEXT, state TEXT, actor TEXT, approver TEXT, at TEXT,
+  CHECK(approver IS NULL OR approver<>actor));
+
+CREATE TABLE IF NOT EXISTS acc_documents(   -- Eingangsbelege
   id TEXT PRIMARY KEY, file_key TEXT, sha256 TEXT UNIQUE, mime TEXT, received_at TEXT,
   source TEXT, state TEXT);   -- received|suggested|approved|rejected|booked
-CREATE TABLE acc_ai_suggestions(
+CREATE TABLE IF NOT EXISTS acc_ai_suggestions(
   id TEXT PRIMARY KEY, document_id TEXT, model TEXT, prompt_version TEXT,
   raw_response TEXT, parsed_json TEXT, confidence REAL, created_at TEXT);
 
-CREATE TABLE acc_bank_transactions(
+CREATE TABLE IF NOT EXISTS acc_bank_transactions(
   qonto_id TEXT PRIMARY KEY, booked_on TEXT, amount_cents INT, currency TEXT, counterparty TEXT,
   iban TEXT, reference TEXT, match_state TEXT, matched_ref TEXT, raw_json TEXT);
 
-CREATE TABLE acc_periods(period TEXT PRIMARY KEY, locked_at TEXT, locked_by TEXT, head_hash TEXT);
-CREATE TABLE acc_chart(account TEXT PRIMARY KEY, name TEXT, kind TEXT, default_tax_code TEXT, active INT);
-CREATE TABLE acc_audit(...);  -- jede Lese-/Schreibaktion des Moduls, siehe Abschnitt 4
+CREATE TABLE IF NOT EXISTS acc_periods(period TEXT PRIMARY KEY, locked_at TEXT, locked_by TEXT, head_hash TEXT);
+CREATE TABLE IF NOT EXISTS acc_chart(account TEXT PRIMARY KEY, name TEXT, kind TEXT, default_tax_code TEXT, active INT);
+CREATE TABLE IF NOT EXISTS acc_audit(...);  -- jede Lese-/Schreibaktion des Moduls, siehe Abschnitt 4
 ```
+
+**Wiederholte Zustellung:** Trifft derselbe Geschäftsvorfall (z. B. Bankumsatz) zweimal ein, scheitert der zweite Insert am Unique-Schlüssel und wird als „bereits gebucht“ behandelt. Weil `seq` nicht automatisch hochzählt, entsteht dabei keine Lücke.
+
+**Fremdwährung:** Nur EUR wird gebucht. Bankumsätze in anderer Währung werden in `acc_bank_transactions` mit `match_state='quarantine'` geführt und manuell behandelt (Originalwährung, Kurs, EUR-Betrag), nie stillschweigend als EUR gebucht.
 
 **Warum Trigger:** Unveränderbarkeit wird von der Datenbank erzwungen, nicht nur vom Anwendungscode (auch ein Bug oder späteres Skript kann sie nicht umgehen).
 
@@ -224,7 +241,7 @@ Bank-Matching-Vorschlag, Anomalien (Dublette, ungewöhnlicher Betrag), Umsatzste
 | **Ordnung** | Kontenplan, eindeutige Belegnummern, Belegverknüpfung `source_id` |
 | **Nachvollziehbarkeit** | Beleg ↔ Buchung ↔ Bankumsatz jederzeit auffindbar; `acc_audit` für jeden Schreibzugriff |
 | **Unveränderbarkeit** | DB-Trigger (kein UPDATE/DELETE), Hash-Kette, Periodensperre, finalisierte Rechnungen eingefroren |
-| **Aufbewahrung / Lesbarkeit** | Originalbeleg + PDF + Hash, 8/6 Jahre, Backup wie `server/backup.mjs` + **externe Kopie** (heute nur Serverkopie!) |
+| **Aufbewahrung / Lesbarkeit** | Originalbeleg + PDF + Hash, 8/6 Jahre, Backup: `server/backup.mjs` inventarisiert heute nur die `assets`-Tabelle. Es muss um `acc_invoices.pdf_key` und `acc_documents.file_key` (Inventar, Hash-Prüfung, Wiederherstellungstest) erweitert werden – oder die Dateien werden im gemeinsamen Asset-Inventar registriert. Dazu **externe Kopie** (heute nur Serverkopie!) |
 | **Datenzugriff (Z1–Z3)** | Prüfer-Export: GoBD-Beschreibungsstandard (`index.xml` + CSV) oder DATEV-Export; Lesezugriff-Rolle |
 | **Verfahrensdokumentation** | Pflichtdokument: Beschreibung, Rollen, Abläufe, Kontrollen, Änderungsprotokoll – gehört in `docs/`, wird mit jedem Release fortgeschrieben |
 | **IKS** | Rollentrennung (Erfassen ≠ Freigeben ≠ Festschreiben), Vier-Augen bei Überweisungen, Protokoll |
@@ -242,26 +259,28 @@ Bank-Matching-Vorschlag, Anomalien (Dublette, ungewöhnlicher Betrag), Umsatzste
 const GENESIS = '0'.repeat(64);
 
 function canonical(e) {            // deterministische Serialisierung: feste Feldreihenfolge, UTF-8, keine Leerzeichen
-  return JSON.stringify([e.entry_id, e.booked_at, e.doc_date, e.voucher_no,
+  return JSON.stringify([e.seq, e.entry_id, e.booked_at, e.doc_date, e.posting_date, e.posting_period, e.voucher_no,
     e.debit_account, e.credit_account, e.amount_cents, e.tax_code ?? null,
-    e.text, e.source_type, e.source_id, e.reverses ?? null, e.actor, e.ai_suggestion_id ?? null]);
+    e.text, e.source_type, e.source_id, e.source_component, e.currency, e.reverses ?? null, e.actor, e.ai_suggestion_id ?? null]);
 }
 const hash = (prev, e) => sha256hex(prev + '\n' + canonical(e));
 
-async function append(db, e) {
-  // BEGIN IMMEDIATE (PanelDatabase.batch serialisiert bereits)
-  assert(!(await periodLocked(db, e.doc_date)));
+async function appendInTx(tx, e) {
+  // Aufrufer öffnet EINE serialisierte Schreibtransaktion (BEGIN IMMEDIATE): Kopf-Lesen, Hash, Insert und Audit
+  // laufen darin gemeinsam. Parallele Anfragen warten; so zeigen zwei Einträge nie auf denselben Vorgänger.
+  assert(!(await periodLocked(tx, e.posting_period)));      // Sperre nach Buchungsperiode, nicht nach Belegdatum
   assert(e.debit_account !== e.credit_account && inChart(e.debit_account) && inChart(e.credit_account));
-  const last = await db.first('SELECT entry_hash FROM acc_journal ORDER BY seq DESC LIMIT 1');
+  const last = await tx.first('SELECT seq, entry_hash FROM acc_journal ORDER BY seq DESC LIMIT 1');
+  e.seq = (last?.seq ?? 0) + 1;
   e.prev_hash = last?.entry_hash ?? GENESIS;
   e.entry_hash = hash(e.prev_hash, e);
-  await db.insert('acc_journal', e);                 // + acc_audit im selben Batch
+  await tx.insert('acc_journal', e);                 // + acc_audit in derselben Transaktion
 }
 
-async function verifyChain(db) {                      // täglich + vor jedem Export + vor jedem Backup
+async function verifyChain(db) {                      // async! Aufrufer MÜSSEN await verwenden. Täglich + vor jedem Export + vor jedem Backup
   let prev = GENESIS, seq = 0;
   for (const r of db.iterate('SELECT * FROM acc_journal ORDER BY seq')) {
-    if (r.seq !== ++seq) fail('Lücke in seq');
+    if (r.seq !== ++seq) fail('Lücke in seq');          // seq wird explizit vergeben, daher ist Lückenfreiheit prüfbar
     if (r.prev_hash !== prev || r.entry_hash !== hash(prev, r)) fail('Manipulation bei seq ' + r.seq);
     prev = r.entry_hash;
   }
@@ -284,11 +303,18 @@ async function finalize(db, orderId, operator) {
   assertPflichtangaben(inv);                      // § 14 UStG: Name+Anschrift beide Seiten, Steuer-Nr/USt-IdNr, Datum, Nummer,
                                                   // Menge/Art der Leistung, Leistungszeitpunkt, Entgelt, Steuersatz/-betrag oder Befreiungshinweis
   inv.number = nextNumber(db, 'RE-' + year);      // UPDATE acc_sequences … in derselben Transaktion; Rollback = keine Lücke
-  inv.pdf    = renderPdf(inv);  inv.pdf_sha256 = sha256(inv.pdf);
-  insert(acc_invoices, inv);
-  append(db, {debit:'1400', credit:revenueAccount(inv), amount:inv.net_cents, …});   // + Steuerzeilen
-  audit('invoice.finalized', operator, inv.number);
-}
+  const pdf = renderPdf(inv);  inv.pdf_sha256 = sha256(pdf);
+  inv.pdf_key = await bucket.putContentAddressed(pdf);   // ZUERST dauerhaft ablegen (idempotent, Schlüssel aus Hash); verwaiste Datei ist harmlos
+  insert(acc_invoices, inv);                              // enthält pdf_key + pdf_sha256
+  for (const g of groupByTaxRate(inv.lines)) {            // je Steuersatz getrennt: 8400/1776 (19 %), 8300/1771 (7 %), …
+    await appendInTx(tx, {voucher_no: inv.number, source_type:'invoice', source_id: inv.id,
+      source_component: 'net:' + g.rate, debit_account:'1400', credit_account: revenueAccount(g.rate),
+      amount_cents: g.net_cents, … });
+    if (g.tax_cents) await appendInTx(tx, {…, source_component: 'tax:' + g.rate,
+      debit_account:'1400', credit_account: taxAccount(g.rate), amount_cents: g.tax_cents});
+  }
+  await audit(tx, 'invoice.finalized', operator, inv.number);
+}               // Fehler in einem Schritt → Rollback der gesamten Transaktion; Rechnung gilt erst nach Commit als finalisiert
 ```
 
 Mail-Versand, Zahlungsziel (7 Tage), Kundenlink, Mahnwesen: bestehende Logik wiederverwenden, aber auf `acc_invoices` statt Qonto umhängen.
@@ -296,6 +322,7 @@ Mail-Versand, Zahlungsziel (7 Tage), Kundenlink, Mahnwesen: bestehende Logik wie
 ### 4.5 Zugriff, Sicherheit, Betrieb
 
 - Rollen: `operator` (alles), `reviewer` (Lesen + Export, für Steuerberater), `system`. Kein Löschrecht für niemanden.
+- **Vier-Augen/Funktionstrennung:** Das Panel kennt heute nur **eine** Betreiberidentität. Solange es nur eine gibt, wird keine Trennung behauptet. Für Überweisungen ist die zweite Kontrolle die **Freigabe in Qonto** (Stufe A). Eine echte Trennung braucht eine zweite authentifizierte Freigabe-Identität (Phase 6); dann speichern `acc_workflow_log.actor` und `approver` beide und eine Bedingung erzwingt `actor<>approver`.
 - Journal-Tabellen nur über `ledger.mjs` beschreibbar (Code-Review-Regel + Test, der direkte SQL-Schreibzugriffe im Repo verbietet).
 - Backups verschlüsselt, **externe** Kopie, regelmäßiger isolierter Wiederherstellungstest (Bestand: synthetisch, ohne Server).
 - Keine echten Kundendaten in Tests/Commits; Zugangsdaten nur in Laufzeitumgebung.
@@ -336,9 +363,9 @@ Optional: Belegverknüpfung (Belegbilder) über DATEV-Belegtransfer – zweite A
 ### 5.3 Export-Pseudocode
 
 ```js
-function exportDatev(db, {from, to, consultantNo, clientNo, fiscalYearStart}) {
-  assert(verifyChain(db));                              // kein Export aus beschädigter Kette
-  const rows = db.all('SELECT * FROM acc_journal WHERE doc_date BETWEEN ? AND ? ORDER BY seq', from, to);
+async function exportDatev(db, {from, to, consultantNo, clientNo, fiscalYearStart}) {
+  assert(await verifyChain(db));                        // await ist Pflicht: kein Export aus beschädigter Kette
+  const rows = await db.all('SELECT * FROM acc_journal WHERE posting_date BETWEEN ? AND ? ORDER BY seq', from, to);  // nach Buchungsdatum, Belegdatum bleibt Feld
   const out = [headerLine(...), COLUMN_NAMES];
   for (const r of rows) out.push([
     centsToComma(r.amount_cents), 'S', 'EUR', '', '', '',
