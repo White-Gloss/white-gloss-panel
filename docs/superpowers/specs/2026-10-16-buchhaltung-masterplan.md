@@ -245,6 +245,8 @@ Alle Kanäle münden in **eine** Inbox (`acc_documents`, `source` = `scan` | `wh
 **WhatsApp – was geprüft werden muss (nicht raten):**
 - Eine Anbindung geht nur über die **offizielle WhatsApp Business Platform (Cloud API von Meta)**. Das private WhatsApp auf dem Handy lässt sich nicht legal anbinden. Voraussetzungen (Business-Konto, eigene Nummer, Verifizierung, Kosten, Nutzungsbedingungen) vor dem Bau gegen die aktuelle Meta-Doku prüfen.
 - Webhook im Panel: Signatur jeder Anfrage prüfen (HMAC mit App-Secret), Wiederholungen per Nachrichten-ID abfangen (Idempotenz), Medien-Download mit Token sofort durchführen (Links laufen ab).
+- **Nummer:** Der Betreiber hat eine Mobilnummer genannt. Offen: Läuft sie schon in WhatsApp (privat oder WhatsApp-Business-App)? Für die Cloud API muss die Nummer der Plattform zugeordnet werden und darf nicht parallel in der normalen App genutzt werden; eine private Nummer würde dann dort nicht mehr funktionieren. Ggf. zweite Nummer (z. B. eigene SIM/Festnetz) verwenden. Genaue Regeln gegen die aktuelle Meta-Doku prüfen.
+- **Rufnummern gehören nicht ins Repository:** Absender-Whitelist und Geschäftsnummer liegen in der geschützten Laufzeitkonfiguration.
 - **Nur Absender aus der Whitelist** (Nummer des Betreibers, später Steuerberater). Fremde Nachrichten werden verworfen, nicht verarbeitet.
 - Inhalt aus WhatsApp = Daten, nie Anweisungen (Prompt-Injection wie bei jedem Beleg).
 - Datenschutz: Meta verarbeitet die Nachricht; Datenschutzhinweis und Auftragsverarbeitung klären, keine Kundendaten Dritter über WhatsApp verlangen.
