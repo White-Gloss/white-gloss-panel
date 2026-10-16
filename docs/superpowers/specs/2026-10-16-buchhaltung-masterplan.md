@@ -385,11 +385,15 @@ Jede Phase = eigener Spec → Plan → Umsetzung (kleine PRs). **Mobil/Cross-Pla
 - KI-Antworten nie ungeprüft verwenden; Validator + Freigabe sind Pflicht.
 - Unklare Fachfrage → stoppen und Betreiber/Steuerberater fragen, nicht raten.
 
-## 8. Offene Entscheidungen für den Betreiber
+## 8. Entscheidungen des Betreibers (16.10.2026)
 
-1. Wird die Entscheidung „nur Qonto“ vom 13.10. offiziell durch „Qonto nur Bankkonto“ ersetzt? Umstellungsstichtag?
-2. Kleinunternehmer (§ 19) oder Regelbesteuerung – seit wann?
-3. Werden Barzahlungen angenommen (Kassenbuch/TSE-Frage)?
-4. Hat der Steuerberater DATEV (Berater-/Mandantennummer) oder Lexware?
-5. Welcher KI-Anbieter, mit AVV, und dürfen Belege dorthin?
-6. Soll der Steuerberater Lesezugang (`reviewer`) im Panel erhalten?
+| # | Thema | Entscheidung | Folge |
+|---|---|---|---|
+| 1 | Qonto nur Bankkonto | **Ja**, Stichtag **01.01.2027** | Eigene Rechnungsausstellung ab Stichtag; davor unveränderter Qonto-Pfad; Altbestand wird read-only importiert |
+| 2 | Steuerstatus | **Einzelunternehmer, kein Kleinunternehmer** (so verstanden: regelbesteuert, 19 %/7 %) | § 19-Pfad bleibt nur für Altdaten; Umsatzsteuer-Voranmeldung relevant. *Vom Betreiber zu bestätigen.* |
+| 3 | Barzahlungen | **Ja** | Kassenpfad nötig. **Vor dem Bau verbindlich beim Steuerberater klären:** TSE-Pflicht (§ 146a AO) bei Softwareerfassung |
+| 4 | Export | **DATEV** | Berater-/Mandantennummer vom Steuerberater erfragen; Probeimport |
+| 5 | KI-Anbieter | **Beide testen** (Claude und OpenAI) | Austauschbare Provider-Schnittstelle; Vergleich an synthetischen Belegen; AVV je Anbieter vor Echtdaten |
+| 6 | Steuerberater-Zugang | **Ja**, Rolle `reviewer` (nur lesen/exportieren) | Eigener Login mit Rechten ohne Schreibzugriff |
+
+Offen: Bestätigung zu Nr. 2, Antwort des Steuerberaters zu Nr. 3 und Nr. 4, AVV-Prüfung zu Nr. 5.
