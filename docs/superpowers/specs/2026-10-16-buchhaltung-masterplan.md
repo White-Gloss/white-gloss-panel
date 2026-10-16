@@ -232,6 +232,31 @@ Startvorschlag SKR03 (**alle Zuordnungen vom Steuerberater bestätigen lassen**,
 
 **Regelschicht vor dem LLM:** Bekannte Lieferanten (z. B. Vermieter) werden per fester Regel kontiert, das LLM nur bei unbekannten. **Freigabepflicht:** Confidence < Schwelle oder Betrag > Limit → rote Markierung, immer manuell.
 
+### 3.5a Belegeingang: Scan und WhatsApp
+
+Alle Kanäle münden in **eine** Inbox (`acc_documents`, `source` = `scan` | `whatsapp` | `upload` | `mail`). Danach läuft immer dieselbe Pipeline (3.1).
+
+| Kanal | Ablauf | Schutz |
+|---|---|---|
+| **Scan / Foto im Panel** | Mobile Seite „Beleg erfassen“: Kamera oder Datei, mehrere Seiten zu einem Beleg, Vorschau, senden. Funktioniert im Browser auf iOS, Android, Mac, Windows (keine native App) | Anmeldung, Größen-/Typlimit, Dateityp per Inhalt prüfen, nicht per Endung |
+| **Scanner / Mail** (optional) | Scanner sendet PDF an eine feste Panel-Adresse, nur freigegebene Absender | Absender-Whitelist, Mail nie automatisch als Anweisung auslesen |
+| **WhatsApp** | Betreiber sendet Foto/PDF an die WhatsApp-Nummer des Panels → Webhook → Datei laden → Inbox → Rückmeldung „Beleg erhalten“ | siehe unten |
+
+**WhatsApp – was geprüft werden muss (nicht raten):**
+- Eine Anbindung geht nur über die **offizielle WhatsApp Business Platform (Cloud API von Meta)**. Das private WhatsApp auf dem Handy lässt sich nicht legal anbinden. Voraussetzungen (Business-Konto, eigene Nummer, Verifizierung, Kosten, Nutzungsbedingungen) vor dem Bau gegen die aktuelle Meta-Doku prüfen.
+- Webhook im Panel: Signatur jeder Anfrage prüfen (HMAC mit App-Secret), Wiederholungen per Nachrichten-ID abfangen (Idempotenz), Medien-Download mit Token sofort durchführen (Links laufen ab).
+- **Nur Absender aus der Whitelist** (Nummer des Betreibers, später Steuerberater). Fremde Nachrichten werden verworfen, nicht verarbeitet.
+- Inhalt aus WhatsApp = Daten, nie Anweisungen (Prompt-Injection wie bei jedem Beleg).
+- Datenschutz: Meta verarbeitet die Nachricht; Datenschutzhinweis und Auftragsverarbeitung klären, keine Kundendaten Dritter über WhatsApp verlangen.
+- Rückmeldung an den Absender nur kurz („Beleg erhalten, Nr. …“); keine Buchungsdetails.
+
+**GoBD bei Scan/Foto (ersetzendes Scannen):**
+- Das gespeicherte Bild ist der **Originalbeleg im System**. Es wird **unverändert** abgelegt (SHA-256, Eingangszeit, Kanal, Absender) und nie überschrieben. Verbesserte Kopien (zuschneiden, drehen) sind eigene abgeleitete Dateien.
+- Papieroriginale: Ob sie nach dem Scannen vernichtet werden dürfen, regelt die **Verfahrensdokumentation** (Scan-Verfahren, Qualitätskontrolle, Lesbarkeit, Vollständigkeit). Mit dem Steuerberater abstimmen; bis dahin Papier aufbewahren.
+- Qualitätsprüfung beim Eingang: Auflösung, Schärfe, Vollständigkeit (alle Seiten, Rand sichtbar). Schlechtes Bild → Rückfrage „bitte neu aufnehmen“.
+- Zuordnung: Jeder Beleg bekommt eine **laufende Belegnummer** (eigener Nummernkreis `BE-JJJJ-NNNNN`), auch ohne Buchung (Vollständigkeit).
+- Beleg ohne Freigabe wird **nicht** gebucht und nicht gelöscht; Status bleibt sichtbar („offen“, „abgelehnt“ mit Grund).
+
 ### 3.6 Weitere sinnvolle KI-Aufgaben (später)
 
 Bank-Matching-Vorschlag, Anomalien (Dublette, ungewöhnlicher Betrag), Umsatzsteuer-Voranmeldung-Plausibilität. Immer nur Vorschlag.
@@ -401,7 +426,8 @@ Dazu: **Stammdaten-Export** (Debitoren/Kreditoren) falls der StB Personenkonten 
 | **1 Fundament** | `ledger`, `numbering`, `period`, `chart`, Trigger, Hash-Kette, Audit, Tests | Manipulations-/Storno-Tests grün |
 | **2 Eigene Rechnung** | `invoicing` inkl. PDF, Storno/Gutschrift, Mahnwesen umhängen, Altbestand-Import, Stichtag | Test-Rechnungen (nur synthetisch) |
 | **3 Bank** | Qonto lesend, Matching, Zahlungseingang → Buchung | Abgleich ohne Differenz |
-| **4 Belege + KI** | Inbox, Auslesen, Kontieren, Freigabe-Oberfläche (mobil nutzbar) | Trefferquote auf Testbelegen gemessen |
+| **4 Belege + KI** | Inbox (Scan/Foto im Panel zuerst), Auslesen, Kontieren, Freigabe-Oberfläche (mobil nutzbar) | Trefferquote auf Testbelegen gemessen |
+| **4b WhatsApp-Eingang** | Webhook, Whitelist, Medien-Download, Rückmeldung – nach Prüfung der Meta-Bedingungen | Test nur mit synthetischen Belegen |
 | **5 DATEV-Export** | EXTF + Auswertungen | Probeimport StB |
 | **6 Absicherung** | Verfahrensdokumentation, externe Backups, Rollen, Prüfer-Export | Freigabe durch StB |
 | **7 Überweisungen** | Stufe A, dann ggf. B | nach Qonto-Klärung |
@@ -429,5 +455,6 @@ Jede Phase = eigener Spec → Plan → Umsetzung (kleine PRs). **Mobil/Cross-Pla
 | 4 | Export | **DATEV** | Berater-/Mandantennummer vom Steuerberater erfragen; Probeimport |
 | 5 | KI-Anbieter | **Beide testen** (Claude und OpenAI) | Austauschbare Provider-Schnittstelle; Vergleich an synthetischen Belegen; AVV je Anbieter vor Echtdaten |
 | 6 | Steuerberater-Zugang | **Ja**, Rolle `reviewer` (nur lesen/exportieren) | Eigener Login mit Rechten ohne Schreibzugriff |
+| 7 | Belegeingang | **Scan/Foto und WhatsApp** | Inbox mit mehreren Kanälen; WhatsApp nur über offizielle Business-API (Bedingungen, Nummer, Kosten prüfen) |
 
 Offen: Bestätigung zu Nr. 2, Antwort des Steuerberaters zu Nr. 3 und Nr. 4, AVV-Prüfung zu Nr. 5.
