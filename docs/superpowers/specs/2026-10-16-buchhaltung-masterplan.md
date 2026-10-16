@@ -153,12 +153,19 @@ CREATE TABLE IF NOT EXISTS acc_audit(...);  -- jede Lese-/Schreibaktion des Modu
 
 ```
 Upload ─► Dubletten-Check (SHA-256 der Datei)
+       ─► E-Rechnung? (XRechnung-XML oder ZUGFeRD-PDF mit eingebettetem XML)
+            ja ─► Original-XML unverändert archivieren, EN-16931-Syntax validieren,
+                  Felder direkt aus dem XML in das Stufe-1-Schema abbilden (KEIN KI-Auslesen nötig);
+                  Fehler/Abweichung ─► manuelle Prüfung
+            nein ─► weiter mit Vorverarbeitung
        ─► Vorverarbeitung (PDF: Text-Layer + Seitenbilder; Foto: drehen/skalieren)
        ─► KI-Aufruf Stufe 1: AUSLESEN  (nur Fakten aus dem Beleg)
        ─► deterministische Validierung (Code, kein LLM)
        ─► KI-Aufruf Stufe 2: KONTIEREN (Konto aus Whitelist des Kontenplans)
        ─► Regel-Gegenprüfung ─► Operator-Freigabe ─► Buchung
 ```
+
+**E-Rechnung zuerst:** Strukturierte Daten sind verbindlicher als gelesener Text. Bei ZUGFeRD zählt das eingebettete XML als Original; das PDF-Bild dient nur der Ansicht. Pflicht zum Empfang gilt seit 01.01.2025 (Fristen mit Steuerberater bestätigen).
 
 **Warum zwei Stufen:** Auslesen (Wahrheit aus dem Dokument) und Kontieren (Ermessen) getrennt = Fehler sind eindeutig zuordenbar und einzeln prüfbar.
 
