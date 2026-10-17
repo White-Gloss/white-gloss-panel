@@ -1,0 +1,42 @@
+/* B2B area shared by the operator workspace and the customer portal. */
+.business-admin,.business-portal{min-width:0}
+.business-toolbar,.business-heading,.business-vehicle-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.business-toolbar{margin:0 0 16px}
+.business-toolbar p,.business-heading p{margin:4px 0 0;color:#657487;font-size:14px}
+.business-layout{display:grid;grid-template-columns:minmax(210px,280px) minmax(0,1fr);align-items:start;gap:18px}
+.business-accounts,.business-detail,.business-vehicles{display:grid;gap:14px;min-width:0}
+.business-accounts{position:sticky;top:20px;padding:14px;background:#fff;border:1px solid #e2e7ed;border-radius:16px}
+.business-account{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:14px;text-align:left;border:1px solid #e2e7ed;border-radius:12px;background:#fff}
+.business-account.selected{border-color:#294767;background:#f2f6fa;box-shadow:inset 0 0 0 1px #294767}
+.business-account strong,.business-account small,.business-vehicle-head strong,.business-vehicle-head small{display:block}
+.business-account small,.business-vehicle-head small{margin-top:3px;color:#657487;font-size:12px;overflow-wrap:anywhere}
+.business-requests{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.business-request{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid #e2e7ed;border-radius:12px}
+.business-request strong,.business-request small{display:block}.business-request small{color:#657487;margin-top:4px;overflow-wrap:anywhere}
+.business-request select{min-width:150px}
+.business-vehicle{padding:18px;border:1px solid #e2e7ed;border-radius:14px;background:#fff}
+.business-vehicle p{margin:8px 0;color:#4a596b}.business-price{font-size:18px;font-weight:700;color:#1c3349!important}
+.business-card-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:14px}
+.business-gallery,.business-fleet-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px;margin:14px 0}
+.business-gallery img,.business-fleet-gallery img{display:block;width:100%;height:130px;object-fit:cover;border-radius:10px;border:1px solid #dce4ed;background:#eef2f6}
+.business-gallery button{width:100%;margin-top:5px}
+.business-photo-input{display:inline-flex;position:relative;align-items:center;justify-content:center;min-height:40px;padding:7px 13px;border:1px solid #bdcad7;border-radius:9px;font-weight:600;cursor:pointer;overflow:hidden}
+.business-photo-input input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.business-photo-input:focus-within{outline:3px solid #b8d2ed}
+.business-portal-head{display:flex;align-items:end;justify-content:space-between;gap:16px;margin:16px 0}
+.business-portal-head h2{margin:0;font-size:23px;color:#182534}
+.business-portal-head p{margin:4px 0 0;color:#657487}
+.business-portal-grid{display:grid;gap:16px;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr)}
+.business-request-form{display:grid;gap:12px}
+.business-request-form input,.business-request-form textarea{width:100%;min-height:44px}
+.business-request-form label{display:grid;gap:5px}
+.business-fleet-card{border:1px solid #e2e7ed;border-radius:13px;padding:16px;margin-top:12px}
+.business-fleet-card h3{margin:0 0 4px;font-size:17px;color:#182534}
+.business-fleet-card p{margin:4px 0!important}
+.business-fleet-price{font-size:18px!important;font-weight:700;color:#182534}
+.business-portal .portal-requests{margin-top:12px}
+.portal-sections{display:flex;gap:8px;margin:0 0 18px;padding:4px;background:#e8edf3;border-radius:12px;max-width:max-content}
+.portal-sections button{border:0;border-radius:9px;padding:10px 16px;background:transparent;color:#31445a;font-weight:600}
+.portal-sections button[aria-current="page"]{background:#fff;color:#172a40;box-shadow:0 2px 8px #172a401a}
+@media(max-width:900px){.business-layout,.business-portal-grid{grid-template-columns:1fr}.business-accounts{position:static;grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}}
+@media(max-width:560px){.business-toolbar,.business-heading,.business-request,.business-portal-head{flex-direction:column;align-items:stretch}.business-request select{width:100%}.business-accounts{grid-template-columns:1fr}.business-card-actions>*{flex:1 1 auto}.business-gallery,.business-fleet-gallery{grid-template-columns:repeat(2,minmax(0,1fr))}.portal-sections{max-width:none}.portal-sections button{flex:1}}

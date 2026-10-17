@@ -1,6 +1,6 @@
 # Kundenportal „Mein White Gloss“
 
-Stand: 14. Oktober 2026. Dieser Stand beschreibt den Code. Live verfügbar ist er erst nach einem
+Stand: 17. Oktober 2026. Dieser Stand beschreibt den Code. Live verfügbar ist er erst nach einem
 eigenen, freigegebenen IONOS-Release mit Live-Nachweis.
 
 Adresse: **https://panel.white-gloss.de/kunde**
@@ -9,6 +9,15 @@ Der Kunde meldet sich einmal mit der E-Mail-Adresse seiner Anfrage an (persönli
 wie bisher beim Angebot) und sieht dort **alle seine Aufträge** an einem Ort.
 
 ## Was der Kunde im Portal hat
+
+Geschäftskunden können zusätzlich für ihre Firmenakte freigeschaltet werden. Dann erscheint ein
+eigener **Firmenbereich** neben „Meine Aufträge“. Dort melden sie die Anzahl der zu reinigenden
+Fahrzeuge mit optionalem Wunschtermin und Hinweis. Das ist zunächst eine Anfrage, kein Auftrag.
+Der Betreiber sieht sie unter „Firmenkunden“, kann ihren Bearbeitungsstand ändern und erledigte
+Fahrzeuge mit Fotos, Datum und **Nettopreis** als Entwurf erfassen. Erst eine gesonderte
+Veröffentlichung zeigt die Fahrzeugkarte im Kundenportal. Diese Übersicht erstellt keine Rechnung.
+Ein freigeschalteter Firmenkunde kann sich auch ohne bisherigen Auftrag über E-Mail-Link und PIN
+anmelden. Ein privater Kunde behält den bisherigen Auftragsbereich.
 
 | Bereich | Inhalt |
 | --- | --- |
@@ -84,13 +93,15 @@ antwortest, gilt der bisherige Termin. „Erledigt“ oder „Ablehnen“ zeigt 
 
 ## Datenschutz und Sicherheit
 
-- Anmeldung nur für E-Mail-Adressen mit mindestens einem echten Auftrag (nicht Papierkorb, nicht
-  Testbereich). Die Antwort ist immer dieselbe neutrale Meldung – auch wenn der Mailversand gerade
+- Anmeldung nur für E-Mail-Adressen mit mindestens einem echten Auftrag oder einer ausdrücklich
+  freigeschalteten Firmenakte (nicht Papierkorb, nicht Testbereich). Die Antwort ist immer dieselbe neutrale Meldung – auch wenn der Mailversand gerade
   gestört ist –, damit niemand herausfinden kann, ob es zu einer Adresse einen Auftrag gibt.
   Versandprobleme stehen nur im Serverprotokoll.
 - Bereits angefragte Zusatzleistungen werden nicht erneut angeboten (keine doppelten Wünsche).
 - Der Kunde sieht ausschließlich Aufträge, deren Kunden-E-Mail genau seiner Anmeldung entspricht
   (Groß-/Kleinschreibung egal). Testaufträge und Aufträge im Papierkorb erscheinen nie.
+- Firmenakten werden nur nach expliziter Freischaltung und erneutem Abgleich der aktuellen
+  Kunden-E-Mail gezeigt. Unveröffentlichte Fahrzeugkarten und verborgene Fotos bleiben privat.
 - Dokumente, Rechnungs-PDF und Unterschriftslinks werden für jede Anfrage neu gegen die Anmeldung
   geprüft. Ein vom Betreiber gesperrter Chatlink wird über das Portal nicht wieder geöffnet.
   Beim ersten Start nach dem Update gelten bestehende Chats **ohne** aktiven Kundenlink als gesperrt

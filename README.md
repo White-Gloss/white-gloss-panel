@@ -3,6 +3,11 @@
 Privates Betriebspanel für Anfragen, manuelle Aufträge, Preisprüfung, Angebote,
 Termine, Fahrzeugprotokolle, Kundenbetreuung und direkten Kundenchat.
 
+Im aktuellen Quellstand ergänzen ein getrennter Bereich für Kundenanfragen,
+laufende Aufträge und Finanzen sowie ein freischaltbarer B2B-Firmenbereich die
+bestehenden Abläufe. Der Finanzbereich besitzt einen ersten Belegeingang und
+manuelle Zuordnungsentwürfe; eine vollständige Buchhaltung ist noch im Aufbau.
+
 Das eigene Panel läuft auf IONOS unter panel.white-gloss.de. Dieses Repository enthält
 die eigenständige Laufzeit mit Anmeldung, SQLite, privatem Fotospeicher,
 Google-OAuth, Qonto-Rechnungsablauf mit Mahnwesen und Kundenbereich sowie Zeitplänen und den bisherigen privaten Sites-Worker.
@@ -16,6 +21,8 @@ Jede Änderung benötigt einen eigenen geprüften IONOS-Release und einen Live-N
 - [Vor-Ort-App, Kundenstamm und Bearbeitung](docs/Vor-Ort-App-und-Bearbeitung.md)
 - [Kundenchat mit Fotos, Videos und PDFs](docs/Kundenchat.md)
 - [Angebot, Termin, Mischrechner und mobile Bedienung](docs/Angebot-Termin-und-Mischrechner.md)
+- [Kundenportal mit B2B-Firmenbereich](docs/Kundenportal.md)
+- [Buchhaltung: genauer Implementierungsstand](docs/Buchhaltung-Implementierungsstand.md)
 
 ## Aufbau
 
