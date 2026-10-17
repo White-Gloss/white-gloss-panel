@@ -323,11 +323,11 @@ test('panel: offer and appointment share one tab and one customer signature',asy
   assert.deepEqual(ui.errors,[]);
 });
 
-test('panel: mobile navigation opens the mixer and the complete menu closes by keyboard',async t=>{
+test('panel: mobile navigation separates enquiries, running work and finance while preserving the mixer',async t=>{
   const ui=await boot(t,{page:'index.html',script:'app.js'});
-  await ui.click('.mobile-dock [data-view="dilution"]');
+  await ui.click('.mobile-dock [data-click="menu"]');
+  await ui.click('.sidebar [data-view="dilution"]');
   assert.equal(ui.$('[data-dilution-concentrate]').textContent,'90,91 ml');
-  assert.equal(ui.$('.mobile-dock [aria-current="page"]').dataset.view,'dilution');
   const amount=ui.$('[data-dilution-field="total"]');amount.value='0,5';amount.dispatchEvent(new ui.w.Event('input',{bubbles:true}));
   assert.equal(ui.$('[data-dilution-concentrate]').textContent,'45,45 ml');
   await ui.click('.mobile-dock [data-click="menu"]');
@@ -335,7 +335,10 @@ test('panel: mobile navigation opens the mixer and the complete menu closes by k
   assert.equal(ui.$('.mobile-dock [data-click="menu"]').getAttribute('aria-expanded'),'true');
   ui.w.document.dispatchEvent(new ui.w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
   assert.equal(ui.$('.sidebar.open'),null);assert.equal(ui.$('.sidebar-backdrop').hidden,true);
-  await ui.click('.mobile-dock [data-view="orders"]');assert.match(ui.$('h1').textContent,/Anfragen & Aufträge/);
+  await ui.click('.mobile-dock [data-view="requests"]');assert.match(ui.$('h1').textContent,/Kundenanfragen/);
+  await ui.click('.mobile-dock [data-view="active"]');assert.match(ui.$('h1').textContent,/Laufende Aufträge/);
+  await ui.click('.mobile-dock [data-view="finance"]');assert.match(ui.$('h1').textContent,/Finanzen/);
+  await ui.click('.mobile-dock [data-click="menu"]');await ui.click('.sidebar [data-view="orders"]');assert.match(ui.$('h1').textContent,/Alle Aufträge/);
   assert.equal((await ui.env.DB.prepare('SELECT COUNT(*) n FROM orders').first()).n,0);
   assert.deepEqual(ui.errors,[]);
 });

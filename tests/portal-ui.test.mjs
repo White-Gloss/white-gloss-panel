@@ -74,6 +74,32 @@ test('owner preview shows the customer view with all actions disabled',async t=>
   assert.match(ui.$('.portal-hero h2').textContent,/verbindlich/);
 });
 
+test('business customer sees published net vehicle cards and can send a counted fleet enquiry',async t=>{
+  const f=await setup(t),id=randomUUID(),vehicleId=randomUUID(),at=new Date().toISOString();
+  await f.env.DB.prepare('INSERT INTO customers(id,data,search,synthetic,version,created_at,updated_at) VALUES(?,?,?,0,1,?,?)').bind(id,JSON.stringify({name:'Erika Muster',company:'Muster Fuhrpark',email:customer}),customer,at,at).run();
+  await f.env.DB.prepare('INSERT INTO business_portal_access(customer_id,email,active,created_at,updated_at) VALUES(?,?,1,?,?)').bind(id,customer,at,at).run();
+  await f.env.DB.prepare('INSERT INTO business_completed_vehicles(id,customer_id,title,plate,completed_on,net_price_minor,note,published,created_at,updated_at) VALUES(?,?,?,?,?,?,?,1,?,?)').bind(vehicleId,id,'VW Transporter','FDS-WG 8','2026-10-17',25000,'Innen gereinigt',at,at).run();
+  const ui=await boot(t,{app:f.app,path:'/kunde',cookie:f.customerCookie});
+  await ui.click('[data-portal-section="business"]');
+  assert.match(ui.$('.business-fleet-card').textContent,/250,00\s*€ netto/);
+  assert.match(ui.$('.business-fleet-card').textContent,/VW Transporter/);
+  const form=ui.$('[data-form="business-request"]');form.elements.count.value='4';form.elements.note.value='Transporter';form.requestSubmit();await ui.settle();
+  assert.match(ui.$('.portal-requests').textContent,/4 Fahrzeuge/);
+  assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM business_vehicle_requests WHERE customer_id=?').bind(id).first()).n,1);
+  assert.deepEqual(ui.errors,[]);
+});
+
+test('business-only customer lands in the firm area without an order',async t=>{
+  const f=await setup(t),id=randomUUID(),at=new Date().toISOString();
+  await f.env.DB.prepare("UPDATE orders SET version=version+1,data=json_set(data,'$.source.email','anderer@example.invalid') WHERE id=?").bind(f.order.id).run();
+  await f.env.DB.prepare('INSERT INTO customers(id,data,search,synthetic,version,created_at,updated_at) VALUES(?,?,?,0,1,?,?)').bind(id,JSON.stringify({name:'Erika Muster',company:'Muster Fuhrpark',email:customer}),customer,at,at).run();
+  await f.env.DB.prepare('INSERT INTO business_portal_access(customer_id,email,active,created_at,updated_at) VALUES(?,?,1,?,?)').bind(id,customer,at,at).run();
+  const ui=await boot(t,{app:f.app,path:'/kunde',cookie:f.customerCookie});
+  assert.ok(ui.$('.business-portal'),'firm area opens when there is no order');
+  assert.equal(ui.$('[data-portal-section="business"]').getAttribute('aria-current'),'page');
+  assert.match(ui.text(),/Fahrzeuge zur Reinigung melden/);assert.deepEqual(ui.errors,[]);
+});
+
 test('a foreign signed-in visitor gets an empty portal, an expired session is sent to the login',async t=>{
   const f=await setup(t);
   const raw=randomBytes(32).toString('hex');await f.env.DB.prepare('INSERT INTO auth_sessions VALUES(?,?,?,?)').bind(digest(raw),'fremd@example.invalid',Date.now()+3600000,Date.now()).run();

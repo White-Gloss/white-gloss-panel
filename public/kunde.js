@@ -17,7 +17,7 @@ const INVOICE_STATUS={open:'Offen',overdue:'Überfällig',paid:'Bezahlt',cancele
 const REQUEST_STATUS={offen:'Angefragt – wir prüfen',übernommen:'Übernommen – ergänztes Angebot folgt',erledigt:'Erledigt',abgelehnt:'Leider nicht möglich'};
 const icon=path=>`<svg class="portal-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>`;
 const ICONS={doc:'M6 3h8l4 4v14H6zM14 3v5h4M9 13h6M9 17h6',down:'M12 4v11M7 10l5 5 5-5M5 20h14',sign:'M4 18c3-6 5-9 7-9s-1 9 2 9 3-4 4-4 1 2 3 2M4 21h16',star:'M12 3l2.6 5.5 6 .7-4.5 4.1 1.2 5.9L12 16.3 6.7 19.2l1.2-5.9L3.4 9.2l6-.7z',phone:'M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2',mail:'M3 6h18v12H3zM3 7l9 6 9-6',cal:'M4 5h16v16H4zM8 3v4M16 3v4M4 10h16',camera:'M4 8h4l2-3h4l2 3h4v11H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8',plus:'M12 5v14M5 12h14'};
-let data=null,selectedId=null,chat=null,pads={},chatOpening=null,chatGeneration=0;
+let data=null,businessData={accounts:[]},portalSection='orders',selectedId=null,chat=null,pads={},chatOpening=null,chatGeneration=0;
 
 async function api(path,body){
   const r=await fetch('/api/portal/'+path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),credentials:'same-origin'});
@@ -31,8 +31,11 @@ function gate(message,login=false){
 async function load(){
   try{data=await api('me'+(previewId?'?vorschau='+encodeURIComponent(previewId):''));}
   catch(error){if(error.status===401){location.replace(loginUrl);return;}gate(error.message,error.status===403);return;}
+  try{businessData=await api('business/me'+(previewId?'?vorschau='+encodeURIComponent(previewId):''));}
+  catch(error){businessData={accounts:[]};toast('Der Firmenbereich konnte nicht geladen werden: '+error.message);}
   const wanted=location.hash.slice(1);
   selectedId=data.orders.find(o=>o.id===wanted)?.id??data.orders.find(o=>o.id===previewId)?.id??data.orders.find(o=>o.todo?.length)?.id??data.orders.find(o=>!o.closed&&o.step!==null&&o.step<5)?.id??data.orders.find(o=>!o.closed)?.id??data.orders[0]?.id??null;
+  if(!data.orders.length&&businessData.accounts.length)portalSection='business';
   render();
 }
 
@@ -40,14 +43,14 @@ function render(){
   chatGeneration++;chatOpening=null;
   chat?.destroy();chat=null;
   const o=data.orders.find(x=>x.id===selectedId);
-  const first=(data.customer.name||'').split(/\s+/)[0];
+  const first=(data.customer.name||businessData.accounts[0]?.name||'').split(/\s+/)[0];
   app.innerHTML=`<div class="portal">
   <header class="portal-top"><a class="portal-brand" href="/kunde"><span class="brandmark">WG</span><span><strong>White Gloss</strong><small>Mein Kundenportal</small></span></a><button class="portal-logout" data-act="logout"${data.preview?' disabled':''}>Abmelden</button></header>
   ${data.preview?'<p class="portal-preview" role="status">Betreibervorschau: So sieht der Kunde sein Portal. Aktionen sind hier gesperrt.</p>':''}
   <main class="portal-main">
     <h1 class="portal-hello">${first?'Hallo '+esc(first):'Willkommen'}</h1>
-    ${data.orders.length>1?`<nav class="portal-orders" aria-label="Ihre Aufträge">${data.orders.map(x=>`<button data-order="${x.id}" aria-current="${x.id===selectedId?'true':'false'}"><strong>${esc(x.vehicle||x.wg)}</strong><span>${esc(x.wg)}, ${esc(x.status)}</span></button>`).join('')}</nav>`:''}
-    ${o?orderView(o):'<section class="portal-card"><h2>Noch kein Auftrag</h2><p>Unter dieser E-Mail-Adresse gibt es keinen aktiven Auftrag. Neue Anfragen stellen Sie auf <a href="https://white-gloss.de">white-gloss.de</a>.</p></section>'}
+    ${businessData.accounts.length?`<nav class="portal-sections" aria-label="Kundenbereiche"><button type="button" data-portal-section="orders" aria-current="${portalSection==='orders'?'page':'false'}">Meine Aufträge</button><button type="button" data-portal-section="business" aria-current="${portalSection==='business'?'page':'false'}">Firmenbereich</button></nav>`:''}
+    ${portalSection==='business'&&businessData.accounts.length?businessView():`${data.orders.length>1?`<nav class="portal-orders" aria-label="Ihre Aufträge">${data.orders.map(x=>`<button data-order="${x.id}" aria-current="${x.id===selectedId?'true':'false'}"><strong>${esc(x.vehicle||x.wg)}</strong><span>${esc(x.wg)}, ${esc(x.status)}</span></button>`).join('')}</nav>`:''}${o?orderView(o):'<section class="portal-card"><h2>Noch kein Auftrag</h2><p>Unter dieser E-Mail-Adresse gibt es keinen aktiven Auftrag. Neue Anfragen stellen Sie auf <a href="https://white-gloss.de">white-gloss.de</a>.</p></section>'}`}
   </main>
   <footer class="portal-foot"><strong>${esc(data.company.name)}</strong><span>${esc(data.company.owner)}, ${esc(data.company.street)}, ${esc(data.company.city)}</span><span><a href="tel:${esc(tel(data.company.phone))}">${esc(data.company.phone)}</a> · <a href="mailto:${esc(data.company.email)}">${esc(data.company.email)}</a></span></footer></div>`;
   // Unterschriftsfeld nur im Bestätigungsformular; es wird bei jedem Neuzeichnen ersetzt.
@@ -60,6 +63,8 @@ function orderView(o){
   <div class="portal-col">${hero(o)}${todo(o)}${appointment(o)}${services(o)}${extrasView(o)}</div>
   <div class="portal-col">${messages(o)}${documents(o)}${invoice(o)}${review(o)}</div></div>`;
 }
+const businessStatus={OPEN:'Eingegangen',IN_PROGRESS:'In Bearbeitung',DONE:'Erledigt',DECLINED:'Abgelehnt'};
+function businessView(){return `<div class="business-portal">${businessData.accounts.map(account=>`<section aria-labelledby="business-${esc(account.id)}"><div class="business-portal-head"><div><p class="eyebrow">Ihr Firmenbereich</p><h2 id="business-${esc(account.id)}">${esc(account.company)}</h2><p>Fahrzeuganfragen und abgeschlossene Reinigungen an einem Ort.</p></div><span class="badge good">Geschäftskunde</span></div><div class="business-portal-grid"><div class="portal-col"><section class="portal-card"><h2>Fahrzeuge zur Reinigung melden</h2><p>Teilen Sie uns die Anzahl mit. Wir stimmen anschließend Leistungen und Termin mit Ihnen ab. Das ist noch keine Buchung.</p><form data-form="business-request" data-account="${esc(account.id)}" class="business-request-form"><label>Anzahl Fahrzeuge<input type="number" name="count" min="1" max="100" step="1" inputmode="numeric" required placeholder="z. B. 5"></label><label>Wunschtermin (optional)<input type="date" name="desiredDate"></label><label>Hinweis (optional)<textarea name="note" rows="3" maxlength="500" placeholder="z. B. Fahrzeugtypen oder gewünschter Zeitraum"></textarea></label><button class="primary" type="submit"${data.preview?' disabled':''}>Anfrage senden</button><p class="error" role="alert"></p></form></section><section class="portal-card"><h2>Ihre Anfragen</h2>${account.requests.length?`<ul class="portal-requests">${account.requests.map(request=>`<li><span><strong>${request.count} ${request.count===1?'Fahrzeug':'Fahrzeuge'}</strong>${request.desiredDate?` · Wunschtermin ${esc(day(request.desiredDate))}`:''}${request.note?`<small>${esc(request.note)}</small>`:''}</span><span class="portal-state">${esc(businessStatus[request.status]??request.status)}</span></li>`).join('')}</ul>`:'<p>Noch keine Fahrzeuganfrage.</p>'}</section></div><div class="portal-col"><section class="portal-card"><h2>Erledigte Fahrzeuge</h2>${account.vehicles.length?account.vehicles.map(vehicle=>`<article class="business-fleet-card"><h3>${esc(vehicle.title)}${vehicle.plate?' · '+esc(vehicle.plate):''}</h3><p>Erledigt am ${esc(day(vehicle.completedOn))}</p><p class="business-fleet-price">${money(vehicle.netPriceMinor)} netto</p>${vehicle.note?`<p>${esc(vehicle.note)}</p>`:''}${vehicle.photos.length?`<div class="business-fleet-gallery">${vehicle.photos.map(photo=>`<a href="${esc(photo.url)}" target="_blank" rel="noopener noreferrer"><img src="${esc(photo.url)}" alt="${esc(vehicle.title)} nach der Reinigung" loading="lazy"></a>`).join('')}</div>`:''}</article>`).join(''):'<p>Hier erscheinen abgeschlossene Fahrzeuge, sobald White Gloss sie für Sie freigegeben hat.</p>'}<p class="hint">Die Übersicht dient Ihrer Information. Rechnungen finden Sie wie bisher beim jeweiligen Auftrag.</p></section></div></div></section>`).join('')}</div>`;}
 function hero(o){
   const rail=o.step===null?'':`<ol class="portal-rail" aria-label="Fortschritt">${o.steps.map((label,i)=>`<li class="${i<o.step?'is-done':i===o.step?'is-now':''}"${i===o.step?' aria-current="step"':''}><span class="portal-dot" aria-hidden="true">${i<o.step?'✓':''}</span><span class="portal-steplabel">${esc(label)}</span></li>`).join('')}</ol>`;
   return `<section class="portal-hero${o.closed?' is-closed':''}" aria-labelledby="hero-${o.id}">
@@ -144,7 +149,8 @@ async function openChat(attach=false,scroll=true){
 }
 
 document.addEventListener('click',async event=>{
-  const target=event.target.closest('[data-order],[data-act]');if(!target||!data)return;
+  const target=event.target.closest('[data-order],[data-act],[data-portal-section]');if(!target||!data)return;
+  if(target.dataset.portalSection){portalSection=target.dataset.portalSection;render();return;}
   if(target.dataset.order){selectedId=target.dataset.order;history.replaceState(null,'','#'+selectedId);render();return;}
   const act=target.dataset.act;
   try{
@@ -159,6 +165,7 @@ document.addEventListener('submit',async event=>{
   const button=form.querySelector('[type=submit]'),error=form.querySelector('.error');button.disabled=true;error.textContent='';
   try{
     let r;
+    if(form.dataset.form==='business-request'){form.dataset.requestKey??=crypto.randomUUID();r=await api('business/request',{accountId:form.dataset.account,requestKey:form.dataset.requestKey,count:Number(form.elements.count.value),desiredDate:form.elements.desiredDate.value,note:form.elements.note.value});}
     if(form.dataset.form==='extras'){const extraIds=[...form.querySelectorAll('input[name=extra]:checked')].map(x=>x.value);if(!extraIds.length)throw Error('Bitte mindestens eine Zusatzleistung auswählen.');r=await api('o/'+selectedId+'/extras',{extraIds,note:form.elements.note.value});}
     if(form.dataset.form==='termin')r=await api('o/'+selectedId+'/termin',{wish:form.elements.wish.value});
     if(form.dataset.form==='confirm'){const signature=pads['confirm-sign']?.dataURL();if(!form.elements.confirmed.checked)throw Error('Bitte bestätigen Sie den angezeigten Termin.');if(!signature)throw Error('Bitte unterschreiben Sie im Feld „Ihre Unterschrift“.');r=await api('o/'+selectedId+'/termin-bestaetigen',{signature,confirmed:true,customerName:form.elements.customerName.value,snapshotHash:form.dataset.hash});}
