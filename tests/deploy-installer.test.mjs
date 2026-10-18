@@ -30,6 +30,46 @@ test('root installer guard rejects a writable or caller-owned tree and symlink',
   assert.equal(protectedFile.status,0,protectedFile.stderr);
 });
 
+test('every privileged service template, initialization script and existing configuration must be protected',()=>{
+  const names=['install-panel.sh','prepare-environment.mjs','white-gloss-panel.service','white-gloss-panel-maintenance.service','white-gloss-panel-maintenance.timer','white-gloss-panel-backup.service','white-gloss-panel-backup.timer','white-gloss-panel.caddy'];
+  const paths=[...names.map(name=>'/usr/local/lib/white-gloss-panel/'+name),'/etc/white-gloss-panel/environment'];
+  for(const path of paths){
+    const result=shell(`source "$1"
+synthetic_bad_path=$2
+root_protected_path() { [[ $1 != "$synthetic_bad_path" ]]; }
+validate_release_assets /usr/local/lib/white-gloss-panel`,[helper,path]);
+    assert.notEqual(result.status,0,path);
+  }
+  const result=shell(`source "$1"
+root_protected_path() { printf '%s\\n' "$1"; }
+validate_release_assets /usr/local/lib/white-gloss-panel`,[helper]);
+  assert.equal(result.status,0,result.stderr);assert.deepEqual(result.stdout.trim().split('\n'),paths);
+});
+
+test('service installation takes all privileged templates from the administrator directory',()=>{
+  const result=shell(`source "$1"
+installer_directory=/synthetic/administrator
+target=/synthetic/uploaded-release
+previous=/synthetic/previous-release
+install() { printf '%s\\n' "$3"; }
+install_trusted_service_templates`,[installer]);
+  assert.equal(result.status,0,result.stderr);
+  assert.deepEqual(result.stdout.trim().split('\n'),['white-gloss-panel.service','white-gloss-panel-maintenance.service','white-gloss-panel-maintenance.timer','white-gloss-panel-backup.service','white-gloss-panel-backup.timer','white-gloss-panel.caddy'].map(name=>'/synthetic/administrator/'+name));
+});
+
+test('privileged Python ignores modules in the caller directory',async t=>{
+  const root=await fixture(t),marker=resolve(root,'unsafe-import'),archive=resolve(root,'empty.tar.gz');
+  const payload='from pathlib import Path\nPath('+JSON.stringify(marker)+').write_text("unexpected privileged import")\nraise RuntimeError("caller module imported")\n';
+  await writeFile(resolve(root,'pathlib.py'),payload);await writeFile(resolve(root,'tarfile.py'),payload);
+  const prepared=spawnSync('/usr/bin/python3',['-I','-c','import tarfile,sys; tarfile.open(sys.argv[1],"w:gz").close()',archive],{encoding:'utf8'});
+  assert.equal(prepared.status,0,prepared.stderr);
+  for(const [script,command,args] of [[helper,'root_protected_path /etc/passwd file',[]],[installer,'validate_release_archive "$2"',[archive]]]){
+    const result=spawnSync('/bin/bash',['-c','source "$1"; '+command,'synthetic-python-import-test',script,...args],{cwd:root,encoding:'utf8'});
+    assert.equal(result.status,0,result.stderr);
+  }
+  await assert.rejects(readFile(marker),{code:'ENOENT'});
+});
+
 test('only owned temporary release link names with the expected destination are removed',async t=>{
   const root=await fixture(t),next=resolve(root,'current.next'),other=resolve(root,'current.rollback');
   await symlink('/srv/white-gloss-panel/releases/'+commit,next);

@@ -87,8 +87,7 @@ und Serverpasswörter gehören ausschließlich in die sichere Zugangsverwaltung.
 
 ### Einmalig den getrennten Panel-Installer freischalten
 
-Ein Serveradministrator überträgt `deploy/install-panel.sh`,
-`deploy/panel-release.sh` und `deploy/white-gloss-panel-ci.sudoers` aus dem
+Ein Serveradministrator überträgt das Verzeichnis `deploy/` aus dem
 geprüften GitHub-Commit nach `/root/white-gloss-panel-auto-setup/deploy/` auf
 den vorhandenen VPS. Herkunft und Prüfsummen vor Ausführung vergleichen.
 Dann über die IONOS-Konsole als root ausführen:
@@ -96,6 +95,10 @@ Dann über die IONOS-Konsole als root ausführen:
 ```sh
 install -d -m 0755 -o root -g root /usr/local/lib/white-gloss-panel
 install -m 0755 -o root -g root /root/white-gloss-panel-auto-setup/deploy/install-panel.sh /usr/local/lib/white-gloss-panel/install-panel.sh
+install -m 0644 -o root -g root /root/white-gloss-panel-auto-setup/deploy/prepare-environment.mjs /usr/local/lib/white-gloss-panel/prepare-environment.mjs
+for file in white-gloss-panel.service white-gloss-panel-maintenance.service white-gloss-panel-maintenance.timer white-gloss-panel-backup.service white-gloss-panel-backup.timer white-gloss-panel.caddy; do
+    install -m 0644 -o root -g root "/root/white-gloss-panel-auto-setup/deploy/$file" "/usr/local/lib/white-gloss-panel/$file"
+done
 install -m 0755 -o root -g root /root/white-gloss-panel-auto-setup/deploy/panel-release.sh /usr/local/sbin/white-gloss-panel-release
 visudo -cf /root/white-gloss-panel-auto-setup/deploy/white-gloss-panel-ci.sudoers
 install -m 0440 -o root -g root /root/white-gloss-panel-auto-setup/deploy/white-gloss-panel-ci.sudoers /etc/sudoers.d/white-gloss-panel-ci
@@ -106,15 +109,18 @@ Der letzte Befehl muss ausschließlich den aktiven vollständigen Panel-Commit
 ausgeben. Der Helfer prüft geschützte Pfade, Dienst und Timer. Er akzeptiert
 nur `status` und `install ARCHIV SHA256 COMMIT`; parallele Installationen werden
 serverseitig gesperrt. Er führt ausschließlich den festen root-eigenen
-Panel-Installer aus. Ein bereits aktiver identischer Commit wird erneut geprüft.
+Panel-Installer mit separat geprüften root-eigenen Systemd-/Caddy-Vorlagen aus.
+Hochgeladene Releases dürfen keine Root-Dienste definieren. Die vorhandene
+geschützte Panelkonfiguration muss für Updates bereits bestehen.
+Ein bereits aktiver identischer Commit wird erneut geprüft.
 Fehlgeschlagene, bereits vorhandene Releaseverzeichnisse werden nicht automatisch
 gelöscht oder überschrieben. Der Installer setzt den Panelverweis bei einem
 Aktivierungsfehler zurück und stellt gestoppte Timer wieder her.
 
-Der Administrator muss Änderungen am Installer separat prüfen und die feste
-Kopie unter `/usr/local/lib/white-gloss-panel/install-panel.sh` aktualisieren.
-Der CI-Benutzer darf weder diese Datei noch den Helfer oder deren Elternpfade
-beschreiben. Der Workflow verwendet keinen Website-Deployment-Helfer.
+Der Administrator muss Änderungen am Installer, an der Konfigurationsvorbereitung und den Systemd-/Caddy-Vorlagen
+separat prüfen und die festen Kopien unter `/usr/local/lib/white-gloss-panel/`
+aktualisieren. Der CI-Benutzer darf weder diese Dateien noch den Helfer oder
+deren Elternpfade beschreiben. Der Workflow verwendet keinen Website-Deployment-Helfer.
 
 Nach Hinterlegen der Zugänge unter [Actions → Panel checks](https://github.com/White-Gloss/white-gloss-panel/actions/workflows/checks.yml)
 den fehlgeschlagenen Lauf erneut starten oder **Run workflow** auf `main`

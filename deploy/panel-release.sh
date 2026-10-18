@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 umask 077
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
@@ -53,6 +53,14 @@ valid_install_arguments() {
         [[ $1 == "/home/white-gloss-ci/white-gloss-panel-$3.tar.gz" ]]
 }
 
+validate_release_assets() {
+    local directory=$1 name
+    for name in install-panel.sh prepare-environment.mjs white-gloss-panel.service white-gloss-panel-maintenance.service white-gloss-panel-maintenance.timer white-gloss-panel-backup.service white-gloss-panel-backup.timer white-gloss-panel.caddy; do
+        root_protected_path "$directory/$name" file || return 1
+    done
+    root_protected_path /etc/white-gloss-panel/environment file || return 1
+}
+
 acquire_release_lock() {
     local directory=/run/lock/white-gloss-panel-release
     # /run/lock is shared and sticky on Ubuntu. Never open a caller-created link there.
@@ -86,7 +94,8 @@ panel_release() {
     if [[ $operation == status ]]; then release_status; return; fi
     active=$(release_status) || return 1
     if [[ $active == "$3" ]]; then printf '%s\n' "$active"; return; fi
-    root_protected_path "$installer" file || return 1
+    validate_release_assets "${installer%/*}" || return 1
+    cd / || return 1
     env -i PATH="$PATH" /bin/bash "$installer" "$@" >&2 || return 1
     active=$(release_status) || return 1
     [[ $active == "$3" ]] || { echo 'Erwarteter Panelcommit wurde nicht aktiviert.' >&2; return 1; }
