@@ -1,6 +1,6 @@
 # White Gloss Panel auf IONOS
 
-Stand: 3. Oktober 2026. Die eigenständige IONOS-Laufzeit ist getrennt installiert. Paneldienst, Hauptwebsite und Caddy wurden aktiv geprüft. Jede neue Codeversion benötigt weiterhin ihren eigenen Aktivierungs- und HTTPS-Nachweis; GitHub-CI allein beweist keine Veröffentlichung.
+Einrichtung: 3. Oktober 2026; Verbindungsprüfung: 18. Oktober 2026 (siehe unten). Die eigenständige IONOS-Laufzeit ist getrennt installiert. Paneldienst, Hauptwebsite und Caddy wurden bei der Einrichtung aktiv geprüft. Jede neue Codeversion benötigt weiterhin ihren eigenen Aktivierungs- und HTTPS-Nachweis; GitHub-CI allein beweist keine Veröffentlichung.
 
 ## Getrennter Betrieb
 
@@ -17,7 +17,38 @@ Vorbereitet sind:
 
 Der Installer verlangt Root, einen konkreten Commit und die richtige Archiv-Prüfsumme. Er kopiert das Paket zuerst in Root-Staging, prüft Archivpfade und Commit, lehnt Links ab und installiert ein unveränderliches Release. Caddy wird vor dem Reload geprüft. Ein fehlgeschlagener Start setzt Panelverweis und Caddy-Konfiguration zurück. Die Hauptwebsite wird nicht ersetzt oder neu gestartet.
 
-Die Betreiberregel verlangt den freigegebenen IONOS-Weg. Der separate Panelweg muss vor seiner ersten Verwendung konkret freigegeben sein. Lokales Hosting bleibt verboten; der Server verweigert den Start auf Windows, WSL und außerhalb des vorgesehenen IONOS-Verzeichnisses.
+Die Betreiberregel verlangt den freigegebenen IONOS-Weg. Lars hat am 18.10.2026 beauftragt, künftige beauftragte Codeänderungen nach erfolgreicher Prüfung ohne erneute Veröffentlichungsbestätigung über diesen separaten Panelweg zu veröffentlichen und online zu prüfen. Lokales Hosting bleibt verboten; der Server verweigert den Start auf Windows, WSL und außerhalb des vorgesehenen IONOS-Verzeichnisses.
+
+## Direkte Veröffentlichung nach Codeänderungen
+
+Die Betreiberfreigabe ist vorhanden; die technische Automatisierung ist noch
+nicht eingerichtet. Bei der Verbindungsprüfung am 18.10.2026 waren GitHub-Lese-
+und Schreibzugriff sowie erfolgreiche Prüfungen für Hauptbranch-Commit
+`976ba8f9caa77596cf9aaa4eea3948ee8fc94195` nachgewiesen. Der einzige Workflow
+`.github/workflows/checks.yml` führt Prüfungen aus und veröffentlicht nichts.
+In der verfügbaren Cloud-Arbeitsumgebung wurde kein IONOS-Serverzugang bereitgestellt.
+Ob GitHub bereits passende Secrets enthält, war wegen fehlender Berechtigung
+der GitHub-Integration zum Auflisten der Secret-Namen nicht prüfbar.
+
+Das öffentliche Panel leitete zur Anmeldung weiter und `/healthz` lieferte
+HTTP 200 mit `ok`. Das bestätigt die Erreichbarkeit, aber keinen aktiven
+Server-Commit. Der Panel-Connector verlangte eine erneute Anmeldung; dieser
+operative Datenzugang ist vom Serverzugang zum Veröffentlichen getrennt.
+
+Für den vollständigen Releaseweg ist ein sicher konfigurierter Serverzugang
+zum bestehenden Paneldienst nötig: bestätigter SSH-Host und Port, geprüfter
+Hostschlüssel, Uploadrecht nach `/home/white-gloss-ci/` und die Berechtigung,
+den vorhandenen Panel-Installer auszuführen. Private Schlüssel und andere
+Geheimnisse ausschließlich über die sichere Zugangsverwaltung bereitstellen.
+
+Sobald dieser Zugang verfügbar ist, den aktiven `current`-Verweis und
+`dist/release.json` lesen, den aktuellen geprüften Commit mit
+`scripts/package-ionos.mjs` paketieren und das Archiv mit SHA-256 über den
+separaten Panel-Installer aktivieren. Anschließend den aktiven Commit,
+Paneldienst und Timer sowie HTTPS, Anmeldung und die betroffenen öffentlichen
+Dateien prüfen. Änderungen hinter der Anmeldung brauchen zusätzlich einen
+dafür verfügbaren authentifizierten Prüfzugang. Erst dann ist die jeweilige
+Veröffentlichung mit ihrem tatsächlich geprüften Umfang nachgewiesen.
 
 ## Anmeldung, Angebote und Fotos
 
