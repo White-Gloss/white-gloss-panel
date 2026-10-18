@@ -95,3 +95,14 @@ test('DATEV contract: 31 header fields, 125 columns, CRLF, decimal cents, quotin
   assert.throws(()=>windows1252('🚗'),/Zeichen/);assert.throws(()=>datevLine({...line,reference:'RG.1'},config,month),/Belegnummer/);assert.throws(()=>datevLine({...line,tax:'49'},config,month),/BU/);assert.throws(()=>datevLine({...line,text:'bad\nline'},config,month),/Steuerzeichen/);
   assert.throws(()=>datevConfig({...config,advisor:'999'}),/Berater/);assert.throws(()=>datevFile(config,'2027-01',[entry],'2027-02-01T00:00:00.000Z'),/Wirtschaftsjahr/);
 });
+
+test('monthly completeness includes receipts beyond the legacy 200-row inbox and pending proposals on old bank revisions',async t=>{
+  const f=await fixture(t),ids=Array.from({length:205},()=>randomUUID());
+  await f.env.DB.batch(ids.map(id=>f.env.DB.prepare('INSERT INTO accounting_documents VALUES(?,0,?,?,?,?,?,?)').bind(id,'Testbeleg.pdf','application/pdf','testhash',1,'2026-09-20T10:00:00Z','PANEL')));
+  const provider=randomUUID(),first=await f.bank({provider});
+  await f.env.DB.prepare('INSERT INTO advisor_proposals VALUES(?,?,?,?,?,?,?)').bind(randomUUID(),'bank',first.id,0,'{}','advisor:'+f.aid,'2026-09-21T10:00:00Z').run();
+  await f.bank({provider,amount:12000});const view=(await f.view()).view;
+  assert.equal(view.items.filter(s=>s.kind==='document').length,205);
+  assert.ok(view.problems.some(p=>p.includes('Kanzleivorschlag')),'proposal remains relevant after a provider revision');
+  assert.equal(view.problems.filter(p=>p.includes('Testbeleg.pdf')).length,205);
+});
