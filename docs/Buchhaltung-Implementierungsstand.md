@@ -1,6 +1,8 @@
 # Buchhaltung im Panel: Implementierungsstand
 
-Stand: 17. Oktober 2026. Diese Datei beschreibt den Code, keinen veröffentlichten Dienst und keine steuerliche Freigabe.
+Stand: 18. Oktober 2026. Diese Datei beschreibt den Code, keinen veröffentlichten Dienst und keine steuerliche Freigabe.
+
+Neu ergänzt: [Monatsbuchhaltung](Monatsbuchhaltung.md) mit manuellem Zahlungsabgleich, Buchungsfreigaben und Stornos, gespeicherten Monatsabschlüssen sowie DATEV-EXTF-Dateien. Kanzleidaten werden später manuell hinterlegt. Ein echter DATEV-Testimport steht aus.
 
 ## Derzeit implementiert
 
@@ -16,7 +18,7 @@ Stand: 17. Oktober 2026. Diese Datei beschreibt den Code, keinen veröffentlicht
 
 ## Noch umzusetzen und fachlich abzunehmen
 
-Das vollständige Buchhaltungsmodul umfasst insbesondere revisionsfestes Journal mit Storno und Periodensperre, dauerhaften Qonto-Bankabgleich samt Buchung und offenen Posten, Kassenbuch/TSE-Einstufung, Kundenkarten-Verrechnung, eigene Panel-Rechnungen mit E-Rechnung und kontrolliertem Übergang von Qonto, DATEV-EXTF samt Testimport, KI-Extraktion und Vorschläge, WhatsApp-/E-Mail-Belegeingang, Steuerberichte, externe Sicherung und geprüften Restore. Diese Funktionen sind **noch nicht produktiv**. Eine Kategorie eines Belegs oder Bankumsatzes ist noch kein freigegebener SKR03-Buchungssatz.
+Offen bleiben insbesondere inkrementelle Qonto-Synchronisierung, Kassenbuch/TSE-Einstufung, automatische Kundenkarten-Verrechnung, eigene Panel-Rechnungen mit E-Rechnung und kontrolliertem Übergang von Qonto, DATEV-Testimport, KI-Extraktion und Vorschläge, WhatsApp-/E-Mail-Belegeingang, Steuerberichte sowie externe Sicherung mit geprüftem Restore. Eine Kategorie eines Belegs oder Bankumsatzes allein ist weiterhin kein freigegebener Buchungssatz; dafür ist die getrennte Buchungsfreigabe erforderlich.
 
 Vor einer Umstellung braucht es mindestens den Nachweis beziehungsweise die fachliche Freigabe der Istversteuerung, das Kanzlei-Profil für SKR03 und DATEV, den Umschaltstichtag mit Qonto-Altbestand und offenen Posten sowie einen gesonderten Prüf- und Releaseweg. Ein Hash oder ein bestandener Test allein belegt keine GoBD-Konformität.
 
