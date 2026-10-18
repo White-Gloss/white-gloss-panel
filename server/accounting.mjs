@@ -6,8 +6,8 @@ import {AppError,need,text} from '../src/domain.mjs';
 const ROOT='/api/accounting';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MIMES={'application/pdf':'pdf','image/jpeg':'jpg','image/png':'png','image/webp':'webp'};
-const CATEGORIES=['UNCLEAR','SERVICE_INCOME','PRIVATE_CONTRIBUTION','PRIVATE_WITHDRAWAL','CLEANING_SUPPLIES','RENT','OTHER_EXPENSE','PRIVATE_PAID_EXPENSE'];
-const PAYMENT_PATHS=['UNKNOWN','QONTO_TRANSFER','QONTO_CARD','CASH','CUSTOMER_CARD','PRIVATE','UNPAID'];
+export const CATEGORIES=['UNCLEAR','SERVICE_INCOME','PRIVATE_CONTRIBUTION','PRIVATE_WITHDRAWAL','CLEANING_SUPPLIES','RENT','OTHER_EXPENSE','PRIVATE_PAID_EXPENSE'];
+export const PAYMENT_PATHS=['UNKNOWN','QONTO_TRANSFER','QONTO_CARD','CASH','CUSTOMER_CARD','PRIVATE','UNPAID'];
 const response=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 
@@ -47,7 +47,7 @@ async function bodyJSON(request){
   try{const value=JSON.parse(raw);need(value&&typeof value==='object'&&!Array.isArray(value),'Ungültige Eingabe.');return value;}
   catch(error){if(error instanceof AppError)throw error;throw new AppError('Ungültige Eingabe.',400);}
 }
-const validDay=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&!Number.isNaN(Date.parse(value+'T00:00:00Z'))&&new Date(value+'T00:00:00Z').toISOString().slice(0,10)===value;
+export const validDay=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&!Number.isNaN(Date.parse(value+'T00:00:00Z'))&&new Date(value+'T00:00:00Z').toISOString().slice(0,10)===value;
 async function fileBytes(request){
   need(request.headers.get('origin')===new URL(request.url).origin,'Ungültiger Ursprung.',403);
   const mime=request.headers.get('content-type');need(MIMES[mime],'PDF, JPEG, PNG oder WebP erforderlich.',415);

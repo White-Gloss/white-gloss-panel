@@ -6,12 +6,12 @@ import {authResponse,digest,limited,safeReturn,sessionHash,sessionCookie,session
 const cost={N:131072,r:8,p:1,maxmem:256*1024*1024};
 let hashing=0;
 /** @returns {Promise<Buffer>} */
-async function derive(password,salt){
+export async function derive(password,salt){
   if(hashing>=2)throw new AppError('Bitte kurz warten und erneut versuchen.',429);
   hashing++;
   try{return await new Promise((resolve,reject)=>scrypt(password,Buffer.from(salt,'hex'),64,cost,(error,key)=>error?reject(error):resolve(key)));}finally{hashing--;}
 }
-async function inputFor(env,request){
+export async function inputFor(env,request){
   if(request.headers.get('origin')!==env.PANEL_ORIGIN||!request.headers.get('content-type')?.startsWith('application/json'))throw new AppError('Ungültiger Ursprung.',403);
   const reader=request.body?.getReader();if(!reader)throw new AppError('Ungültige Anfrage.',400);
   const chunks=[];let size=0;

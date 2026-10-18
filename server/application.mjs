@@ -10,12 +10,14 @@ import {portalSchema,handlePortal,handlePortalAdmin,PORTAL_PATH,PORTAL_PREFIXES}
 import {businessPortalSchema,handleBusinessPortal,handleBusinessAdmin} from './business-portal.mjs';
 import {accountingSchema,handleAccounting} from './accounting.mjs';
 import {bankAccountingSchema,handleBankAccounting} from './bank-accounting.mjs';
+import {advisorSchema} from './advisor-auth.mjs';
+import {handleAdvisor} from './advisor.mjs';
 const lockedHeaders={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Strict-Transport-Security':'max-age=31536000','Permissions-Policy':'camera=(), microphone=(), geolocation=()','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com"};
 function errorResponse(message,status=500){return new Response(JSON.stringify({error:message}),{status,headers:{'Content-Type':'application/json'}});}
 export async function createApplication(env){
   const origin=new URL(env.PANEL_ORIGIN);if(origin.protocol!=='https:'||origin.origin!==env.PANEL_ORIGIN||origin.username||origin.password)throw Error('PANEL_ORIGIN muss ein eindeutiger HTTPS-Ursprung sein.');
   if(!/^[a-f0-9]{64}$/.test(env.OWNER_EMAIL_SHA256??''))throw Error('Betreiberidentität fehlt.');
-  await init(env);await authSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await chatSchema(env);await portalSchema(env);await businessPortalSchema(env);await accountingSchema(env);await bankAccountingSchema(env);
+  await init(env);await authSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await chatSchema(env);await portalSchema(env);await businessPortalSchema(env);await accountingSchema(env);await bankAccountingSchema(env);await advisorSchema(env);
   env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=providerOperations;
   const handle=async request=>{
     try{
@@ -28,6 +30,7 @@ export async function createApplication(env){
       if(request.method==='POST'&&url.pathname==='/auth/redeem')return await redeemLogin(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/password/login')return await passwordLogin(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/logout')return await logout(env,request);
+      const advisor=await handleAdvisor(env,request);if(advisor)return advisor;
       const identity=await sessionIdentity(env,request);
       if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/(?:angebot|dokument|rechnung|chat)\/[a-f0-9]{64}$/.test(url.pathname)||url.pathname==='/vor-ort'||url.pathname===PORTAL_PATH)login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
       const isOwner=digest(identity)===env.OWNER_EMAIL_SHA256;
