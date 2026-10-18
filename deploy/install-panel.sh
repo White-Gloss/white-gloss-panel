@@ -1,7 +1,59 @@
 #!/usr/bin/env bash
 set -euo pipefail
 umask 077
+
+clear_release_link() {
+    local link=$1 destination
+    [[ ! -e $link && ! -L $link ]] && return 0
+    [[ $link == */current.next || $link == */current.rollback ]] || return 1
+    [[ -L $link ]] || { echo 'Temporärer Releasepfad ist kein Link.' >&2; return 1; }
+    destination=$(readlink -- "$link")
+    [[ $destination =~ ^/srv/white-gloss-panel/releases/[a-f0-9]{40}$ ]] || { echo 'Unerwarteter temporärer Releaselink.' >&2; return 1; }
+    rm -- "$link"
+}
+
+restore_timer_state() {
+    local index unit
+    for index in "${!timer_units[@]}"; do
+        unit=${timer_units[$index]}
+        if [[ ${timer_was_enabled[$index]} == true ]]; then
+            systemctl enable "$unit" || true
+        else
+            systemctl disable "$unit" || true
+        fi
+        if [[ ${timer_was_active[$index]} == true ]]; then
+            systemctl start "$unit" || true
+        else
+            systemctl stop "$unit" || true
+        fi
+    done
+}
+
+pause_panel_jobs() {
+    timers_paused=true
+    if [[ $previous == /srv/white-gloss-panel/releases/* ]]; then
+        systemctl stop "${timer_units[@]}" || return "$?"
+        systemctl stop white-gloss-panel-maintenance.service white-gloss-panel-backup.service || return "$?"
+        systemctl start white-gloss-panel-backup.service || return "$?"
+    else
+        systemctl stop "${timer_units[@]}" 2>/dev/null || true
+        systemctl stop white-gloss-panel-maintenance.service white-gloss-panel-backup.service 2>/dev/null || true
+    fi
+}
+
+finish_install() {
+    local result=$1
+    trap - EXIT INT TERM
+    if [[ $result != 0 ]]; then
+        if [[ $activation_started == true ]]; then rollback || true; fi
+        if [[ $timers_paused == true ]]; then restore_timer_state; fi
+    fi
+    exit "$result"
+}
+
+install_panel() {
 [[ $(id -u) == 0 && $(uname -s) == Linux ]] || { echo 'Nur durch den IONOS-Administrator ausführen.' >&2; exit 1; }
+[[ $# == 3 ]] || { echo 'Archiv, SHA256 und Git-Commit erforderlich.' >&2; exit 1; }
 archive=${1:?Archiv erforderlich}
 archive_hash=${2:?SHA256 erforderlich}
 release=${3:?Git-Commit erforderlich}
@@ -52,32 +104,42 @@ if [[ ! -f /etc/white-gloss-panel/migration-private.pem ]]; then
     chmod 0600 /etc/white-gloss-panel/migration-private.pem
 fi
 previous=$(readlink -f /srv/white-gloss-panel/current 2>/dev/null || true)
-systemctl stop white-gloss-panel-maintenance.timer white-gloss-panel-backup.timer 2>/dev/null || true
-systemctl stop white-gloss-panel-maintenance.service white-gloss-panel-backup.service 2>/dev/null || true
-if [[ $previous == /srv/white-gloss-panel/releases/* ]]; then
-    systemctl start white-gloss-panel-backup.service
-fi
+clear_release_link /srv/white-gloss-panel/current.next
+clear_release_link /srv/white-gloss-panel/current.rollback
 backup=/etc/caddy/Caddyfile.white-gloss-panel.$(date -u +%Y%m%dT%H%M%SZ).bak
 install -m 0600 /etc/caddy/Caddyfile "$backup"
+timer_units=(white-gloss-panel-maintenance.timer white-gloss-panel-backup.timer)
+timer_was_active=()
+timer_was_enabled=()
+for unit in "${timer_units[@]}"; do
+    if systemctl is-active --quiet "$unit"; then timer_was_active+=(true); else timer_was_active+=(false); fi
+    if systemctl is-enabled --quiet "$unit"; then timer_was_enabled+=(true); else timer_was_enabled+=(false); fi
+done
+timers_paused=false
+activation_started=false
 rollback() {
-    install -m 0644 "$backup" /etc/caddy/Caddyfile
+    install -m 0644 "$backup" /etc/caddy/Caddyfile || true
     if [[ $previous == /srv/white-gloss-panel/releases/* ]]; then
-        ln -s "$previous" /srv/white-gloss-panel/current.rollback
-        mv -T /srv/white-gloss-panel/current.rollback /srv/white-gloss-panel/current
+        if clear_release_link /srv/white-gloss-panel/current.rollback && ln -s "$previous" /srv/white-gloss-panel/current.rollback; then
+            mv -T /srv/white-gloss-panel/current.rollback /srv/white-gloss-panel/current || true
+        fi
         for unit in white-gloss-panel.service white-gloss-panel-maintenance.service white-gloss-panel-maintenance.timer white-gloss-panel-backup.service white-gloss-panel-backup.timer; do
-            [[ ! -f $previous/deploy/$unit ]] || install -m 0644 "$previous/deploy/$unit" /etc/systemd/system/$unit
+            [[ ! -f $previous/deploy/$unit ]] || install -m 0644 "$previous/deploy/$unit" /etc/systemd/system/$unit || true
         done
-        [[ ! -f $previous/deploy/white-gloss-panel.caddy ]] || install -m 0644 "$previous/deploy/white-gloss-panel.caddy" /etc/caddy/white-gloss-panel.caddy
+        [[ ! -f $previous/deploy/white-gloss-panel.caddy ]] || install -m 0644 "$previous/deploy/white-gloss-panel.caddy" /etc/caddy/white-gloss-panel.caddy || true
         systemctl daemon-reload || true
         systemctl restart white-gloss-panel.service || true
-        systemctl start white-gloss-panel-maintenance.timer white-gloss-panel-backup.timer || true
     else
         systemctl stop white-gloss-panel.service || true
     fi
     caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1 && systemctl reload caddy.service || true
     echo 'Panelaktivierung zurückgesetzt. Hauptwebsite wurde nicht ersetzt.' >&2
 }
-trap rollback ERR
+trap 'finish_install "$?"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+pause_panel_jobs
+activation_started=true
 ln -s "$target" /srv/white-gloss-panel/current.next
 mv -T /srv/white-gloss-panel/current.next /srv/white-gloss-panel/current
 install -m 0644 "$target/deploy/white-gloss-panel.service" /etc/systemd/system/white-gloss-panel.service
@@ -107,5 +169,8 @@ systemctl reload caddy.service
 systemctl start white-gloss-panel-backup.service
 systemctl enable --now white-gloss-panel-maintenance.timer white-gloss-panel-backup.timer
 systemctl is-active --quiet white-gloss.service
-trap - ERR
+trap - EXIT INT TERM
 echo 'Eigener Paneldienst und Timer aktiviert. HTTPS und Anbieterzugänge anschließend live prüfen.'
+}
+
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then install_panel "$@"; fi

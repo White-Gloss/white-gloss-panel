@@ -1,0 +1,2 @@
+# The root-owned helper validates its status/install operations and all arguments.
+white-gloss-ci ALL=(root) NOPASSWD: /usr/local/sbin/white-gloss-panel-release

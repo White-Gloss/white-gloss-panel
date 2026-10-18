@@ -1,0 +1,99 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
+import {mkdtemp,readFile,rm,symlink,writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
+
+const installer=fileURLToPath(new URL('../deploy/install-panel.sh',import.meta.url));
+const helper=fileURLToPath(new URL('../deploy/panel-release.sh',import.meta.url));
+const commit='a1'.repeat(20),hash='b2'.repeat(32);
+function shell(script,args=[]){return spawnSync('/bin/bash',['-c',script,'synthetic-deployment-test',...args],{encoding:'utf8'});}
+async function fixture(t){const path=await mkdtemp(resolve(tmpdir(),'white-gloss-installer-test-'));t.after(()=>rm(path,{recursive:true,force:true}));return path;}
+
+test('deployment shell files parse without executing a server or privileged command',()=>{
+  for(const path of [installer,helper]){const result=spawnSync('/bin/bash',['-n',path],{encoding:'utf8'});assert.equal(result.status,0,result.stderr);}
+});
+
+test('release helper accepts only the commit-bound upload path and full lowercase hashes',()=>{
+  const valid=['/home/white-gloss-ci/white-gloss-panel-'+commit+'.tar.gz',hash,commit];
+  const cases=[{args:valid,valid:true},{args:valid.slice(1)},{args:[...valid,'extra']},{args:['/tmp/white-gloss-panel-'+commit+'.tar.gz',hash,commit]},{args:[valid[0]+'/../../installer',hash,commit]},{args:[valid[0],hash.toUpperCase(),commit]},{args:[valid[0],hash,commit+'\n']},{args:[valid[0],hash,'$(touch /tmp/never-execute)']}];
+  for(const entry of cases){const result=shell('source "$1"; shift; valid_install_arguments "$@"',[helper,...entry.args]);assert.equal(result.status===0,entry.valid===true,JSON.stringify(entry.args));assert.equal(result.stdout,'');}
+});
+
+test('root installer guard rejects a writable or caller-owned tree and symlink',async t=>{
+  const root=await fixture(t),file=resolve(root,'installer.sh'),link=resolve(root,'installer-link.sh');
+  await writeFile(file,'synthetic fixture',{mode:0o666});await symlink(file,link);
+  for(const path of [file,link]){const result=shell('source "$1"; root_protected_path "$2" file',[helper,path]);assert.notEqual(result.status,0);}
+  const protectedFile=shell('source "$1"; root_protected_path /etc/passwd file',[helper]);
+  assert.equal(protectedFile.status,0,protectedFile.stderr);
+});
+
+test('only owned temporary release link names with the expected destination are removed',async t=>{
+  const root=await fixture(t),next=resolve(root,'current.next'),other=resolve(root,'current.rollback');
+  await symlink('/srv/white-gloss-panel/releases/'+commit,next);
+  let result=shell('source "$1"; clear_release_link "$2"',[installer,next]);assert.equal(result.status,0,result.stderr);
+  await writeFile(next,'must survive');
+  result=shell('source "$1"; clear_release_link "$2"',[installer,next]);assert.notEqual(result.status,0);assert.equal(await readFile(next,'utf8'),'must survive');
+  await symlink(next,other);
+  result=shell('source "$1"; clear_release_link "$2"',[installer,other]);assert.notEqual(result.status,0);assert.equal(await readFile(other,'utf8'),'must survive');
+  const unrelated=resolve(root,'unrelated');await symlink('/srv/white-gloss-panel/releases/'+commit,unrelated);
+  result=shell('source "$1"; clear_release_link "$2"',[installer,unrelated]);assert.notEqual(result.status,0);
+});
+
+test('a failed pre-activation backup restores timer activity and enablement and preserves its failure',async t=>{
+  const root=await fixture(t),log=resolve(root,'commands');
+  const result=shell(`source "$1"
+log=$2
+systemctl() {
+    printf '%s\\n' "$*" >> "$log"
+    if [[ $1 == start && $2 == white-gloss-panel-backup.service ]]; then return 7; fi
+    [[ $1 != disable ]]
+}
+rollback() { printf 'unexpected rollback\\n' >> "$log"; }
+timer_units=(synthetic-maintenance.timer synthetic-backup.timer)
+timer_was_enabled=(true false)
+timer_was_active=(true false)
+timers_paused=true
+activation_started=false
+previous=/srv/white-gloss-panel/releases/${commit}
+trap 'finish_install "$?"' EXIT
+pause_panel_jobs`,[installer,log]);
+  assert.equal(result.status,7,result.stderr);
+  assert.deepEqual((await readFile(log,'utf8')).trim().split('\n'),['stop synthetic-maintenance.timer synthetic-backup.timer','stop white-gloss-panel-maintenance.service white-gloss-panel-backup.service','start white-gloss-panel-backup.service','enable synthetic-maintenance.timer','start synthetic-maintenance.timer','disable synthetic-backup.timer','stop synthetic-backup.timer']);
+});
+
+test('first installation tolerates absent panel units without attempting an existing-release backup',()=>{
+  const result=shell(`source "$1"
+systemctl() { [[ $1 == stop ]] || exit 77; return 5; }
+previous=''
+timer_units=(synthetic-maintenance.timer synthetic-backup.timer)
+pause_panel_jobs
+printf 'first installation can continue\\n'`,[installer]);
+  assert.equal(result.status,0,result.stderr);assert.equal(result.stdout,'first installation can continue\n');
+});
+
+test('status never certifies a commit when a required service or timer is inactive',()=>{
+  for(const failed of ['white-gloss-panel.service','white-gloss-panel-maintenance.timer','white-gloss-panel-backup.timer','white-gloss.service','caddy.service']){
+    const result=shell(`source "$1"
+synthetic_commit=$2
+current_commit() { printf '%s\\n' "$synthetic_commit"; }
+synthetic_failed=$3
+systemctl() { [[ $3 != "$synthetic_failed" ]]; }
+release_status`,[helper,commit,failed]);
+    assert.notEqual(result.status,0,failed);assert.equal(result.stdout,'',failed);
+  }
+});
+
+test('an already active healthy commit is checked without running the installer again',()=>{
+  const result=shell(`source "$1"
+synthetic_commit=$2
+id() { printf '0\\n'; }
+uname() { printf 'Linux\\n'; }
+acquire_release_lock() { :; }
+release_status() { printf '%s\\n' "$synthetic_commit"; }
+root_protected_path() { printf 'installer must not run\\n' >&2; return 1; }
+panel_release install "/home/white-gloss-ci/white-gloss-panel-$synthetic_commit.tar.gz" "$3" "$synthetic_commit"`,[helper,commit,hash]);
+  assert.equal(result.status,0,result.stderr);assert.equal(result.stdout,commit+'\n');assert.equal(result.stderr,'');
+});

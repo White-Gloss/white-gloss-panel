@@ -21,11 +21,21 @@ Die Betreiberregel verlangt den freigegebenen IONOS-Weg. Lars hat am 18.10.2026 
 
 ## Direkte Veröffentlichung nach Codeänderungen
 
-Die Betreiberfreigabe ist vorhanden; die technische Automatisierung ist noch
-nicht eingerichtet. Bei der Verbindungsprüfung am 18.10.2026 waren GitHub-Lese-
+Die Betreiberfreigabe ist vorhanden. Der Workflow `.github/workflows/checks.yml`
+enthält nun einen automatischen IONOS-Releasejob, der ausschließlich nach
+erfolgreichen Code- und Browserprüfungen für `main` läuft. Pull Requests lösen
+keinen Release aus. Ein manueller Workflowstart auf `main` prüft und
+veröffentlicht ebenfalls den dort gewählten Commit, sofern er noch aktuell ist.
+Hauptbranch-Läufe werden nicht während einer Veröffentlichung abgebrochen;
+Releasejobs laufen einzeln und überspringen überholte Hauptbranch-Commits.
+
+Für die tatsächliche Aktivierung fehlen noch die unten beschriebenen
+GitHub-Zugänge und die einmalige serverseitige Einrichtung. Ein fehlender
+Zugang lässt den Releasejob mit einer konkreten Fehlermeldung scheitern;
+Code- und Browserprüfungen bleiben getrennt erkennbar. Bei der Verbindungsprüfung
+am 18.10.2026 waren GitHub-Lese-
 und Schreibzugriff sowie erfolgreiche Prüfungen für Hauptbranch-Commit
-`976ba8f9caa77596cf9aaa4eea3948ee8fc94195` nachgewiesen. Der einzige Workflow
-`.github/workflows/checks.yml` führt Prüfungen aus und veröffentlicht nichts.
+`976ba8f9caa77596cf9aaa4eea3948ee8fc94195` nachgewiesen.
 In der verfügbaren Cloud-Arbeitsumgebung wurde kein IONOS-Serverzugang bereitgestellt.
 Ob GitHub bereits passende Secrets enthält, war wegen fehlender Berechtigung
 der GitHub-Integration zum Auflisten der Secret-Namen nicht prüfbar.
@@ -41,14 +51,76 @@ Hostschlüssel, Uploadrecht nach `/home/white-gloss-ci/` und die Berechtigung,
 den vorhandenen Panel-Installer auszuführen. Private Schlüssel und andere
 Geheimnisse ausschließlich über die sichere Zugangsverwaltung bereitstellen.
 
-Sobald dieser Zugang verfügbar ist, den aktiven `current`-Verweis und
-`dist/release.json` lesen, den aktuellen geprüften Commit mit
-`scripts/package-ionos.mjs` paketieren und das Archiv mit SHA-256 über den
-separaten Panel-Installer aktivieren. Anschließend den aktiven Commit,
-Paneldienst und Timer sowie HTTPS, Anmeldung und die betroffenen öffentlichen
-Dateien prüfen. Änderungen hinter der Anmeldung brauchen zusätzlich einen
-dafür verfügbaren authentifizierten Prüfzugang. Erst dann ist die jeweilige
-Veröffentlichung mit ihrem tatsächlich geprüften Umfang nachgewiesen.
+Der Releasejob liest den aktiven Commit über den root-eigenen Statushelfer,
+paketiert mit `scripts/package-ionos.mjs` und aktiviert über den separaten
+Panel-Installer mit SHA-256. Danach prüft er den aktiven Commit, Paneldienst,
+Timer und Hauptwebsite sowie öffentlich HTTPS, Anmeldung und die unveränderten
+Bytes von `app.js`. `/healthz` liefert zusätzlich `X-Panel-Commit` aus dem beim
+Prozessstart geladenen eigenen Release-Manifest; dadurch genügt kein bloß
+umgesetzter `current`-Verweis als Erfolg. Der Body bleibt `ok`.
+Änderungen hinter der Anmeldung brauchen zusätzlich einen verfügbaren
+authentifizierten Prüfzugang. Der automatische öffentliche Test löst keine
+Anmeldungsmail und keine Kundenvorgänge aus.
+
+### Einmalig Zugänge auf GitHub hinterlegen
+
+Unter [Settings → Secrets and variables → Actions](https://github.com/White-Gloss/white-gloss-panel/settings/secrets/actions)
+jeweils **New repository secret** auswählen:
+
+| Name | Wert |
+| --- | --- |
+| `PANEL_IONOS_HOST` | `217.154.124.239` (bestehender Panel-VPS) |
+| `PANEL_IONOS_PORT` | Tatsächlich freigeschalteter SSH-Port, nicht ungeprüft `22` annehmen |
+| `PANEL_IONOS_SSH_KEY` | Vollständiger privater SSH-Schlüssel ohne Passphrase für den Serverbenutzer `white-gloss-ci` |
+| `PANEL_IONOS_KNOWN_HOSTS` | Über die vertrauenswürdige IONOS-Konsole geprüfter SSH-Hostschlüssel im OpenSSH-known_hosts-Format |
+
+Für Port 22 beginnt der known_hosts-Eintrag mit `217.154.124.239`, für einen
+anderen Port mit `[217.154.124.239]:PORT`, anschließend folgen Schlüsseltyp und
+öffentlicher Hostschlüssel. Den Hostschlüssel auf dem Server aus
+`/etc/ssh/ssh_host_ed25519_key.pub` übernehmen. Der Workflow lernt keine
+Hostschlüssel automatisch und schaltet die Hostprüfung nicht ab.
+
+Der zum privaten Zugangsschlüssel gehörende öffentliche Schlüssel muss in
+`/home/white-gloss-ci/.ssh/authorized_keys` zugelassen sein. Dafür einen eigenen
+Deployschlüssel verwenden und bestehende Einträge bewahren. Private Schlüssel
+und Serverpasswörter gehören ausschließlich in die sichere Zugangsverwaltung.
+
+### Einmalig den getrennten Panel-Installer freischalten
+
+Ein Serveradministrator überträgt `deploy/install-panel.sh`,
+`deploy/panel-release.sh` und `deploy/white-gloss-panel-ci.sudoers` aus dem
+geprüften GitHub-Commit nach `/root/white-gloss-panel-auto-setup/deploy/` auf
+den vorhandenen VPS. Herkunft und Prüfsummen vor Ausführung vergleichen.
+Dann über die IONOS-Konsole als root ausführen:
+
+```sh
+install -d -m 0755 -o root -g root /usr/local/lib/white-gloss-panel
+install -m 0755 -o root -g root /root/white-gloss-panel-auto-setup/deploy/install-panel.sh /usr/local/lib/white-gloss-panel/install-panel.sh
+install -m 0755 -o root -g root /root/white-gloss-panel-auto-setup/deploy/panel-release.sh /usr/local/sbin/white-gloss-panel-release
+visudo -cf /root/white-gloss-panel-auto-setup/deploy/white-gloss-panel-ci.sudoers
+install -m 0440 -o root -g root /root/white-gloss-panel-auto-setup/deploy/white-gloss-panel-ci.sudoers /etc/sudoers.d/white-gloss-panel-ci
+sudo -u white-gloss-ci sudo -n /usr/local/sbin/white-gloss-panel-release status
+```
+
+Der letzte Befehl muss ausschließlich den aktiven vollständigen Panel-Commit
+ausgeben. Der Helfer prüft geschützte Pfade, Dienst und Timer. Er akzeptiert
+nur `status` und `install ARCHIV SHA256 COMMIT`; parallele Installationen werden
+serverseitig gesperrt. Er führt ausschließlich den festen root-eigenen
+Panel-Installer aus. Ein bereits aktiver identischer Commit wird erneut geprüft.
+Fehlgeschlagene, bereits vorhandene Releaseverzeichnisse werden nicht automatisch
+gelöscht oder überschrieben. Der Installer setzt den Panelverweis bei einem
+Aktivierungsfehler zurück und stellt gestoppte Timer wieder her.
+
+Der Administrator muss Änderungen am Installer separat prüfen und die feste
+Kopie unter `/usr/local/lib/white-gloss-panel/install-panel.sh` aktualisieren.
+Der CI-Benutzer darf weder diese Datei noch den Helfer oder deren Elternpfade
+beschreiben. Der Workflow verwendet keinen Website-Deployment-Helfer.
+
+Nach Hinterlegen der Zugänge unter [Actions → Panel checks](https://github.com/White-Gloss/white-gloss-panel/actions/workflows/checks.yml)
+den fehlgeschlagenen Lauf erneut starten oder **Run workflow** auf `main`
+ausführen. Künftige Änderungen in `main` starten den Ablauf automatisch.
+Erst ein erfolgreicher Releasejob bestätigt die tatsächliche Veröffentlichung;
+ein noch fehlender Zugang ist keine ausstehende Betreiberfreigabe.
 
 ## Anmeldung, Angebote und Fotos
 

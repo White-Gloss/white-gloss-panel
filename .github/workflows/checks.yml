@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: panel-checks-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   check:
@@ -32,6 +32,8 @@ jobs:
       - run: npm run build
       - run: node --check dist/server/index.js
       - run: bash -n deploy/install-panel.sh
+      - run: bash -n deploy/panel-release.sh scripts/deploy-ionos.sh
+      - run: sudo visudo -cf deploy/white-gloss-panel-ci.sudoers
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -53,3 +55,33 @@ jobs:
           name: panel-browser-evidence
           path: test-results/
           if-no-files-found: ignore
+  deploy:
+    name: IONOS panel release
+    needs: [check, browser]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: ionos-panel
+      url: https://panel.white-gloss.de
+    concurrency:
+      group: ionos-panel-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+          cache: npm
+      - run: npm ci
+      - name: Publish separate panel service and verify HTTPS
+        run: bash scripts/deploy-ionos.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PANEL_IONOS_HOST: ${{ secrets.PANEL_IONOS_HOST }}
+          PANEL_IONOS_PORT: ${{ secrets.PANEL_IONOS_PORT }}
+          PANEL_IONOS_SSH_KEY: ${{ secrets.PANEL_IONOS_SSH_KEY }}
+          PANEL_IONOS_KNOWN_HOSTS: ${{ secrets.PANEL_IONOS_KNOWN_HOSTS }}
