@@ -35,6 +35,7 @@ for(const viewport of [{width:1366,height:850},{width:390,height:844}])test(`acc
   await page.getByRole('button',{name:'Kommentar speichern'}).click();await page.getByText('Bitte Lieferantenanschrift prüfen.',{exact:true}).waitFor();
   await page.getByText('Zuordnung vorschlagen',{exact:true}).click();await page.getByLabel('Kategorie',{exact:true}).selectOption('CLEANING_SUPPLIES');
   await page.getByLabel('Betrag brutto in Euro',{exact:true}).fill('119,00');await page.getByRole('button',{name:'Vorschlag zur Prüfung speichern'}).click();
+  await page.locator('#advisor-message').filter({hasText:'Vorschlag gespeichert.'}).waitFor();
   await page.getByRole('button',{name:'Vorschläge',exact:true}).click();await page.getByText('Wartet auf Betreiberprüfung',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Als Zuordnungsentwurf übernehmen'}).count(),0);
   assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM accounting_classifications').first()).n,0);
