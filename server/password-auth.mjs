@@ -11,11 +11,11 @@ export async function derive(password,salt){
   hashing++;
   try{return await new Promise((resolve,reject)=>scrypt(password,Buffer.from(salt,'hex'),64,cost,(error,key)=>error?reject(error):resolve(key)));}finally{hashing--;}
 }
-export async function inputFor(env,request){
+export async function inputFor(env,request,maxBytes=4096){
   if(request.headers.get('origin')!==env.PANEL_ORIGIN||!request.headers.get('content-type')?.startsWith('application/json'))throw new AppError('Ungültiger Ursprung.',403);
   const reader=request.body?.getReader();if(!reader)throw new AppError('Ungültige Anfrage.',400);
   const chunks=[];let size=0;
-  try{for(;;){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>4096){await reader.cancel();throw new AppError('Anfrage zu groß.',413);}chunks.push(Buffer.from(value));}}finally{reader.releaseLock();}
+  try{for(;;){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>maxBytes){await reader.cancel();throw new AppError('Anfrage zu groß.',413);}chunks.push(Buffer.from(value));}}finally{reader.releaseLock();}
   try{const input=JSON.parse(Buffer.concat(chunks).toString('utf8'));if(!input||typeof input!=='object'||Array.isArray(input))throw Error();return input;}catch{throw new AppError('Ungültige Anfrage.',400);}
 }
 async function throttled(env,request,email,now){

@@ -71,12 +71,12 @@ dass Belege auch nach Entfernen der Quelldatei aus der Sicherung lesbar bleiben.
 
 1. Bestehende Finanzansicht: Pagination auch außerhalb der Kanzleiansicht,
    belastbare inkrementelle Qonto-Synchronisierung und verständliche Ladefehler.
-2. Durchgängige Zuordnung Rechnung ↔ Zahlung ↔ Beleg einschließlich Teilzahlungen,
-   Überzahlungen, Storno und offener Posten; manuelle Versandfreigaben erhalten.
-3. Monatsabschluss: fehlende Belege, ungeklärte Umsätze, Prüffreigabe und
-   nachvollziehbare Periodensperren mit Korrekturweg.
-4. DATEV-Format, Kontenrahmen und Steuerschlüssel mit der Kanzlei festlegen und
-   anhand eines Testimports verifizieren.
+2. [Zahlungsabgleich, Buchungsfreigabe und Monatsabschluss](Monatsbuchhaltung.md)
+   sind ergänzt. Automatische Kartenabrechnung und komplexe Steuerfälle bleiben offen.
+3. Die neue Monatsbuchhaltung zeigt Nachträge zu abgeschlossenen Perioden und
+   verlangt begründete Wiederöffnung, Prüfung und erneuten Abschluss.
+4. DATEV-Profil und Kontierungen mit der Kanzlei manuell hinterlegen; den ersten
+   EXTF-Testimport im tatsächlichen Mandat fachlich und technisch verifizieren.
 5. E-Rechnungen: strukturierte Originaldateien (XML bzw. eingebettetes XML),
    Formatvalidierung, lesbare Darstellung und geschützte Aufbewahrung.
 6. Zweiter Faktor für Kanzlei/Betreiber und externe Sicherung mit dokumentierter
