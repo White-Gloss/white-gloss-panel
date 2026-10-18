@@ -53,8 +53,11 @@ node --check dist/server/index.js
 
 Die Tests nutzen synthetische Daten und isoliertes SQLite. Die UI-Tests laden die gebauten
 Seiten in jsdom und rufen die Serverlogik direkt im Prozess auf; es wird kein Server gestartet. Der GitHub-Workflow
-führt dieselben Prüfungen auf einem Linux-Runner aus. Er veröffentlicht nichts
-und benötigt keine IONOS- oder Anbieterzugänge.
+führt dieselben Prüfungen auf einem Linux-Runner aus. Für den Hauptbranch folgt
+nach erfolgreichen Code- und Browserprüfungen die automatische Veröffentlichung
+über den separaten IONOS-Paneldienst. Dieser Releasejob benötigt die einmalig
+eingerichteten IONOS-Zugänge; die Prüfjobs benötigen keine Anbieterzugänge.
+Einrichtung und Live-Nachweise: [IONOS und Google](docs/IONOS-und-Google.md#direkte-veröffentlichung-nach-codeänderungen).
 
 **Auf dem Rechner des Betreibers darf diese White-Gloss-App unter keinen Umständen
 lokal gehostet werden.** Keine Dev-, Preview-, QA-, Docker-, Tunnel- oder statischen

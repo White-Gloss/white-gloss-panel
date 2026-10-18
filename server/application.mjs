@@ -14,6 +14,7 @@ import {advisorSchema} from './advisor-auth.mjs';
 import {handleAdvisor} from './advisor.mjs';
 import {bookkeepingSchema} from './bookkeeping-schema.mjs';
 import {handleBookkeeping} from './bookkeeping.mjs';
+import {releaseCommit} from './release.mjs';
 const lockedHeaders={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Strict-Transport-Security':'max-age=31536000','Permissions-Policy':'camera=(), microphone=(), geolocation=()','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com"};
 function errorResponse(message,status=500){return new Response(JSON.stringify({error:message}),{status,headers:{'Content-Type':'application/json'}});}
 export async function createApplication(env){
@@ -24,7 +25,7 @@ export async function createApplication(env){
   const handle=async request=>{
     try{
       const url=new URL(request.url);if(url.origin!==env.PANEL_ORIGIN)return errorResponse('Ungültiger Host.',400);
-      if(url.pathname==='/healthz')return new Response('ok',{headers:{'Content-Type':'text/plain'}});
+      if(url.pathname==='/healthz')return new Response('ok',{headers:{'Content-Type':'text/plain',...(releaseCommit?{'X-Panel-Commit':releaseCommit}:{})}});
       // Scripts, styles, the web app manifest and icons are public; customer data never is.
       if(request.method==='GET'&&/^\/[a-zA-Z0-9_-]+\.(css|js|mjs|webmanifest|png|svg|woff2)$/.test(url.pathname))return env.ASSETS.fetch(request);
       if(request.method==='GET'&&['/auth/login','/auth/verify'].includes(url.pathname))return loginPage();
