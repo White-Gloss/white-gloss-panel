@@ -16,8 +16,18 @@ erneut prüfen. Keine vermeintliche Node-Startanweisung erfinden.
 
 IONOS-Veröffentlichungen müssen den freigegebenen Weg nutzen. Der bestehende
 Website-Deployment-Helfer gehört zu `white-gloss.de`; mit ihm darf dieses Panel
-nicht über die Hauptwebsite ausgerollt werden. Für das Panel ist zuerst ein
-separater, freigegebener Dienst mit eigenem Release- und Datenpfad einzurichten.
+nicht über die Hauptwebsite ausgerollt werden. Für das Panel den bestehenden
+separaten Dienst mit seinem eigenen Release- und Datenpfad verwenden und dessen
+aktuellen Zustand vor jeder Veröffentlichung prüfen.
+
+Betreiberauftrag vom 18.10.2026: Beauftragte Codeänderungen an
+`White-Gloss/white-gloss-panel` nach erfolgreicher Prüfung direkt über den
+bestehenden separaten Panel-Releaseweg auf `https://panel.white-gloss.de`
+veröffentlichen und online prüfen. Für diesen Weg ist keine erneute
+Veröffentlichungsbestätigung erforderlich; die Freigabe umfasst den separaten
+IONOS-Paneldienst. Den aktuellen Hauptbranch und aktiven Serverstand vor jedem
+Release prüfen. Fehlt der technische Serverzugang, den konkreten Blocker melden;
+ein Commit, Releasepaket oder grüner Testlauf gilt weiterhin nicht als Deployment.
 
 Zugangsschlüssel, OAuth-Geheimnisse, Kundendaten, Datenbankdateien, Fotos,
 Unterschriften, Backups und Umgebungsdateien nicht committen oder in Ausgaben
