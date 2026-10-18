@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {mkdtemp,readFile,rm,symlink,writeFile} from 'node:fs/promises';
+import {chmod,mkdir,mkdtemp,readFile,rm,stat,symlink,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -68,6 +68,38 @@ test('privileged Python ignores modules in the caller directory',async t=>{
     assert.equal(result.status,0,result.stderr);
   }
   await assert.rejects(readFile(marker),{code:'ENOENT'});
+});
+
+test('panel data directories are created and repaired through directory descriptors',async t=>{
+  const root=await fixture(t),uid=process.getuid(),gid=process.getgid();
+  const prepare=()=>shell('source "$1"; prepare_panel_data_directories "$2" "$3" "$4"',[installer,root,String(uid),String(gid)]);
+  let result=prepare();assert.equal(result.status,0,result.stderr);
+  const paths=['white-gloss-panel','white-gloss-panel/data','white-gloss-panel/backups'].map(name=>resolve(root,name));
+  for(const path of paths){let info=await stat(path);assert.equal(info.uid,uid);assert.equal(info.gid,gid);assert.equal(info.mode&0o777,0o700);await chmod(path,0o755);}
+  result=prepare();assert.equal(result.status,0,result.stderr);
+  for(const path of paths)assert.equal((await stat(path)).mode&0o777,0o700);
+});
+
+test('panel data symlinks never change the outside directory or its contents',async t=>{
+  for(const child of ['base','data','backups'])await t.test(child,async t=>{
+    const root=await fixture(t),outside=resolve(root,'outside'),marker=resolve(outside,'untouched'),base=resolve(root,'white-gloss-panel');
+    await mkdir(outside,{mode:0o750});await writeFile(marker,'outside fixture',{mode:0o640});
+    if(child==='base')await symlink(outside,base);
+    else{await mkdir(base,{mode:0o700});await symlink(outside,resolve(base,child));}
+    const before=await stat(outside),beforeMarker=await stat(marker);
+    const result=shell('source "$1"; prepare_panel_data_directories "$2" "$3" "$4"',[installer,root,String(process.getuid()),String(process.getgid())]);
+    assert.notEqual(result.status,0);
+    const after=await stat(outside),afterMarker=await stat(marker);
+    for(const key of ['uid','gid','mode']){assert.equal(after[key],before[key],key);assert.equal(afterMarker[key],beforeMarker[key],key);}
+    assert.equal(await readFile(marker,'utf8'),'outside fixture');
+  });
+});
+
+test('panel data preparation refuses uid zero and writable parent directories',async t=>{
+  const root=await fixture(t);
+  let result=shell('source "$1"; prepare_panel_data_directories "$2" 0 "$3"',[installer,root,String(process.getgid())]);assert.notEqual(result.status,0);
+  await chmod(root,0o777);
+  result=shell('source "$1"; prepare_panel_data_directories "$2" "$3" "$4"',[installer,root,String(process.getuid()),String(process.getgid())]);assert.notEqual(result.status,0);
 });
 
 test('only owned temporary release link names with the expected destination are removed',async t=>{

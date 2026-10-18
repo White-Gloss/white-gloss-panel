@@ -40,6 +40,38 @@ install_trusted_service_templates() {
     install -m 0644 "$installer_directory/white-gloss-panel.caddy" /etc/caddy/white-gloss-panel.caddy
 }
 
+prepare_panel_data_directories() {
+    /usr/bin/python3 -I - "$1" "$2" "$3" <<'PY'
+import os,stat,sys
+parent,uid,gid=sys.argv[1],int(sys.argv[2]),int(sys.argv[3])
+if uid<=0 or gid<=0: raise SystemExit('Eigener unprivilegierter Panelbenutzer erforderlich.')
+flags=os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC
+parent_fd=os.open(parent,flags)
+try:
+    info=os.fstat(parent_fd)
+    if info.st_uid!=os.geteuid() or info.st_mode&0o022: raise SystemExit('Daten-Elternverzeichnis ist nicht geschützt.')
+    def directory(parent_fd,name):
+        try: os.mkdir(name,0o700,dir_fd=parent_fd)
+        except FileExistsError: pass
+        fd=os.open(name,flags,dir_fd=parent_fd)
+        try:
+            if os.fstat(fd).st_uid not in (0,uid): raise SystemExit('Unerwarteter Datenverzeichniseigentümer.')
+            os.fchown(fd,uid,gid)
+            os.fchmod(fd,0o700)
+        except BaseException:
+            os.close(fd)
+            raise
+        return fd
+    base_fd=directory(parent_fd,'white-gloss-panel')
+    try:
+        for name in ('data','backups'):
+            child_fd=directory(base_fd,name)
+            os.close(child_fd)
+    finally: os.close(base_fd)
+finally: os.close(parent_fd)
+PY
+}
+
 clear_release_link() {
     local link=$1 destination
     [[ ! -e $link && ! -L $link ]] && return 0
@@ -116,7 +148,7 @@ node_major=$(/usr/bin/node -p 'process.versions.node.split(".")[0]')
 validate_release_archive "$archive"
 id white-gloss-panel >/dev/null 2>&1 || useradd --system --home-dir /var/lib/white-gloss-panel --shell /usr/sbin/nologin white-gloss-panel
 install -d -m 0750 -o root -g white-gloss-panel /srv/white-gloss-panel /srv/white-gloss-panel/releases
-install -d -m 0700 -o white-gloss-panel -g white-gloss-panel /var/lib/white-gloss-panel /var/lib/white-gloss-panel/data /var/lib/white-gloss-panel/backups
+prepare_panel_data_directories /var/lib "$(id -u white-gloss-panel)" "$(id -g white-gloss-panel)"
 install -d -m 0700 -o root -g root /etc/white-gloss-panel
 target=/srv/white-gloss-panel/releases/$release
 [[ ! -e $target ]] || { echo 'Release bereits vorhanden; kein Überschreiben.' >&2; exit 1; }
