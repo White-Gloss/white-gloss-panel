@@ -1,5 +1,7 @@
 # Panel-Release B2B und Finanz-Inbox
 
+**Veraltet – dieses Paket nicht mehr installieren.** Am 18. Oktober 2026 stimmen die öffentlich abrufbaren B2B-, Finanz-, Monatsbuchhaltungs- und Kanzlei-Dateien auf `panel.white-gloss.de` bytegenau mit dem neueren Hauptbranch-Commit `74f443102959f0fac16485369adc80b010b130ce` überein. Die neue Route `/buchhaltung` ist ebenfalls live erreichbar und leitet ohne Anmeldung nach `/kanzlei`. Der tatsächlich aktive Server-Commit und angemeldete Fachabläufe wurden mangels Server- beziehungsweise Betreibersitzung nicht ausgelesen. Vor einem weiteren Release den aktiven Serverstand prüfen und ein Paket aus dem aktuellen freigegebenen Commit verwenden; die folgenden Installationsbefehle sind nur noch historische Dokumentation.
+
 Ziel: `https://panel.white-gloss.de`. Dieses Dokument ist eine Übergabe für den **separaten Paneldienst**. Es ist kein Nachweis, dass das Release bereits aktiv ist.
 
 - GitHub: `White-Gloss/white-gloss-panel`, PR #29 in `main` übernommen
