@@ -57,6 +57,10 @@ CSRF, Datenminimierung, Downloads, Historie, >200 Einträge und Versionkonflikte
 Browserregressionen laufen ausschließlich im vorhandenen Linux-GitHub-Workflow.
 Es wird kein lokaler White-Gloss-Server gestartet.
 
+Das bestehende Backup erfasst zusätzlich die Originale aus `accounting_documents`
+einschließlich Hashprüfung und Dateimetadaten. Ein Wiederherstellungstest prüft,
+dass Belege auch nach Entfernen der Quelldatei aus der Sicherung lesbar bleiben.
+
 ## Nächste Verbesserungen am Rechnungspanel
 
 1. Bestehende Finanzansicht: Pagination auch außerhalb der Kanzleiansicht,
