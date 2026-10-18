@@ -29,3 +29,7 @@ Anbieterzugänge ausschließlich mit dem tatsächlich vorhandenen Umfang nutzen.
 
 Implementiert, getestet, veröffentlicht und live geprüft getrennt berichten.
 Ein grüner Workflow ist kein Beleg für einen erfolgreichen IONOS-Release.
+
+## Cloud Agent
+
+Dieselben Prüfungen wie im README unter „Prüfungen ohne lokalen Website-Server“ ausführen. Node.js 22.23.2 wird von der Entwicklungsumgebung bereitgestellt. `npm run test:browser` bleibt dem echten Linux-GitHub-Runner vorbehalten.
