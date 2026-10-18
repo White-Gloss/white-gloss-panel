@@ -9,6 +9,7 @@ import {fileURLToPath} from 'node:url';
 const installer=fileURLToPath(new URL('../deploy/install-panel.sh',import.meta.url));
 const helper=fileURLToPath(new URL('../deploy/panel-release.sh',import.meta.url));
 const commit='a1'.repeat(20),hash='b2'.repeat(32);
+const panelUid=process.getuid()||65534,panelGid=process.getgid()||65534;
 function shell(script,args=[]){return spawnSync('/bin/bash',['-c',script,'synthetic-deployment-test',...args],{encoding:'utf8'});}
 async function fixture(t){const path=await mkdtemp(resolve(tmpdir(),'white-gloss-installer-test-'));t.after(()=>rm(path,{recursive:true,force:true}));return path;}
 
@@ -71,7 +72,7 @@ test('privileged Python ignores modules in the caller directory',async t=>{
 });
 
 test('panel data directories are created and repaired through directory descriptors',async t=>{
-  const root=await fixture(t),uid=process.getuid(),gid=process.getgid();
+  const root=await fixture(t),uid=panelUid,gid=panelGid;
   const prepare=()=>shell('source "$1"; prepare_panel_data_directories "$2" "$3" "$4"',[installer,root,String(uid),String(gid)]);
   let result=prepare();assert.equal(result.status,0,result.stderr);
   const paths=['white-gloss-panel','white-gloss-panel/data','white-gloss-panel/backups'].map(name=>resolve(root,name));
@@ -87,7 +88,7 @@ test('panel data symlinks never change the outside directory or its contents',as
     if(child==='base')await symlink(outside,base);
     else{await mkdir(base,{mode:0o700});await symlink(outside,resolve(base,child));}
     const before=await stat(outside),beforeMarker=await stat(marker);
-    const result=shell('source "$1"; prepare_panel_data_directories "$2" "$3" "$4"',[installer,root,String(process.getuid()),String(process.getgid())]);
+    const result=shell('source "$1"; prepare_panel_data_directories "$2" "$3" "$4"',[installer,root,String(panelUid),String(panelGid)]);
     assert.notEqual(result.status,0);
     const after=await stat(outside),afterMarker=await stat(marker);
     for(const key of ['uid','gid','mode']){assert.equal(after[key],before[key],key);assert.equal(afterMarker[key],beforeMarker[key],key);}
@@ -97,9 +98,9 @@ test('panel data symlinks never change the outside directory or its contents',as
 
 test('panel data preparation refuses uid zero and writable parent directories',async t=>{
   const root=await fixture(t);
-  let result=shell('source "$1"; prepare_panel_data_directories "$2" 0 "$3"',[installer,root,String(process.getgid())]);assert.notEqual(result.status,0);
+  let result=shell('source "$1"; prepare_panel_data_directories "$2" 0 "$3"',[installer,root,String(panelGid)]);assert.notEqual(result.status,0);
   await chmod(root,0o777);
-  result=shell('source "$1"; prepare_panel_data_directories "$2" "$3" "$4"',[installer,root,String(process.getuid()),String(process.getgid())]);assert.notEqual(result.status,0);
+  result=shell('source "$1"; prepare_panel_data_directories "$2" "$3" "$4"',[installer,root,String(panelUid),String(panelGid)]);assert.notEqual(result.status,0);
 });
 
 test('only owned temporary release link names with the expected destination are removed',async t=>{
