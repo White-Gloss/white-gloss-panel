@@ -75,7 +75,7 @@ test('closed period is immutable; repeat export is byte-identical; reopened corr
 });
 test('provider revisions and late sources invalidate close and require explicit reconciliation/review again',async t=>{
   const f=await fixture(t),provider=randomUUID(),b=await f.bank({provider});await f.post('/settings',config);await f.excludeAll();await f.post('/close',{month,note:'Vollständiger Monatsabschluss',complete:true});
-  await f.bank({provider,status:'reversed'});const state=await f.view();assert.equal(state.view.period.changed,true);assert.ok(state.view.problems.length);
+  await f.bank({provider,status:'reversed',settled:null});const state=await f.view();assert.equal(state.view.period.changed,true);assert.ok(state.view.problems.length);assert.equal(state.view.items[0].date,null,'undated reversal must stay visible in its original matched month');
   await f.post('/export',{month},409);await f.post('/reconcile',{...sourceInput(b),amount:1,note:'Veralteter Providerstand'},409);
   await f.post('/reopen',{month,note:'Rückbuchung von Qonto prüfen'});const m=state.view.items[0].matches[0];await f.post('/unmatch',{id:m.id,note:'Bankumsatz wurde zurückgebucht'});
   await f.post('/close',{month,note:'Rückbuchung vollständig geklärt',complete:true});

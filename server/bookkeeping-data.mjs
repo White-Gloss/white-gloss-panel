@@ -44,7 +44,7 @@ export function lastResolution(data,key){return data.resolutions.filter(r=>r.sou
 export function lastPeriod(data,month){return data.periods.filter(p=>p.month===month).at(-1);}
 export function openMonth(data,month){need(monthValid(month),'Monat ungültig.');need(lastPeriod(data,month)?.kind!=='close','Monat ist abgeschlossen. Für eine Korrektur zuerst mit Begründung wieder öffnen.',409);}
 export function monthView(data,month){
-  need(monthValid(month),'Monat ungültig.');const sources=data.sources.filter(s=>s.date?.startsWith(month+'-')||s.missing&&!s.date);
+  need(monthValid(month),'Monat ungültig.');const sources=data.sources.filter(s=>s.date?.startsWith(month+'-')||s.missing&&!s.date||data.matches.some(m=>m.month===month&&m.bank_key===s.key)||(lastResolution(data,s.key)?.month===month&&lastResolution(data,s.key)?.kind==='post'));
   const problems=[],items=[];for(const s of sources){
     const resolution=lastResolution(data,s.key),resolved=resolution&&resolution.kind!=='reverse'&&resolution.source_hash===s.hash;
     const inactive=s.kind==='bank'&&s.status!=='completed'||s.canceled;
