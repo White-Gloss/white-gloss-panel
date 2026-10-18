@@ -82,6 +82,17 @@ test('bank proposals link real receipts, reject stale provider revisions and ato
   assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM accounting_bank_classifications').first()).n,1);
 });
 
+test('bank discussion follows provider transaction identity across revisions, while stale writes stay blocked',async t=>{
+  const f=await fixture(t),provider=randomUUID(),old=await f.bank(provider),other=await f.bank();
+  assert.equal((await f.call('/api/advisor/comments','advisor',{kind:'bank',targetId:'00'+old,body:'Vor dem Anbieterupdate'})).status,200);
+  await f.call('/api/advisor/comments','advisor',{kind:'bank',targetId:String(other),body:'Andere Transaktion'});
+  const current=await f.bank(provider);
+  for(const id of [old,current]){const r=await f.call('/api/advisor/comments?kind=bank&targetId='+id);assert.equal(r.status,200);const data=await r.json();assert.deepEqual(data.items.map(x=>x.body),['Vor dem Anbieterupdate']);}
+  assert.equal((await f.call('/api/advisor/comments','advisor',{kind:'bank',targetId:String(old),body:'Veralteter Stand'})).status,409);
+  assert.equal((await f.call('/api/advisor/comments','advisor',{kind:'bank',targetId:String(current),body:'Nach dem Update'})).status,200);
+  assert.equal((await (await f.call('/api/advisor/comments?kind=bank&targetId='+current)).json()).items.length,2);
+});
+
 test('receipt and bank pagination has no 200-row cap; exports are complete for the selected period',async t=>{
   const f=await fixture(t);for(let i=0;i<207;i++){await f.doc({name:i===0?'=DANGEROUS.pdf':'Beleg-'+i+'.pdf'});await f.bank();}const synthetic=await f.doc({synthetic:1});
   for(const kind of ['documents','bank']){
@@ -107,6 +118,10 @@ test('invoice scope includes history but redacts customer tokens and reads only 
   await f.env.DB.prepare("INSERT INTO assets(id,order_id,kind,mime,hash,size,created_at) VALUES(?,?,'invoice','application/pdf',?,?,?)").bind(asset,order,digest(bytes),bytes.length,at).run();
   await f.env.DB.prepare('INSERT INTO invoice_documents VALUES(?,?,?,?)').bind(order,invoice,asset,at).run();
   assert.equal((await f.call(path)).status,200);assert.equal((await f.call(path,'customer')).status,401);
+  await f.env.DB.prepare('DELETE FROM invoice_documents WHERE order_id=?').bind(order).run();
+  assert.equal((await f.call(path)).status,200,'archive mapping remains after current mapping is removed for reissue');
+  const refreshed=await (await f.call('/api/advisor/invoices')).json();assert.equal(refreshed.items.find(x=>x.id===invoice).pdf_available,1);
+  await assert.rejects(()=>f.env.DB.prepare('DELETE FROM invoice_document_history').run(),/nicht gelöscht/);
   assert.equal((await f.call('/api/advisor/export?kind=invoices&from=2026-10-01&to=2026-10-31')).status,200);
 });
 

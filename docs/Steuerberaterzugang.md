@@ -27,11 +27,17 @@ wird in eine Kanzleirolle umgewandelt.
 - Originaldownload: Belege sowie bereits im Panel archivierte Rechnungs-PDFs;
   Integritätsprüfung vor Ausgabe. Fehlende Rechnungsoriginale muss der Betreiber
   über den bestehenden Rechnungsweg abrufen. Kein Anbieterabruf durch die Kanzlei.
+  Die Zuordnung zwischen Rechnungs-ID und Originaldatei bleibt bei Storno und
+  Neuausstellung erhalten. Vorhandene aktuelle Zuordnungen werden übernommen;
+  bereits früher verlorene Zuordnungen werden nicht anhand vermuteter Dateiinhalte
+  rekonstruiert.
 - Export: CSV je Liste und Zeitraum, Beträge in Cent, Formeleingaben entschärft.
   Maximal 366 Tage und 10.000 Zeilen pro Export; größere Exporte werden mit einer
   sichtbaren Fehlermeldung abgewiesen, nicht abgeschnitten. Kein DATEV-EXTF.
   Originale werden einzeln heruntergeladen. Ein ZIP-Sammelexport ist noch offen.
 - Belege und Bankumsätze kommentieren; unveränderlicher Kommentarverlauf.
+  Bankkommentare bleiben über Anbieterrevisionen derselben Transaktion hinweg
+  lesbar. Neue Kommentare und Vorschläge verlangen weiterhin den aktuellen Stand.
 - Zuordnungen vorschlagen. Vorschläge bleiben getrennt von Zuordnungen.
   Nur der Betreiber darf sie ausdrücklich als Zuordnungsentwurf übernehmen oder
   ablehnen. Geänderte Zuordnungs-/Bankversionen blockieren eine Übernahme.

@@ -30,7 +30,7 @@ const queries={
     json_extract(j.value,'$.paidAt') AS paid_at,json_extract(j.value,'$.provider') AS provider,
     json_extract(o.data,'$.source.name') AS customer,
     CASE WHEN json_extract(j.value,'$.id')=json_extract(o.data,'$.invoice.id') THEN 0 ELSE 1 END AS historical,
-    EXISTS(SELECT 1 FROM invoice_documents pdf WHERE pdf.order_id=o.id AND pdf.invoice_id=json_extract(j.value,'$.id')) AS pdf_available
+    EXISTS(SELECT 1 FROM invoice_document_history pdf WHERE pdf.order_id=o.id AND pdf.invoice_id=json_extract(j.value,'$.id')) AS pdf_available
     FROM orders o,json_each(json_insert(COALESCE(json_extract(o.data,'$.invoiceHistory'),'[]'),'$[#]',json_extract(o.data,'$.invoice'))) j
     WHERE o.synthetic=0 AND json_extract(j.value,'$.id') IS NOT NULL`
 };
@@ -48,7 +48,7 @@ export async function listAdvisorFinance(env,kind,cursor=null){
   const items=rows.slice(0,50);return {items,nextCursor:rows.length>50?cursorFor(kind,items.at(-1)):null};
 }
 
-async function target(env,kind,id){
+async function target(env,kind,id,latest=true){
   need(['document','bank'].includes(kind),'Ziel ungültig.');
   if(kind==='document'){
     need(UUID.test(id??''),'Beleg nicht gefunden.',404);
@@ -56,12 +56,12 @@ async function target(env,kind,id){
     need(row,'Beleg nicht gefunden.',404);return row;
   }
   const n=numeric(id,0);need(n>0,'Bankumsatz nicht gefunden.',404);
-  const row=await env.DB.prepare('SELECT r.* FROM accounting_bank_revisions r WHERE r.revision_id=? AND '+latestBank).bind(n).first();
+  const row=await env.DB.prepare('SELECT r.* FROM accounting_bank_revisions r WHERE r.revision_id=?'+(latest?' AND '+latestBank:'')).bind(n).first();
   need(row,'Bankumsatz fehlt oder wurde geändert. Bitte neu laden.',409);return row;
 }
 function boundedText(value,max,label){need(value===undefined||value===null||typeof value==='string',label+' ungültig.');const result=(value??'').trim();need(result.length<=max,label+' zu lang.');return result;}
 async function proposalInput(env,input){
-  const kind=input.kind,id=String(input.targetId??''),row=await target(env,kind,id),version=input.version;
+  const kind=input.kind,row=await target(env,kind,String(input.targetId??'')),id=kind==='bank'?String(row.revision_id):row.id,version=input.version;
   need(Number.isSafeInteger(version)&&version>=0,'Version ungültig.');
   const note=boundedText(input.note,800,'Prüfnotiz');
   if(kind==='document'){
@@ -118,19 +118,22 @@ async function decide(env,request,context){
 }
 async function comments(env,request,context,url){
   if(request.method==='POST'){
-    const input=await inputFor(env,request),id=String(input.targetId??'');await target(env,input.kind,id);
+    const input=await inputFor(env,request),row=await target(env,input.kind,String(input.targetId??''));
+    const id=input.kind==='bank'?String(row.revision_id):row.id;
     const body=boundedText(input.body,2000,'Kommentar');need(body,'Kommentar fehlt.');
     const guard=advisorGuard(context),key=randomUUID(),at=new Date().toISOString();
+    const current=input.kind==='bank'?{sql:'?=(SELECT MAX(revision_id) FROM accounting_bank_revisions WHERE organization_id=? AND account_iban=? AND provider_id=?)',params:[row.revision_id,row.organization_id,row.account_iban,row.provider_id]}:{sql:'1=1',params:[]};
     const results=await env.DB.batch([
-      env.DB.prepare(`INSERT INTO advisor_comments SELECT ?,?,?,?,?,? WHERE ${guard.sql}`).bind(key,input.kind,id,body,context.actor,at,...guard.params),
+      env.DB.prepare(`INSERT INTO advisor_comments SELECT ?,?,?,?,?,? WHERE ${guard.sql} AND ${current.sql}`).bind(key,input.kind,id,body,context.actor,at,...guard.params,...current.params),
       env.DB.prepare('INSERT INTO advisor_audit(at,actor,action,target) SELECT ?,?,?,? WHERE changes()=1').bind(at,context.actor,'COMMENTED',key)
     ]);
-    need(results[0].meta.changes===1,'Zugang wurde gesperrt.',401);return advisorJSON({ok:true,id:key});
+    need(results[0].meta.changes===1,'Zugang oder Bankumsatz wurde geändert. Bitte neu laden.',409);return advisorJSON({ok:true,id:key});
   }
-  const kind=url.searchParams.get('kind'),id=url.searchParams.get('targetId');await target(env,kind,id);
-  const rows=(await env.DB.prepare(`SELECT c.rowid AS cursor,c.id,c.body,c.created_at,c.actor,a.company,a.email FROM advisor_comments c
-    LEFT JOIN advisor_accounts a ON c.actor='advisor:'||a.id WHERE c.target_kind=? AND c.target_id=? AND c.rowid<? ORDER BY c.rowid DESC LIMIT 51`)
-    .bind(kind,id,numeric(url.searchParams.get('cursor'),Number.MAX_SAFE_INTEGER)).all()).results;
+  const kind=url.searchParams.get('kind'),id=url.searchParams.get('targetId'),row=await target(env,kind,id,false);
+  const scope=kind==='bank'?{sql:'c.target_id IN (SELECT CAST(revision_id AS TEXT) FROM accounting_bank_revisions WHERE organization_id=? AND account_iban=? AND provider_id=?)',params:[row.organization_id,row.account_iban,row.provider_id]}:{sql:'c.target_id=?',params:[id]};
+  const rows=(await env.DB.prepare(`SELECT c.rowid AS cursor,c.id,c.body,c.created_at,c.actor,c.target_id,a.company,a.email FROM advisor_comments c
+    LEFT JOIN advisor_accounts a ON c.actor='advisor:'||a.id WHERE c.target_kind=? AND ${scope.sql} AND c.rowid<? ORDER BY c.rowid DESC LIMIT 51`)
+    .bind(kind,...scope.params,numeric(url.searchParams.get('cursor'),Number.MAX_SAFE_INTEGER)).all()).results;
   const items=rows.slice(0,50);return advisorJSON({items,nextCursor:rows.length>50?String(items.at(-1).cursor):null});
 }
 
@@ -169,7 +172,7 @@ export async function handleAdvisorFinance(env,request,context){
     return new Response(file.body,{headers:{'Content-Type':row.mime,'Content-Disposition':'attachment','Cache-Control':'no-store'}});
   }
   if(request.method==='GET'&&route==='/invoice-pdf'){
-    const row=await env.DB.prepare(`SELECT a.id,a.hash FROM invoice_documents d JOIN orders o ON o.id=d.order_id
+    const row=await env.DB.prepare(`SELECT a.id,a.hash FROM invoice_document_history d JOIN orders o ON o.id=d.order_id
       JOIN assets a ON a.id=d.asset_id AND a.order_id=o.id AND a.kind='invoice'
       WHERE o.id=? AND d.invoice_id=? AND o.synthetic=0`).bind(url.searchParams.get('orderId')??'',url.searchParams.get('invoiceId')??'').first();
     need(row,'Rechnungsoriginal ist noch nicht im Panel archiviert. Bitte den Betreiber um Abruf bitten.',404);
