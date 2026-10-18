@@ -4,8 +4,8 @@ import {randomBytes,randomUUID} from 'node:crypto';
 import {browserFixture,origin,owner,customer} from './harness.mjs';
 import {digest} from '../server/auth.mjs';
 
-test('owner manually manages accountant access with visible one-time link and immediate revocation',async t=>{
-  const f=await browserFixture(t),{page}=f;await page.goto(origin+'/kanzlei');
+for(const viewport of [{width:1280,height:850},{width:390,height:844}])test(`owner manually manages accountant access at ${viewport.width}x${viewport.height}`,async t=>{
+  const f=await browserFixture(t,{viewport}),{page}=f;await page.goto(origin+'/kanzlei');
   await page.getByLabel('Kanzleiname').fill('Musterkanzlei · Testdaten');
   await page.getByLabel('Persönliche E-Mail-Adresse',{exact:true}).fill('kanzlei@example.invalid');
   await page.getByRole('button',{name:'Zugang und Einrichtungslink erstellen'}).click();
@@ -13,7 +13,10 @@ test('owner manually manages accountant access with visible one-time link and im
   assert.match(await page.locator('#activation-result').textContent(),/keine Einladung versendet/);
   // One-time setup credentials are never stored in the screenshot artifact.
   await page.locator('.activation-link').evaluate(el=>el.value='Einrichtungslink · nur synthetische Testdaten');
-  await f.screenshot('steuerberater-verwaltung-desktop');
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal overflow');
+  const linkWidth=await page.locator('.activation-link').evaluate(el=>el.getBoundingClientRect().width);
+  assert.ok(linkWidth>viewport.width*.65,'setup link has enough readable space');
+  await f.screenshot('steuerberater-verwaltung-'+viewport.width);
   page.on('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'Zugang sperren',exact:true}).click();
   await page.getByText('Gesperrt',{exact:true}).waitFor();
   assert.equal((await f.env.DB.prepare('SELECT enabled FROM advisor_accounts').first()).enabled,0);assert.deepEqual(f.errors,[]);
