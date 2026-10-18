@@ -93,7 +93,37 @@ test('DATEV contract: 31 header fields, 125 columns, CRLF, decimal cents, quotin
   const parse=s=>{const fields=[''];let quoted=false;for(let i=0;i<s.length;i++){const c=s[i];if(c==='"'){if(quoted&&s[i+1]==='"'){fields[fields.length-1]+='"';i++;}else quoted=!quoted;}else if(c===';'&&!quoted)fields.push('');else fields[fields.length-1]+=c;}assert.equal(quoted,false);return fields;};
   const lines=csv.split('\r\n');assert.equal(parse(lines[0]).length,31);assert.equal(lines[1].split(';').length,125);assert.equal(parse(lines[2]).length,125);assert.ok(lines[2].startsWith('119,00;"S";"EUR"'));assert.ok(lines[2].includes('"Müller; ""September"""'));assert.equal(lines.at(-1),'');
   assert.throws(()=>windows1252('🚗'),/Zeichen/);assert.throws(()=>datevLine({...line,reference:'RG.1'},config,month),/Belegnummer/);assert.throws(()=>datevLine({...line,tax:'49'},config,month),/BU/);assert.throws(()=>datevLine({...line,text:'bad\nline'},config,month),/Steuerzeichen/);
+  assert.throws(()=>datevLine({...line,text:'=HYPERLINK("https://example.invalid")'},config,month),/Formelzeichen/);
   assert.throws(()=>datevConfig({...config,advisor:'999'}),/Berater/);assert.throws(()=>datevFile(config,'2027-01',[entry],'2027-02-01T00:00:00.000Z'),/Wirtschaftsjahr/);
+});
+
+test('month-end open positions exclude later invoices and later payments, and backdated additions invalidate evidence',async t=>{
+  const f=await fixture(t),old=await f.order(11900,[{id:randomUUID(),amountCents:4000,method:'Überweisung',at:'2026-09-29T12:00:00Z'},{id:randomUUID(),amountCents:7900,method:'Überweisung',at:'2026-10-01T12:00:00Z'}]),future=await f.order();
+  future.invoice.issueDate='2026-10-01';await f.env.DB.prepare('UPDATE orders SET data=?,version=version+1 WHERE id=?').bind(JSON.stringify(future),future.id).run();
+  await f.post('/settings',config);await f.excludeAll();await f.post('/close',{month,complete:true,note:'Stichtag mit Kontoauszug geprüft'});
+  const v=await f.view(),snapshot=await (await f.call('/period?id='+v.view.period.id)).json();assert.equal(snapshot.snapshot.cutoff,'2026-09-30');assert.equal(snapshot.snapshot.invoices.length,1);assert.equal(snapshot.snapshot.invoices[0].orderId,old.id);assert.equal(snapshot.snapshot.invoices[0].paid,4000);assert.equal(snapshot.snapshot.invoices[0].open,7900);
+  old.payments.push({id:randomUUID(),amountCents:100,method:'Überweisung',at:'2026-09-30T12:00:00Z'});await f.env.DB.prepare('UPDATE orders SET data=?,version=version+1 WHERE id=?').bind(JSON.stringify(old),old.id).run();assert.equal((await f.view()).view.period.changed,true);
+});
+test('ambiguous historical cancellation requires an explicit documented month-end balance',async t=>{
+  const f=await fixture(t),o=await f.order();o.invoice.status='canceled';await f.env.DB.prepare('UPDATE orders SET data=?,version=version+1 WHERE id=?').bind(JSON.stringify(o),o.id).run();await f.post('/settings',config);
+  await f.post('/close',{month,complete:true,note:'Historischer Rechnungsstand prüfen'},409);
+  await f.post('/close',{month,complete:true,note:'Historischer Rechnungsstand geprüft',openItems:[{orderId:o.id,invoiceId:o.invoice.id,open:11900,note:'Kontoauszug und Storno erst im Oktober belegt'}]});
+  const view=await f.view();assert.equal(view.view.positions.items[0].open,11900);assert.equal(view.view.positions.items[0].manual,true);assert.equal(view.view.period.changed,false);
+});
+for(const exported of [false,true])test('DATEV profile correction closes and exports safely '+(exported?'after':'before')+' first export',async t=>{
+  const f=await fixture(t),b=await f.bank();await f.post('/settings',config);await f.post('/reconcile',{...sourceInput(b),amount:11900,note:'Kontoauszug vollständig geprüft'});await f.post('/resolve',{month,...sourceInput(b),kind:'post',lines:[line],note:'Ursprüngliche Kontierung bestätigt'});
+  const resolution=(await f.view()).view.items[0].resolution.id;
+  if(exported){await f.post('/close',{month,complete:true,note:'Erster Monatsabschluss bestätigt'});await f.post('/export',{month});await f.post('/reopen',{month,note:'Mandantendaten müssen korrigiert werden'});}
+  await f.post('/settings',{...config,client:'8',chart:'04'});await f.post('/reverse',{resolutionId:resolution,note:'Falsches DATEV-Profil korrigieren'});await f.post('/resolve',{month,...sourceInput(b),kind:'post',lines:[{...line,account:'1800'}],note:'Korrigiertes DATEV-Profil bestätigt'});await f.post('/close',{month,complete:true,note:'Korrigierter Monatsabschluss bestätigt'});
+  const result=await f.post('/export',{month});assert.equal(result.ids.length,exported?2:1);
+  const files=await Promise.all(result.ids.map(async id=>new TextDecoder('windows-1252').decode(await (await f.call('/download?id='+id)).arrayBuffer())));
+  assert.ok(files.some(f=>f.split('\r\n')[0].includes(';1001;8;')));
+  if(exported){assert.ok(files.some(f=>f.split('\r\n')[0].includes(';1001;7;')));assert.equal((await f.env.DB.prepare('SELECT count(*) n FROM book_export_entries').first()).n,3);}else assert.equal((await f.env.DB.prepare('SELECT count(*) n FROM book_export_entries').first()).n,1,'unexported canceled pairs stay only in the journal');
+});
+test('a changed bank classification invalidates an already closed period',async t=>{
+  const f=await fixture(t),b=await f.bank();await f.post('/settings',config);await f.excludeAll();await f.post('/close',{month,complete:true,note:'Abschluss mit bisheriger Einordnung'});
+  await f.env.DB.prepare('INSERT INTO accounting_bank_classifications VALUES(?,?,?,?,?,?,?,?)').bind(randomUUID(),b.revision,1,'OTHER_INCOME',null,'Nach Abschluss anders eingeordnet','2026-10-18T10:00:00Z','owner').run();
+  const v=await f.view();assert.equal(v.view.period.changed,true);assert.equal(v.view.items[0].classification.category,'OTHER_INCOME');await f.post('/export',{month},409);
 });
 
 test('monthly completeness includes receipts beyond the legacy 200-row inbox and pending proposals on old bank revisions',async t=>{

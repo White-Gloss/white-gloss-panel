@@ -16,7 +16,8 @@ function orderUpdate(env,order,at,action){return statement(env,'UPDATE orders SE
 function sourceFor(data,input){const source=data.sources.find(s=>s.key===input.sourceKey);need(source,'Quelle nicht gefunden.',404);need(source.hash===input.sourceHash,'Quelle wurde geändert. Bitte neu laden.',409);return source;}
 function configurationFor(data,month){const c=datevConfig(data.settings??{});need(fiscalContains(c,month+'-01'),'Wirtschaftsjahr für diesen Monat in DATEV-Einstellungen hinterlegen.',409);return c;}
 const profile=c=>({advisor:c.advisor,client:c.client,chart:c.chart,length:c.length,yearStart:c.yearStart});
-function validateEntries(entries,config,month){for(const e of entries){datevLine(e.data,config,month);need(JSON.stringify(e.data.profile)===JSON.stringify(profile(config)),'Kontenrahmen oder Mandat einer Buchung passen nicht zu den DATEV-Einstellungen. Erst stornieren und neu freigeben.',409);}}
+function validateEntries(entries,config,month,exported){const reversed=new Set(entries.filter(e=>e.reversal_of).map(e=>e.reversal_of));for(const e of entries){const own=datevConfig({...e.data.profile,locked:config.locked});datevLine(e.data,own,month);if(!e.reversal_of&&!reversed.has(e.id)&&!exported.has(e.id))need(JSON.stringify(e.data.profile)===JSON.stringify(profile(config)),'Aktive Buchung passt nicht zum DATEV-Profil. Erst stornieren und neu freigeben.',409);}}
+function exportEntries(entries,exported){const reversed=new Map(entries.filter(e=>e.reversal_of).map(e=>[e.reversal_of,e.id]));return entries.filter(e=>!exported.has(e.id)&&!(reversed.has(e.id)&&!exported.has(reversed.get(e.id)))&&!(e.reversal_of&&!exported.has(e.reversal_of)));}
 async function reconcile(env,data,input){
   const s=sourceFor(data,input);need(s.kind==='bank'&&s.status==='completed'&&s.currency==='EUR'&&s.date,'Nur gebuchte EUR-Umsätze mit Datum können abgeglichen werden.',409);
   const month=s.date.slice(0,7);openMonth(data,month);
@@ -65,20 +66,22 @@ async function reverse(env,data,input){
 }
 async function closeMonth(env,data,input){
   const month=input.month;openMonth(data,month);need(month<day(new Date().toISOString()).slice(0,7),'Ein Monat kann erst nach seinem letzten Tag abgeschlossen werden.',409);
-  const view=monthView(data,month),config=configurationFor(data,month);need(view.problems.length===0,'Offene Punkte zuerst klären: '+view.problems.slice(0,3).join(' · '),409);validateEntries(view.entries,config,month);
+  const view=monthView(data,month),config=configurationFor(data,month);need(view.problems.length===0,'Offene Punkte zuerst klären: '+view.problems.slice(0,3).join(' · '),409);validateEntries(view.entries,config,month,data.exported);
   need(input.complete===true,'Vollständigkeit von Kontoauszügen, Bar-/Kartenzahlungen und Belegen ausdrücklich bestätigen.');const note=reason(input.note);
-  const snapshot=JSON.stringify({fingerprint:view.fingerprint,evidence:view.evidence,settings:config,entries:view.entries,invoices:data.invoices.map(i=>({orderId:i.orderId,number:i.number,total:i.total,paid:i.paid,open:i.open})),complete:true,note,at:new Date().toISOString()});
+  const invoices=view.positions.items.map(i=>{if(!i.uncertain)return i;const override=input.openItems?.find(p=>p.orderId===i.orderId&&p.invoiceId===i.invoiceId);need(override&&Number.isSafeInteger(override.open)&&override.open>=-100000000&&override.open<=i.total,'Historischen offenen Betrag zum Monatsende manuell nachweisen.',409);return {...i,open:Math.max(0,override.open),paid:i.total-override.open,credit:Math.max(0,-override.open),uncertain:false,manual:true,reviewNote:reason(override.note)};});
+  const snapshot=JSON.stringify({fingerprint:view.fingerprint,evidence:view.evidence,settings:config,entries:view.entries,invoices,cutoff:view.positions.cutoff,complete:true,note,at:new Date().toISOString()});
   return commit(env,data,'close',note,id=>[statement(env,"INSERT INTO book_periods(command_id,month,kind,snapshot,sha256) VALUES(?,?,'close',?,?)",id,month,snapshot,hash(snapshot))]);
 }
 async function exportMonth(env,data,input){
   const view=monthView(data,input.month),period=lastPeriod(data,input.month);need(period?.kind==='close'&&!view.period.changed,'Monat zuerst abschließen. Nachträgliche Änderungen müssen erneut geprüft werden.',409);
-  const existing=data.exports.find(e=>e.period_id===period.id);if(existing)return advisorJSON({ok:true,id:existing.id});
-  const snapshot=JSON.parse(period.snapshot),entries=snapshot.entries.filter(e=>!data.exported.has(e.id));need(entries.length,'Für diesen Abschluss gibt es keine neuen Buchungszeilen.',409);
-  const at=new Date().toISOString(),bytes=datevFile(snapshot.settings,input.month,entries,at),id=randomUUID(),filename='EXTF_WhiteGloss_'+input.month+'_'+id.slice(0,8)+'.csv';
-  const response=await commit(env,data,'export','DATEV-Stapel für Abschluss '+period.id,command=>[
-    statement(env,'INSERT INTO book_exports VALUES(?,?,?,?,?,?,?,?)',id,command,period.id,input.month,filename,bytes.toString('base64'),hash(bytes),entries.length),
-    ...entries.map(e=>statement(env,'INSERT INTO book_export_entries VALUES(?,?)',e.id,id))
-  ]);need(response.ok,'Export konnte nicht gespeichert werden.',500);return advisorJSON({ok:true,id});
+  const existing=data.exports.filter(e=>e.period_id===period.id);if(existing.length)return advisorJSON({ok:true,id:existing[0].id,ids:existing.map(e=>e.id)});
+  const snapshot=JSON.parse(period.snapshot),entries=exportEntries(snapshot.entries,data.exported);need(entries.length,'Keine neuen Buchungen: nicht exportierte Original-/Stornopaare bleiben nur im Journal.',409);
+  const groups=new Map();for(const e of entries){const key=JSON.stringify(e.data.profile);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(e);}
+  const at=new Date().toISOString(),files=[...groups].map(([key,group])=>{const config={...JSON.parse(key),locked:snapshot.settings.locked},id=randomUUID(),bytes=datevFile(config,input.month,group,at);return {id,bytes,entries:group,profileHash:hash(key),filename:'EXTF_WhiteGloss_'+input.month+'_'+config.advisor+'_'+config.client+'_'+config.chart+'_'+id.slice(0,8)+'.csv'};});
+  const response=await commit(env,data,'export','DATEV-Stapel für Abschluss '+period.id,command=>files.flatMap(file=>[
+    statement(env,'INSERT INTO book_exports VALUES(?,?,?,?,?,?,?,?,?)',file.id,command,period.id,input.month,file.filename,file.bytes.toString('base64'),hash(file.bytes),file.entries.length,file.profileHash),
+    ...file.entries.map(e=>statement(env,'INSERT INTO book_export_entries VALUES(?,?)',e.id,file.id))
+  ]));need(response.ok,'Export konnte nicht gespeichert werden.',500);return advisorJSON({ok:true,id:files[0].id,ids:files.map(f=>f.id)});
 }
 export async function handleBookkeeping(env,request){
   const url=new URL(request.url),path=url.pathname;if(path!=='/buchhaltung'&&path!=='/api/books'&&!path.startsWith('/api/books/'))return null;

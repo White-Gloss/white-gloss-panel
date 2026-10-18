@@ -22,7 +22,7 @@ export function datevLine(input,config,month){
   need(/^\d{0,2}$/.test(line.tax)&&!['49'].includes(line.tax),'Nur einfache BU-Schlüssel 1–99 (außer 49) oder leer verwenden. Sonderfälle mit der Kanzlei klären.');
   need(validDay(line.date)&&line.date.startsWith(month+'-')&&fiscalContains(config,line.date),'Buchungsdatum liegt außerhalb von Monat oder Wirtschaftsjahr.');
   need(/^[A-Za-z0-9_$&%*+\-/]{1,36}$/.test(line.reference),'Belegnummer: 1–36 Zeichen, Buchstaben/Ziffern oder _ $ & % * + - /.');
-  datevText(line.text,60,'Buchungstext',true);return line;
+  datevText(line.text,60,'Buchungstext',true);need(!/^\s*[=+@-]/.test(line.text),'Buchungstext darf nicht mit einem Tabellen-Formelzeichen beginnen.');return line;
 }
 export const DATEV_COLUMNS=[
   'Umsatz (ohne Soll/Haben-Kz)','Soll/Haben-Kennzeichen','WKZ Umsatz','Kurs','Basis-Umsatz','WKZ Basis-Umsatz','Konto','Gegenkonto (ohne BU-Schlüssel)','BU-Schlüssel','Belegdatum','Belegfeld 1','Belegfeld 2','Skonto','Buchungstext','Postensperre','Diverse Adressnummer','Geschäftspartnerbank','Sachverhalt','Zinssperre','Beleglink',

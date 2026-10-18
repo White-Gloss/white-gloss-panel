@@ -13,7 +13,7 @@ export async function bookData(env){
     const version=await token(env);
     const orders=await rows(env,'SELECT * FROM orders WHERE synthetic=0 ORDER BY id');
     const documents=await rows(env,`SELECT d.*,c.version,c.amount_minor,c.document_date,c.partner,c.category,c.payment_path FROM accounting_documents d LEFT JOIN accounting_classifications c ON c.id=(SELECT id FROM accounting_classifications WHERE document_id=d.id ORDER BY version DESC LIMIT 1) WHERE d.synthetic=0 ORDER BY d.id`);
-    const bank=await rows(env,`SELECT * FROM accounting_bank_revisions WHERE revision_id IN (SELECT max(revision_id) FROM accounting_bank_revisions GROUP BY organization_id,account_iban,provider_id) ORDER BY revision_id`);
+    const bank=await rows(env,`SELECT r.*,c.version AS classification_version,c.category,c.document_id,c.note AS classification_note FROM accounting_bank_revisions r LEFT JOIN accounting_bank_classifications c ON c.id=(SELECT id FROM accounting_bank_classifications WHERE bank_revision_id=r.revision_id ORDER BY version DESC LIMIT 1) WHERE r.revision_id IN (SELECT max(revision_id) FROM accounting_bank_revisions GROUP BY organization_id,account_iban,provider_id) ORDER BY r.revision_id`);
     const resolutions=await rows(env,'SELECT * FROM book_resolutions ORDER BY id');
     const entries=(await rows(env,'SELECT * FROM book_entries ORDER BY rowid')).map(r=>({...r,data:JSON.parse(r.data)}));
     const matches=await rows(env,'SELECT m.* FROM book_matches m WHERE NOT EXISTS(SELECT 1 FROM book_match_reversals r WHERE r.match_id=m.id) ORDER BY m.id');
@@ -26,7 +26,7 @@ export async function bookData(env){
     const sources=[],invoices=[],orderMap=new Map();
     function add(value){sources.push({...value,hash:hash(value)});}
     for(const r of documents)add({key:'document:'+r.id,kind:'document',id:r.id,label:r.filename,date:r.document_date??day(r.received_at),amount:r.amount_minor,currency:'EUR',missing:!r.document_date||!r.amount_minor,revision:r.version??0,original:r.sha256,category:r.category,paymentPath:r.payment_path});
-    for(const r of bank){const date=day(r.settled_at);add({key:bankKey(r),kind:'bank',id:String(r.revision_id),label:r.label+' · '+r.reference,date,amount:r.amount_minor,currency:r.currency,side:r.side,status:r.status,revision:r.revision_id,account:r.account_iban,missing:r.status==='completed'&&!date});}
+    for(const r of bank){const date=day(r.settled_at);add({key:bankKey(r),kind:'bank',id:String(r.revision_id),label:r.label+' · '+r.reference,date,amount:r.amount_minor,currency:r.currency,side:r.side,status:r.status,revision:r.revision_id,account:r.account_iban,classification:r.classification_version?{version:r.classification_version,category:r.category,documentId:r.document_id,note:r.classification_note}:null,missing:r.status==='completed'&&!date});}
     for(const row of orders){
       const o={...JSON.parse(row.data),id:row.id,wg:row.wg,version:row.version,status:row.status};orderMap.set(o.id,o);
       const all=[...(o.invoiceHistory??[]),...(o.invoice?[o.invoice]:[])],seen=new Set();
@@ -43,6 +43,25 @@ export async function bookData(env){
 export function lastResolution(data,key){return data.resolutions.filter(r=>r.source_key===key).at(-1);}
 export function lastPeriod(data,month){return data.periods.filter(p=>p.month===month).at(-1);}
 export function openMonth(data,month){need(monthValid(month),'Monat ungültig.');need(lastPeriod(data,month)?.kind!=='close','Monat ist abgeschlossen. Für eine Korrektur zuerst mit Begründung wieder öffnen.',409);}
+export function openPositions(data,month){
+  const end=new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5)),0)).toISOString().slice(0,10),items=[];
+  for(const o of data.orders.values()){
+    const invoices=[...new Map([...(o.invoiceHistory??[]),...(o.invoice?[o.invoice]:[])].map(i=>[i.id,i])).values()].filter(i=>validDay(i.issueDate)&&i.issueDate<=end).sort((a,b)=>a.issueDate.localeCompare(b.issueDate));
+    const i=invoices.at(-1);if(!i)continue;
+    const canceled=['canceled','cancelled','void','voided'].includes(i.status),canceledDay=day(i.canceledAt??i.cancelledAt);
+    if(canceled&&canceledDay&&canceledDay<=end)continue;
+    let paid=0,corrected=false;for(const payment of o.payments??[]){
+      // paymentEdit records the previous snapshot at each change. Reconstruct
+      // the value before later corrections, then apply the payment's value date.
+      const previous=(payment.history??[]).filter(h=>day(h.changedAt)>end).sort((a,b)=>a.changedAt.localeCompare(b.changedAt))[0],p=previous??payment;
+      if(previous&&JSON.stringify([previous.amountCents,previous.at,previous.cancelledAt??null])!==JSON.stringify([payment.amountCents,payment.at,payment.cancelledAt??null])&&(day(previous.at)<=end||day(payment.at)<=end))corrected=true;
+      if(day(p.at)&&day(p.at)<=end&&(!p.cancelledAt||day(p.cancelledAt)>end))paid+=p.amountCents;
+    }
+    const uncertain=canceled&&!canceledDay||corrected;
+    items.push({orderId:o.id,invoiceId:i.id,number:i.number??o.wg,issueDate:i.issueDate,total:i.totalCents,paid:uncertain?null:paid,open:uncertain?null:Math.max(0,i.totalCents-paid),credit:uncertain?null:Math.max(0,paid-i.totalCents),uncertain,reason:uncertain?(corrected?'Zahlung nach dem Stichtag korrigiert. Offenen Betrag zum Stichtag manuell nachweisen.':'Historischer Storno ohne belegten Zeitpunkt. Offenen Betrag zum Stichtag manuell nachweisen.'):null});
+  }
+  return {cutoff:end,items};
+}
 export function monthView(data,month){
   need(monthValid(month),'Monat ungültig.');const sources=data.sources.filter(s=>s.date?.startsWith(month+'-')||s.missing&&!s.date||data.matches.some(m=>m.month===month&&m.bank_key===s.key)||(lastResolution(data,s.key)?.month===month&&lastResolution(data,s.key)?.kind==='post'));
   const problems=[],items=[];for(const s of sources){
@@ -64,7 +83,9 @@ export function monthView(data,month){
   }
   for(const m of data.matches.filter(m=>m.month===month)){const s=data.sources.find(s=>s.key===m.bank_key);if(!s||s.revision!==m.bank_revision||s.status!=='completed')problems.push('Bankzuordnung '+m.id+': Anbieterstand geändert.');}
   const entries=data.entries.filter(e=>e.month===month),period=lastPeriod(data,month);
-  const evidence={month,sources:items.map(s=>({key:s.key,hash:s.hash,resolution:s.resolution?.id??null})),entries:entries.map(e=>e.id),matches:data.matches.filter(m=>m.month===month).map(m=>m.id).sort(),problems};
+  const positions=openPositions(data,month);
+  const evidence={month,sources:items.map(s=>({key:s.key,hash:s.hash,resolution:s.resolution?.id??null})),entries:entries.map(e=>e.id),matches:data.matches.filter(m=>m.month===month).map(m=>m.id).sort(),positions,problems};
   const fingerprint=hash(evidence),changed=period?.kind==='close'&&JSON.parse(period.snapshot).fingerprint!==fingerprint;
-  return {month,items,problems,entries,period:period?{id:period.id,kind:period.kind,sha256:period.sha256,changed}:null,fingerprint,evidence,exports:data.exports.filter(e=>e.month===month)};
+  const displayPositions=period?.kind==='close'&&!changed?{...positions,items:JSON.parse(period.snapshot).invoices.map(i=>({...i,uncertain:false}))}:positions;
+  return {month,items,problems,entries,positions:displayPositions,period:period?{id:period.id,kind:period.kind,sha256:period.sha256,changed}:null,fingerprint,evidence,exports:data.exports.filter(e=>e.month===month)};
 }
