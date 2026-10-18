@@ -21,7 +21,9 @@ export async function browserFixture(t,{viewport={width:1280,height:720},identit
     const request=route.request(),url=new URL(request.url());
     if(url.origin!==origin){errors.push('Unexpected external browser request: '+url.origin);await route.abort();return;}
     try{
-      const headers=new Headers(await request.allHeaders());headers.set('cookie','__Host-wg-session='+raw);
+      const headers=new Headers(await request.allHeaders());
+      const otherCookies=(headers.get('cookie')??'').split(';').map(x=>x.trim()).filter(x=>x&&!x.startsWith('__Host-wg-session='));
+      headers.set('cookie',[...otherCookies,'__Host-wg-session='+raw].join('; '));
       if(!['GET','HEAD'].includes(request.method()))headers.set('origin',origin);
       // Avoid long-polling against a fixture which has no background process.
       if(url.searchParams.has('wait'))url.searchParams.set('wait','0');

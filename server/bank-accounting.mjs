@@ -5,8 +5,8 @@ import {AppError,need,text} from '../src/domain.mjs';
 import {qontoAccess,qontoJSON,uuid} from './qonto.mjs';
 
 const ROOT='/api/accounting/bank';
-const CREDIT=['UNCLEAR','SERVICE_B2C','SERVICE_B2B','PRIVATE_CONTRIBUTION','TAX_REFUND','TRANSFER_IN','OTHER_INCOME'];
-const DEBIT=['UNCLEAR','OPERATING_EXPENSE','PRIVATE_WITHDRAWAL','TAX_PAYMENT','TRANSFER_OUT','CARD_FEE','OTHER_OUTGOING'];
+export const CREDIT=['UNCLEAR','SERVICE_B2C','SERVICE_B2B','PRIVATE_CONTRIBUTION','TAX_REFUND','TRANSFER_IN','OTHER_INCOME'];
+export const DEBIT=['UNCLEAR','OPERATING_EXPENSE','PRIVATE_WITHDRAWAL','TAX_PAYMENT','TRANSFER_OUT','CARD_FEE','OTHER_OUTGOING'];
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const digest=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const validISO=value=>typeof value==='string'&&Number.isFinite(Date.parse(value))&&value.length<=40;

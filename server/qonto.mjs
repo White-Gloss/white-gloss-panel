@@ -196,6 +196,12 @@ export async function qontoSchema(env) {
       // Gleiche Struktur wie der bisherige Rechnungsvorgang; vorhandene Einträge bleiben erhalten.
       "CREATE TABLE IF NOT EXISTS invoice_claims(order_id TEXT PRIMARY KEY,provider TEXT NOT NULL,job_id TEXT,marker TEXT NOT NULL,org_id TEXT NOT NULL,client_id TEXT,payload TEXT,payload_hash TEXT,provider_id TEXT,stage TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(org_id,provider_id))",
       "CREATE TABLE IF NOT EXISTS invoice_documents(order_id TEXT PRIMARY KEY,invoice_id TEXT NOT NULL,asset_id TEXT NOT NULL,created_at TEXT NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS invoice_document_history(order_id TEXT NOT NULL,invoice_id TEXT NOT NULL,asset_id TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(order_id,invoice_id))",
+      "INSERT OR IGNORE INTO invoice_document_history SELECT order_id,invoice_id,asset_id,created_at FROM invoice_documents",
+      "CREATE TRIGGER IF NOT EXISTS preserve_invoice_document_insert AFTER INSERT ON invoice_documents BEGIN INSERT OR IGNORE INTO invoice_document_history VALUES(NEW.order_id,NEW.invoice_id,NEW.asset_id,NEW.created_at); END",
+      "CREATE TRIGGER IF NOT EXISTS preserve_invoice_document_delete BEFORE DELETE ON invoice_documents BEGIN INSERT OR IGNORE INTO invoice_document_history VALUES(OLD.order_id,OLD.invoice_id,OLD.asset_id,OLD.created_at); END",
+      "CREATE TRIGGER IF NOT EXISTS no_invoice_document_history_update BEFORE UPDATE ON invoice_document_history BEGIN SELECT RAISE(ABORT,'Rechnungsarchiv ist unveränderlich'); END",
+      "CREATE TRIGGER IF NOT EXISTS no_invoice_document_history_delete BEFORE DELETE ON invoice_document_history BEGIN SELECT RAISE(ABORT,'Rechnungsarchiv wird nicht gelöscht'); END",
       "CREATE TABLE IF NOT EXISTS invoice_deliveries(job_id TEXT PRIMARY KEY,order_id TEXT NOT NULL,kind TEXT NOT NULL,recipient TEXT NOT NULL,copy_to TEXT NOT NULL,processing_until INTEGER NOT NULL DEFAULT 0,lease_owner TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,UNIQUE(order_id,kind))",
       "CREATE TABLE IF NOT EXISTS invoice_tokens(hash TEXT PRIMARY KEY,order_id TEXT NOT NULL,expires_at TEXT NOT NULL,revoked INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL)",
       "CREATE TABLE IF NOT EXISTS invoice_checks(order_id TEXT PRIMARY KEY,checked_at TEXT NOT NULL,error TEXT)",

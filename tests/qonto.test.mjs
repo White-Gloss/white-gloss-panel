@@ -727,6 +727,8 @@ test("after a cancellation in Qonto a new invoice is issued with a continued num
   const qonto = providers(t);
   const first = await qontoInvoice(env, order, newClientInput());
   assert.equal(qonto.mails.length, 1);
+  const originalPDF = await env.DB.prepare('SELECT asset_id FROM invoice_documents WHERE order_id=?').bind(order.id).first();
+  assert.ok(originalPDF?.asset_id, 'first invoice original has been archived');
   qonto.invoices[0].status = "canceled";
   const canceled = await syncQontoInvoice(env, first.order);
   assert.equal(canceled.invoice.status, "canceled");
@@ -752,6 +754,9 @@ test("after a cancellation in Qonto a new invoice is issued with a continued num
   const info = await invoiceInfo(env, second.order);
   assert.deepEqual(info.deliveries.map((row) => row.kind), ["invoice"]);
   assert.match(qonto.invoices[1].footer, /Verwendungszweck: WG-000123-2/);
+  const historicalPDF = await env.DB.prepare('SELECT asset_id FROM invoice_document_history WHERE order_id=? AND invoice_id=?').bind(order.id, first.order.invoice.id).first();
+  assert.equal(historicalPDF.asset_id, originalPDF.asset_id, 'reissue preserves the original invoice-to-file mapping');
+  assert.ok(await env.BUCKET.get(historicalPDF.asset_id), 'old original bytes remain available');
 });
 
 test("customer portal and reminders use the issued invoice snapshot even if the offer changes later", async (t) => {
