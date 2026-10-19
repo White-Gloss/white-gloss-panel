@@ -27,6 +27,18 @@ test('booked photos are copied once, and saved photos survive a temporary source
   t.mock.method(globalThis,'fetch',async url=>{if(String(url)==='https://white-gloss.de/api/hub'){if(fail)return new Response('',{status:503});return Response.json({photos:[{name:'Testbild',mime:'image/png',url:'https://test.supabase.co/storage/v1/object/sign/bookings/100/test.png?token=synthetic'}]});}downloads++;return new Response(new Uint8Array([137,80,1,2]),{headers:{'content-type':'image/png'}});});
   await syncBookingPhotos(env,order);await syncBookingPhotos(env,order);assert.equal(downloads,1);fail=true;const result=await bookingPhotos(env,order.id,true);assert.equal(result.photos.length,1);assert.match(result.photos[0].url,/^\/api\/asset\//);assert.ok(result.warning);assert.ok(!JSON.stringify(result.photos).includes('token='));
 });
+test('restricted website orders do not starve booking photo imports',async t=>{
+  const order={...completed(),source:{...completed().source,id:'103'}},env=await fixture(t,order);
+  for(const [id,status,restriction] of [['blocked-photo-order','Erledigt','blocked'],['cancelled-photo-order','Storniert',null]]){
+    const restricted={...completed(),id,status,source:{...completed().source,id:id==='blocked-photo-order'?'101':'102'},...(restriction?{recordsRestriction:{status:restriction}}:{})};
+    await env.DB.prepare('INSERT INTO orders VALUES(?,?,?,?,?,?,?,?,?,?)').bind(id,id,restricted.source.id,1,status,JSON.stringify(restricted),'2020-01-01T00:00:00.000Z','test','Test fixture',0).run();
+  }
+  for(const [key,value] of Object.entries({hubVerified:true,autoImportApproved:true}))await setting(env,key,value);await setting(env,'hubKey',await protect(env,'synthetic-hub'));
+  t.mock.method(globalThis,'fetch',async(_url,options)=>JSON.parse(options.body).action==='list'?Response.json({inquiries:[]}):Response.json({photos:[]}));
+  await providerOperations.background(env);
+  assert.ok(await env.DB.prepare('SELECT order_id FROM booking_photo_checks WHERE order_id=?').bind(order.id).first());
+  assert.equal((await env.DB.prepare('SELECT COUNT(*) count FROM booking_photo_checks').first()).count,1);
+});
 async function connectedCalendar(env){for(const [key,value] of Object.entries({calendarOAuth:true,calendarVerified:true,calendarId:'test@example.invalid',calendarExpiresAt:Date.now()+3600000}))await setting(env,key,value);await setting(env,'calendarToken',await protect(env,'synthetic-access'));await setting(env,'calendarRefreshToken',await protect(env,'synthetic-refresh'));}
 function appointmentOrder(){return {...completed(),status:'Termin verbindlich',acceptance:{at:'2026-10-03T10:00:00Z'},appointment:{start:'2099-10-03T10:00:00Z',end:'2099-10-03T12:00:00Z',location:'Testort'}};}
 test('Google busy times include recurrent and all-day events and reject overlaps before writes',async t=>{
