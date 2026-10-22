@@ -29,6 +29,14 @@ IONOS-Paneldienst. Den aktuellen Hauptbranch und aktiven Serverstand vor jedem
 Release prüfen. Fehlt der technische Serverzugang, den konkreten Blocker melden;
 ein Commit, Releasepaket oder grüner Testlauf gilt weiterhin nicht als Deployment.
 
+Stand 22.10.2026: Website und Panel laufen auf dem Hostinger-VPS, der alte
+IONOS-Server bleibt nur als Rückfall. Der automatische IONOS-Release ist
+abgeschaltet, weil er den alten Server träfe. Einen Hostinger-Releaseweg gibt es
+erst, wenn er auf dem Server getestet und in `docs/Hostinger-Umzug.md` als
+funktionierend nachgewiesen ist. Bis dahin keine Veröffentlichung behaupten und
+keinen Serverstand ohne ausdrückliche Betreiberfreigabe ändern. Die Freigabe vom
+18.10.2026 umfasste den IONOS-Paneldienst und gilt nicht automatisch für Hostinger.
+
 Zugangsschlüssel, OAuth-Geheimnisse, Kundendaten, Datenbankdateien, Fotos,
 Unterschriften, Backups und Umgebungsdateien nicht committen oder in Ausgaben
 offenlegen. Laufzeitgeheimnisse bleiben außerhalb des Repositorys.

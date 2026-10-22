@@ -8,10 +8,10 @@ laufende Aufträge und Finanzen sowie ein freischaltbarer B2B-Firmenbereich die
 bestehenden Abläufe. Der Finanzbereich besitzt einen ersten Belegeingang und
 manuelle Zuordnungsentwürfe; eine vollständige Buchhaltung ist noch im Aufbau.
 
-Das eigene Panel läuft auf IONOS unter panel.white-gloss.de. Dieses Repository enthält
+Das eigene Panel läuft seit 22.10.2026 auf Hostinger (Details und offene Punkte: [Hostinger-Umzug](docs/Hostinger-Umzug.md)). Der alte IONOS-Server ist nur noch Rückfall. Dieses Repository enthält
 die eigenständige Laufzeit mit Anmeldung, SQLite, privatem Fotospeicher,
 Google-OAuth, Qonto-Rechnungsablauf mit Mahnwesen und Kundenbereich sowie Zeitplänen und den bisherigen privaten Sites-Worker.
-Jede Änderung benötigt einen eigenen geprüften IONOS-Release und einen Live-Nachweis.
+Jede Änderung benötigt einen eigenen geprüften Release und einen Live-Nachweis. Ein automatischer Releaseweg für Hostinger ist noch nicht eingerichtet (siehe Hostinger-Umzug).
 
 - [Eigenes Panel](https://panel.white-gloss.de/)
 - [Bisherige private Sites-Kopie](https://white-gloss-mein-panel.info261616.chatgpt.site/)
