@@ -58,7 +58,9 @@ jobs:
   deploy:
     name: IONOS panel release
     needs: [check, browser]
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    # Seit dem Umzug auf Hostinger (22.10.2026) ist dieser Weg abgeschaltet. Er zielt auf den alten IONOS-Server.
+    # Nur mit der Repository-Variable PANEL_RELEASE_TARGET=ionos wieder aktivierbar (siehe docs/Hostinger-Umzug.md).
+    if: vars.PANEL_RELEASE_TARGET == 'ionos' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
