@@ -47,7 +47,7 @@ test('operator finance section distinguishes a customer receipt from an owner pr
   const ui=await setup(t),id=randomUUID(),org=randomUUID();
   await ui.env.DB.prepare(`INSERT INTO accounting_bank_revisions(organization_id,account_iban,provider_id,sha256,status,side,amount_minor,currency,label,reference,settled_at,provider_updated_at,raw_json,received_at)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(org,'DE89370400440532013000',id,'a'.repeat(64),'completed','credit',10000,'EUR','Privatkunde Muster','WG-4711','2026-10-17T11:00:00.000Z','2026-10-17T11:00:00.000Z','{}','2026-10-17T11:00:00.000Z').run();
-  await ui.click('.sidebar [data-view="finance"]');const form=ui.$('[data-bank-classify]');assert.ok(form);assert.match(ui.$('.accounting-bank-row').textContent,/100,00\s*€/);
+  await ui.click('.sidebar [data-view="finance"]');const form=ui.$('[data-bank-classify]');assert.ok(form);assert.match(ui.$('.accounting-bank-row').textContent,/100,00\s*€/);assert.match(ui.$('.accounting-bank-row').textContent,/Gebucht/);
   assert.match(form.elements.category.textContent,/Dienstleistung · Privatkunde/);assert.match(form.elements.category.textContent,/Privateinlage des Inhabers/);
   form.elements.category.value='SERVICE_B2C';form.elements.note.value='Kundenleistung';form.requestSubmit();await ui.settle();
   assert.match(ui.$('.accounting-bank-row summary').textContent,/Dienstleistung · Privatkunde/);
