@@ -8,13 +8,8 @@ const HEALTH = [
 ];
 const CLOSED = ['Bezahlt', 'Abgelehnt', 'Storniert', 'Abgelaufen'];
 const PRIORITY = {'In Arbeit': 0, 'Termin verbindlich': 1, 'Preise prüfen': 2, 'Angebot offen': 3, 'Angenommen': 4};
-const moneyFormat = new Intl.NumberFormat('de-DE', {style: 'currency', currency: 'EUR'});
 const dayFormat = new Intl.DateTimeFormat('sv-SE', {timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit'});
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]));
-const money = cents => moneyFormat.format((cents ?? 0) / 100);
-const billingTotal = order => order.invoice && !['canceled', 'cancelled', 'void', 'voided'].includes(order.invoice.status) && Number.isSafeInteger(order.invoice.totalCents)
-  ? order.invoice.totalCents
-  : (order.invoiceDraft?.totalCents ?? order.offer?.totalCents ?? 0);
 const nextStep = order => {
   if (order.status === 'Angenommen' && order.appointment && !order.appointment.confirmation) return 'Terminbestätigung abwarten';
   return ({
@@ -158,12 +153,12 @@ async function enhance() {
 function schedule() {
   if (scheduled) return;
   scheduled = true;
-  queueMicrotask(() => {
+  window.queueMicrotask(() => {
     scheduled = false;
     request = null;
     void enhance();
   });
 }
-new MutationObserver(schedule).observe(document.documentElement, {childList: true, subtree: true});
+new window.MutationObserver(schedule).observe(document.documentElement, {childList: true, subtree: true});
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', schedule, {once: true});
 else schedule();
