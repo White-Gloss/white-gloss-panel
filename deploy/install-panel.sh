@@ -5,6 +5,19 @@ PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 panel_unit_templates=(white-gloss-panel.service white-gloss-panel-maintenance.service white-gloss-panel-maintenance.timer white-gloss-panel-backup.service white-gloss-panel-backup.timer)
 
+hostinger_target() {
+    local marker=/etc/white-gloss-panel/release-target
+    [[ -f $marker && ! -L $marker && $(stat -c '%u' -- "$marker") == 0 && $(<"$marker") == hostinger ]]
+}
+
+edge_ready() {
+    if hostinger_target; then
+        [[ $(docker inspect --format '{{.State.Running}}' white-gloss-edge 2>/dev/null) == true ]]
+    else
+        systemctl is-active --quiet caddy.service
+    fi
+}
+
 validate_installer_directory() {
     /usr/bin/python3 -I - "$1" install-panel.sh prepare-environment.mjs "${panel_unit_templates[@]}" white-gloss-panel.caddy <<'PY'
 import pathlib,stat,sys
@@ -37,7 +50,9 @@ install_trusted_service_templates() {
     for unit in "${panel_unit_templates[@]}"; do
         install -m 0644 "$installer_directory/$unit" "/etc/systemd/system/$unit" || return "$?"
     done
-    install -m 0644 "$installer_directory/white-gloss-panel.caddy" /etc/caddy/white-gloss-panel.caddy
+    if ! hostinger_target; then
+        install -m 0644 "$installer_directory/white-gloss-panel.caddy" /etc/caddy/white-gloss-panel.caddy
+    fi
 }
 
 prepare_panel_data_directories() {
@@ -122,7 +137,7 @@ finish_install() {
 }
 
 install_panel() {
-[[ $(id -u) == 0 && $(uname -s) == Linux ]] || { echo 'Nur durch den IONOS-Administrator ausführen.' >&2; exit 1; }
+[[ $(id -u) == 0 && $(uname -s) == Linux ]] || { echo 'Nur durch den Serveradministrator ausführen.' >&2; exit 1; }
 [[ $# == 3 ]] || { echo 'Archiv, SHA256 und Git-Commit erforderlich.' >&2; exit 1; }
 installer_directory=$(dirname -- "$(realpath -e -- "${BASH_SOURCE[0]}")")
 validate_installer_directory "$installer_directory"
@@ -140,9 +155,15 @@ staged=/root/white-gloss-panel-staging/white-gloss-panel-$release.tar.gz
 install -m 0600 -o root -g root "$archive" "$staged"
 archive=$staged
 [[ $(sha256sum -- "$archive" | cut -d' ' -f1) == "$archive_hash" ]] || { echo 'Archiv-Prüfsumme stimmt nicht.' >&2; exit 1; }
-[[ -f /etc/caddy/Caddyfile && -f /etc/white-gloss/environment ]] || { echo 'Erwarteter IONOS-Stand fehlt.' >&2; exit 1; }
+[[ -f /etc/white-gloss/environment ]] || { echo 'Erwarteter Hauptwebsite-Stand fehlt.' >&2; exit 1; }
 systemctl is-active --quiet white-gloss.service
-systemctl is-active --quiet caddy.service
+edge_ready || { echo 'Erwarteter Caddy-Reverse-Proxy ist nicht aktiv.' >&2; exit 1; }
+if hostinger_target; then
+    [[ -f /etc/white-gloss-panel/environment ]] || { echo 'Hostinger-Panelumgebung fehlt.' >&2; exit 1; }
+elif [[ ! -f /etc/caddy/Caddyfile ]]; then
+    echo 'Erwarteter IONOS-Caddy-Stand fehlt.' >&2
+    exit 1
+fi
 node_major=$(/usr/bin/node -p 'process.versions.node.split(".")[0]')
 [[ $node_major -ge 22 ]] || { echo 'Node 22 oder neuer erforderlich.' >&2; exit 1; }
 validate_release_archive "$archive"
@@ -169,8 +190,11 @@ fi
 previous=$(readlink -f /srv/white-gloss-panel/current 2>/dev/null || true)
 clear_release_link /srv/white-gloss-panel/current.next
 clear_release_link /srv/white-gloss-panel/current.rollback
-backup=/etc/caddy/Caddyfile.white-gloss-panel.$(date -u +%Y%m%dT%H%M%SZ).bak
-install -m 0600 /etc/caddy/Caddyfile "$backup"
+backup=
+if ! hostinger_target; then
+    backup=/etc/caddy/Caddyfile.white-gloss-panel.$(date -u +%Y%m%dT%H%M%SZ).bak
+    install -m 0600 /etc/caddy/Caddyfile "$backup"
+fi
 timer_units=(white-gloss-panel-maintenance.timer white-gloss-panel-backup.timer)
 timer_was_active=()
 timer_was_enabled=()
@@ -181,7 +205,7 @@ done
 timers_paused=false
 activation_started=false
 rollback() {
-    install -m 0644 "$backup" /etc/caddy/Caddyfile || true
+    if [[ -n $backup ]]; then install -m 0644 "$backup" /etc/caddy/Caddyfile || true; fi
     if [[ $previous == /srv/white-gloss-panel/releases/* ]]; then
         if clear_release_link /srv/white-gloss-panel/current.rollback && ln -s "$previous" /srv/white-gloss-panel/current.rollback; then
             mv -T /srv/white-gloss-panel/current.rollback /srv/white-gloss-panel/current || true
@@ -192,7 +216,7 @@ rollback() {
     else
         systemctl stop white-gloss-panel.service || true
     fi
-    caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1 && systemctl reload caddy.service || true
+    if [[ -n $backup ]]; then caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1 && systemctl reload caddy.service || true; fi
     echo 'Panelaktivierung zurückgesetzt. Hauptwebsite wurde nicht ersetzt.' >&2
 }
 trap 'finish_install "$?"' EXIT
@@ -203,14 +227,16 @@ activation_started=true
 ln -s "$target" /srv/white-gloss-panel/current.next
 mv -T /srv/white-gloss-panel/current.next /srv/white-gloss-panel/current
 install_trusted_service_templates
-/usr/bin/python3 -I - <<'PY'
+if ! hostinger_target; then
+    /usr/bin/python3 -I - <<'PY'
 from pathlib import Path
 path=Path('/etc/caddy/Caddyfile')
 text=path.read_text()
 line='import /etc/caddy/white-gloss-panel.caddy'
 if line not in text.splitlines(): path.write_text(text.rstrip()+'\n\n'+line+'\n')
 PY
-caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1
+    caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1
+fi
 systemctl daemon-reload
 systemctl enable white-gloss-panel.service
 systemctl restart white-gloss-panel.service
@@ -220,10 +246,11 @@ for attempt in {1..10}; do
     sleep 1
 done
 [[ $ready == true ]]
-systemctl reload caddy.service
+if ! hostinger_target; then systemctl reload caddy.service; fi
 systemctl start white-gloss-panel-backup.service
 systemctl enable --now white-gloss-panel-maintenance.timer white-gloss-panel-backup.timer
 systemctl is-active --quiet white-gloss.service
+edge_ready
 trap - EXIT INT TERM
 echo 'Eigener Paneldienst und Timer aktiviert. HTTPS und Anbieterzugänge anschließend live prüfen.'
 }
