@@ -37,6 +37,19 @@ PY
     printf '%s\n' "$commit"
 }
 
+hostinger_target() {
+    root_protected_path /etc/white-gloss-panel/release-target file || return 1
+    [[ $(</etc/white-gloss-panel/release-target) == hostinger ]]
+}
+
+edge_ready() {
+    if hostinger_target; then
+        [[ $(docker inspect --format '{{.State.Running}}' white-gloss-edge 2>/dev/null) == true ]]
+    else
+        systemctl is-active --quiet caddy.service
+    fi
+}
+
 release_status() {
     local commit
     commit=$(current_commit) || return 1
@@ -44,7 +57,7 @@ release_status() {
     systemctl is-active --quiet white-gloss-panel-maintenance.timer || return 1
     systemctl is-active --quiet white-gloss-panel-backup.timer || return 1
     systemctl is-active --quiet white-gloss.service || return 1
-    systemctl is-active --quiet caddy.service || return 1
+    edge_ready || return 1
     printf '%s\n' "$commit"
 }
 
@@ -83,7 +96,7 @@ PY
 }
 
 panel_release() {
-    [[ $(id -u) == 0 && $(uname -s) == Linux ]] || { echo 'Nur durch den IONOS-Administrator ausführen.' >&2; return 1; }
+    [[ $(id -u) == 0 && $(uname -s) == Linux ]] || { echo 'Nur durch den Serveradministrator ausführen.' >&2; return 1; }
     local operation=${1:-} installer=/usr/local/lib/white-gloss-panel/install-panel.sh active
     case "$operation" in
         status) [[ $# == 1 ]] || return 1 ;;
