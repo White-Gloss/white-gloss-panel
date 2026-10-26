@@ -58,7 +58,7 @@ jobs:
   deploy:
     name: IONOS panel release
     needs: [check, browser]
-    if: vars.PANEL_RELEASE_TARGET == 'ionos' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
@@ -68,16 +68,20 @@ jobs:
       group: ionos-panel-production
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - if: vars.PANEL_RELEASE_TARGET == 'ionos'
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - if: vars.PANEL_RELEASE_TARGET == 'ionos'
+        uses: actions/setup-node@v4
         with:
           node-version: '22.23.2'
           cache: npm
-      - run: npm ci
-      - name: Publish separate panel service and verify HTTPS
+      - if: vars.PANEL_RELEASE_TARGET == 'ionos'
+        run: npm ci
+      - if: vars.PANEL_RELEASE_TARGET == 'ionos'
+        name: Publish separate panel service and verify HTTPS
         run: bash scripts/deploy-ionos.sh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -89,7 +93,7 @@ jobs:
     name: Hostinger panel release
     needs: [check, browser]
     # Erst nach dem VPS-Bootstrap und dem Hinterlegen aller Hostinger-Secrets aktivieren.
-    if: vars.PANEL_RELEASE_TARGET == 'hostinger' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
@@ -99,16 +103,20 @@ jobs:
       group: hostinger-panel-production
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - if: vars.PANEL_RELEASE_TARGET == 'hostinger'
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - if: vars.PANEL_RELEASE_TARGET == 'hostinger'
+        uses: actions/setup-node@v4
         with:
           node-version: '22.23.2'
           cache: npm
-      - run: npm ci
-      - name: Publish panel on Hostinger VPS and verify HTTPS
+      - if: vars.PANEL_RELEASE_TARGET == 'hostinger'
+        run: npm ci
+      - if: vars.PANEL_RELEASE_TARGET == 'hostinger'
+        name: Publish panel on Hostinger VPS and verify HTTPS
         run: bash scripts/deploy-hostinger.sh
         env:
           GH_TOKEN: ${{ github.token }}
