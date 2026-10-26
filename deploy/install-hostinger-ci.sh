@@ -30,6 +30,7 @@ for asset in "${assets[@]}" panel-release.sh white-gloss-panel-ci.sudoers; do
 done
 
 id white-gloss-ci >/dev/null 2>&1 || useradd --create-home --shell /bin/bash white-gloss-ci
+install -d -m 0750 -o white-gloss-ci -g white-gloss-ci /home/white-gloss-ci
 install -d -m 0700 -o white-gloss-ci -g white-gloss-ci /home/white-gloss-ci/.ssh
 install -m 0600 -o white-gloss-ci -g white-gloss-ci "$public_key" /home/white-gloss-ci/.ssh/authorized_keys
 install -d -m 0755 -o root -g root /usr/local/lib/white-gloss-panel
