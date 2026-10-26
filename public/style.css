@@ -323,3 +323,62 @@ details>summary{cursor:pointer;min-height:44px;line-height:1.55;padding:10px 0;c
   button,a.button,.sidebar{transition:none}
   html{scroll-behavior:auto}
 }
+
+/* Operative Tagesführung: vorhandene Auftragsdaten, ruhig und ohne Schein-Kennzahlen. */
+.operations-panel{margin:0 0 24px;overflow:hidden;border-color:#d8e0e8}
+.operations-panel .card-title{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);background:linear-gradient(115deg,#fff,#f7f9fb)}
+.operations-panel .card-title h2{margin:5px 0 4px}
+.operations-panel .card-title small{display:block;line-height:1.5}
+.operations-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-bottom:1px solid var(--line);background:#f8fafc}
+.operations-summary>div{min-width:0;padding:18px 20px;border-right:1px solid var(--line)}
+.operations-summary>div:last-child{border-right:0}
+.operations-summary span,.operations-summary small{display:block;color:var(--muted);font-size:10px;line-height:1.5}
+.operations-summary strong{display:block;margin:6px 0 3px;color:var(--ink);font-size:22px;font-weight:600;line-height:1.25;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.operations-summary .attention{box-shadow:inset 0 2px #b48a52;background:#fffaf3}
+.agenda-day h3,.agenda-overdue h3{margin:0;padding:14px 20px 8px;color:#6c7d8e;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;background:#fbfcfd}
+.agenda-overdue{border-bottom:1px solid #ead8d4;background:#fffafa}
+.agenda-overdue h3{color:#965c53;background:#fff7f5}
+.agenda-item{display:grid;grid-template-columns:120px minmax(0,1fr) auto;align-items:center;gap:16px;width:100%;min-height:74px;margin:0;padding:14px 20px;border:0;border-bottom:1px solid #edf0f3;border-left:3px solid #8ba5bb;border-radius:0;background:#fff;text-align:left;box-shadow:none}
+.agenda-item:hover{background:#f6f9fb}
+.agenda-item.followup{border-left-color:#b48a52}
+.agenda-item.invoice{border-left-color:#ad6b61}
+.agenda-item.proposed{border-left-style:dashed}
+.agenda-kind{color:#5d7286;font-size:10px;font-weight:650;letter-spacing:.6px;text-transform:uppercase}
+.agenda-main{min-width:0}
+.agenda-main strong,.agenda-main>span,.agenda-when small{display:block}
+.agenda-main strong{color:var(--ink);font-size:13px;line-height:1.45}
+.agenda-main>span{margin-top:4px;color:var(--muted);font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+.agenda-when{color:#314d68;font-size:12px;text-align:right;white-space:nowrap}
+.agenda-when small{margin-top:5px;color:#7c8c9b;font-size:10px}
+.agenda-empty{padding:28px 20px;text-align:center}
+.agenda-empty strong,.agenda-empty span{display:block}
+.agenda-empty strong{font-size:13px;color:var(--ink)}
+.agenda-empty span{margin-top:7px;color:var(--muted);font-size:12px;line-height:1.55}
+.operations-note{margin:0;padding:12px 20px;color:var(--muted);font-size:10px;line-height:1.55;background:#fbfcfd}
+.operations-panel.compact .agenda-item:last-of-type{border-bottom:0}
+.calendar-month{padding:18px 20px;border:1px solid var(--line);border-radius:14px;background:#fff}
+.calendar-month>summary{min-height:32px;cursor:pointer;color:var(--ink);font-size:14px;font-weight:650}
+.calendar-item{width:100%;text-align:left;font-family:inherit}
+@media(max-width:1000px){
+  .operations-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .operations-summary>div:nth-child(2){border-right:0}
+  .operations-summary>div:nth-child(-n+2){border-bottom:1px solid var(--line)}
+}
+@media(max-width:760px){
+  .operations-panel .card-title{align-items:flex-start;gap:12px}
+  .operations-summary>div{padding:15px}
+  .operations-summary strong{font-size:19px}
+  .agenda-item{grid-template-columns:minmax(0,1fr) auto;gap:7px 12px;padding:15px;min-height:88px}
+  .agenda-kind{grid-column:1;grid-row:1}
+  .agenda-main{grid-column:1/-1;grid-row:2}
+  .agenda-when{grid-column:2;grid-row:1;font-size:11px}
+  .agenda-when small{display:none}
+  .agenda-day h3,.agenda-overdue h3{padding-left:15px}
+  .calendar-month{padding:15px}
+}
+@media(max-width:420px){
+  .operations-panel .card-title{flex-direction:column}
+  .operations-summary{grid-template-columns:1fr 1fr}
+  .operations-summary strong{font-size:17px}
+  .operations-summary span,.operations-summary small{font-size:9px}
+}

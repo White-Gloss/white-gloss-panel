@@ -457,3 +457,19 @@ for(const kind of ['intake','return'])test(`customer page: absent ${kind} displa
   ui.draw(ui.$('#documentSignature'));ui.$('#documentConfirmed').checked=true;await ui.submit('#documentForm');assert.match(ui.text(),/Vielen Dank/);
   const signed=(await getOrder(env,o.id))[kind];assert.equal(signed.operatorSignature,operator);assert.equal(signed.snapshotHash,draft.hash);assert.ok(signed.customerSignature);assert.notEqual(signed.customerSignature,operator);assert.deepEqual(ui.errors,[]);
 });
+
+test('panel: operational agenda links existing appointments, follow-ups and unpaid invoice deadlines',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});await ui.click('[data-click="test"]');await ui.click('[data-click="create"]');
+  ui.fill(ui.$('#createform'),{name:'Agenda Kunde',vehicle:'BMW M4',plate:'HOR-AG 7'});await ui.submit('#createform');
+  const row=await ui.env.DB.prepare('SELECT id FROM orders').first(),current=await getOrder(ui.env,row.id);
+  const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  const yesterday=new Date(Date.parse(today+'T12:00:00Z')-86400000).toISOString().slice(0,10);
+  current.status='Termin verbindlich';current.appointment={start:today+'T12:00:00.000Z',end:today+'T14:00:00.000Z',duration:120,delivery:'Kunde bringt',confirmation:{at:new Date().toISOString(),mode:'Test'}};
+  current.notes=[{at:new Date().toISOString(),kind:'Wiedervorlage',note:'Lackzustand telefonisch besprechen',followUp:today}];
+  current.invoice={provider:'qonto',status:'unpaid',number:'RE-TEST',dueDate:yesterday,totalCents:34900};
+  await saveOrder(ui.env,current,current.version,'Synthetischer Agenda-Test');await ui.click('[data-click="back"]');await ui.click('[data-click="refresh"]');
+  assert.match(ui.$('.operations-panel.compact').textContent,/Jetzt & als Nächstes/);assert.match(ui.$('.operations-panel.compact').textContent,/Lackzustand telefonisch besprechen/);
+  await ui.click('.sidebar [data-view="calendar"]');assert.match(ui.text(),/Deine nächsten 7 Tage/);assert.match(ui.text(),/349,00\s*€/);assert.match(ui.text(),/Rechnungssummen, kein Kontostand/);assert.match(ui.text(),/Keine Kapazitätsaussage/);
+  assert.ok(ui.$('.agenda-item.appointment[data-order]'));assert.ok(ui.$('.agenda-item.followup[data-order]'));assert.ok(ui.$('.calendar-month[open]'));assert.ok(ui.$('.calendar-item[data-order]'));
+  await ui.click('.agenda-item.invoice');assert.match(ui.text(),/Agenda Kunde/);assert.match(ui.text(),/Kunde & Anfrage/);assert.deepEqual(ui.errors,[]);
+});
