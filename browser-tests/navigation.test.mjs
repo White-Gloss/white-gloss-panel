@@ -3,12 +3,7 @@ import assert from 'node:assert/strict';
 import {browserFixture,origin} from './harness.mjs';
 
 for(const viewport of [{width:1366,height:600},{width:1024,height:360}])test(`desktop menu scrolls by wheel and every destination remains reachable at ${viewport.width}x${viewport.height}`,async t=>{
-  const f=await browserFixture(t,{viewport}),{page}=f;await page.goto(origin);
-  try{await page.locator('h1').waitFor();}catch(error){
-    await f.screenshot('navigation-initial-'+viewport.width+'x'+viewport.height,{fullPage:false});
-    const body=await page.locator('body').innerText();
-    throw new Error('Initial panel heading missing; browser errors='+JSON.stringify(f.errors)+'; requests='+JSON.stringify(f.requests)+'; body='+body.slice(0,3000),{cause:error});
-  }
+  const f=await browserFixture(t,{viewport}),{page}=f;await page.goto(origin);await page.locator('h1').waitFor();
   const sidebar=page.locator('.sidebar');
   assert.equal(await sidebar.evaluate(el=>getComputedStyle(el).overflowY),'auto');
   assert.ok(await sidebar.evaluate(el=>el.scrollHeight>el.clientHeight),'short viewport reproduces overflowing navigation');

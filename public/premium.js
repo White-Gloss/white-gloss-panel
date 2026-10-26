@@ -107,6 +107,10 @@ function prepareShell(content) {
 async function enhance() {
   const content = document.querySelector('#content');
   if (!content || content.querySelector(':scope > .premium-hero')) return;
+  // Do not rewrite the heading while an enhancement is already pending: those
+  // writes retrigger the MutationObserver and can starve the browser renderer.
+  const currentStats = content.querySelector(':scope > .stats');
+  if (currentStats && enhancedStats.has(currentStats)) return;
   const shell = prepareShell(content);
   if (!shell) {
     content.classList.remove('premium-overview');
