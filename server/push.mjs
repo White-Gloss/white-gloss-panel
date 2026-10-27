@@ -1,11 +1,11 @@
 // Betreiber-Web-Push ohne Kundendaten im Sperrbildschirm. Abos und privater VAPID-Schlüssel
 // bleiben geschützt; nur der angemeldete Betreiber kann sein eigenes Gerät registrieren.
-import webPush from 'web-push';
 import {createHash} from 'node:crypto';
 import {AppError,need} from '../src/domain.mjs';
 import {protect,unprotect} from '../src/worker.mjs';
 import {COMPANY} from '../src/company.mjs';
 
+const {webPush}=await import(new URL('../dist/runtime/push.mjs',import.meta.url).href);
 const ROOT='/api/push';
 const MESSAGES=Object.freeze({
   website:{body:'Neue Website-Anfrage im Panel.',url:'/#requests'},

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {copyFile,mkdir,mkdtemp,readdir,realpath,rm,symlink,unlink,writeFile} from 'node:fs/promises';
+import {copyFile,cp,mkdir,mkdtemp,readdir,realpath,rm,symlink,unlink,writeFile} from 'node:fs/promises';
+import {spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
@@ -18,6 +19,7 @@ async function release(root,name,manifest){
   const directory=resolve(root,name);
   await mkdir(resolve(directory,'server'),{recursive:true});await mkdir(resolve(directory,'dist'));
   await symlink(resolve(source,'src'),resolve(directory,'src'),process.platform==='win32'?'junction':'dir');
+  await symlink(resolve(source,'dist/runtime'),resolve(directory,'dist/runtime'),process.platform==='win32'?'junction':'dir');
   await symlink(resolve(source,'node_modules'),resolve(directory,'node_modules'),process.platform==='win32'?'junction':'dir');
   for(const name of await readdir(resolve(source,'server'))){
     const target=resolve(directory,'server',name),original=resolve(source,'server',name);
@@ -65,4 +67,14 @@ test('health omits commit proof for an absent or invalid release manifest',async
     assert.equal(response.status,200);assert.equal(await response.text(),'ok');
     assert.equal(response.headers.get('X-Panel-Commit'),null);
   });
+});
+
+test('production release imports without a project node_modules directory',async t=>{
+  const root=await fixture(t);
+  for(const name of ['src','server','dist'])await cp(resolve(source,name),resolve(root,name),{recursive:true});
+  await writeFile(resolve(root,'package.json'),JSON.stringify({type:'module'}));
+  const program="await import('./server/application.mjs');const {ExcelJS}=await import('./dist/runtime/exceljs.mjs');if(!new ExcelJS.Workbook())throw new Error('Excel-Laufzeit fehlt.');console.log('Release-Laufzeit eigenständig');";
+  const result=spawnSync(process.execPath,['--input-type=module','--eval',program],{cwd:root,encoding:'utf8',env:{...process.env,NODE_PATH:''},timeout:30000});
+  assert.equal(result.status,0,result.stderr||result.stdout);
+  assert.match(result.stdout,/Release-Laufzeit eigenständig/);
 });

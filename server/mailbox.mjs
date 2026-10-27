@@ -1,12 +1,10 @@
 // Eigenes IMAP-/SMTP-Postfach. Eingänge werden lesend übernommen; Versand nur
 // nach ausdrücklicher Betreiberaktion. Beleganhänge bleiben unklassifiziert.
 import {createHash,randomUUID} from 'node:crypto';
-import {simpleParser} from 'mailparser';
-import {ImapFlow} from 'imapflow';
-import nodemailer from 'nodemailer';
 import {protect,unprotect} from '../src/worker.mjs';
 import {AppError,need,text} from '../src/domain.mjs';
 
+const {simpleParser,ImapFlow,nodemailer}=await import(new URL('../dist/runtime/mailbox.mjs',import.meta.url).href);
 const ROOT='/api/mailbox';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const EMAIL=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;

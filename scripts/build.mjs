@@ -1,6 +1,7 @@
 import {mkdirSync,readFileSync,writeFileSync,copyFileSync,rmSync,readdirSync} from 'node:fs';
 rmSync('dist',{recursive:true,force:true});mkdirSync('dist/server',{recursive:true});mkdirSync('dist/client',{recursive:true});mkdirSync('dist/.openai',{recursive:true});
 await import('./build-pdf.mjs');
+await import('./build-runtime.mjs');
 const company=readFileSync('src/company.mjs','utf8').replace(/export /g,'');
 const calendar=readFileSync('src/calendar.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');
 const migration=readFileSync('src/migration.mjs','utf8').replace(/export /g,'');const assessment=readFileSync('src/assessment.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');const catalog=readFileSync('src/catalog.mjs','utf8').replace(/export /g,'');const domain=readFileSync('src/domain.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');const websiteIntake=readFileSync('src/website-intake.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');const recordCompat=readFileSync('src/record-compat.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');const schema=readFileSync('src/schema.mjs','utf8').replace(/export /g,'');const customers=readFileSync('src/customers.mjs','utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');const worker=readFileSync('src/worker.mjs','utf8').replace(/^import .*;\r?\n/gm,'');

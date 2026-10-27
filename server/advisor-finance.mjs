@@ -147,7 +147,7 @@ export function csvCell(value){
   return '"'+String(spreadsheetCell(value)).replaceAll('"','""')+'"';
 }
 async function xlsxBuffer(rows,fields,kind,from,to){
-  const {default:ExcelJS}=await import('exceljs'),workbook=new ExcelJS.Workbook();
+  const {ExcelJS}=await import(new URL('../dist/runtime/exceljs.mjs',import.meta.url).href),workbook=new ExcelJS.Workbook();
   workbook.creator='White Gloss';workbook.lastModifiedBy='White Gloss';workbook.created=new Date();workbook.modified=new Date();
   const sheet=workbook.addWorksheet({documents:'Belege',bank:'Bankumsätze',invoices:'Rechnungen'}[kind],{views:[{state:'frozen',ySplit:1,showGridLines:false}]});
   sheet.addRow(fields);for(const row of rows)sheet.addRow(fields.map(key=>spreadsheetCell(row[key])));
