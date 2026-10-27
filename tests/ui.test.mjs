@@ -114,7 +114,7 @@ test('panel: signed offer is replaced only by a signed replacement offer',async 
 
 test('Vor-Ort app: on-site booking from new customer to protocol and payment',async t=>{
   const ui=await boot(t,{page:'vor-ort.html',script:'vor-ort.js',storage:{'wg-vo-test':'1'}});
-assert.match(ui.text(),/Sofort-Buchung starten/);
+  assert.match(ui.text(),/Sofort buchen starten/);
   await ui.go('#buchung');ui.fill(ui.$('#c-new'),{name:'Max Vorort',phone:'0170 1234567'});await ui.submit('#c-new');await ui.settle();
   assert.ok(ui.$('#v-new'));ui.fill(ui.$('#v-new'),{plate:'TÜ-MX 9',label:'Audi A4',classId:'suv'});await ui.submit('#v-new');await ui.settle();
   const services=ui.$('#s-form');services.querySelector('[value="premium"]').checked=true;services.querySelector('[name=extraIds][value="tierhaar"]').checked=true;services.elements.surcharge.value='25';services.elements.surchargeReason.value='Starke Verschmutzung';services.dispatchEvent(new ui.w.Event('input',{bubbles:true}));
@@ -421,24 +421,50 @@ test('Vor-Ort app: the concrete displayed appointment is visible before signing 
   assert.deepEqual(ui.errors,[]);
 });
 
-test('Vor-Ort app: changing workstart clears the old signature and confirmation without changing the frozen appointment',async t=>{
+test('Vor-Ort app: changing booking mode clears the old signature and confirmation without changing the frozen appointment',async t=>{
   const ui=await boot(t,{page:'vor-ort.html',script:'vor-ort.js',storage:{'wg-vo-test':'1'}});
   await ui.go('#buchung');await ui.submit('#c-new');await ui.submit('#v-new');await ui.submit('#s-form');
   const form=ui.$('#a-form'),start=ui.$('[data-onsite-appointment-start]').getAttribute('datetime');
   assert.equal(ui.$('[data-onsite-appointment-location]').textContent,'Nicht angegeben');
-  ui.draw(ui.$('#a-sign'));ui.fill(form,{paymentObligation:true});
-  form.elements.startNow.click();
-  assert.equal(form.elements.paymentObligation.checked,false);assert.equal(ui.$('[data-onsite-appointment-start]'),null);
-  assert.match(ui.$('[data-onsite-appointment-review]').textContent,/Noch kein verbindlicher Termin/);
+  ui.draw(ui.$('#a-sign'));ui.fill(form,{paymentObligation:true,immediateStart:true});
+  form.querySelector('[name="bookingMode"][value="later"]').click();
+  assert.equal(form.elements.paymentObligation.checked,false);assert.equal(form.elements.immediateStart.checked,false);assert.equal(ui.$('[data-onsite-appointment-start]'),null);
+  assert.equal(form.querySelector('[data-schedule-editor]').hidden,true);assert.match(ui.$('[data-onsite-appointment-review]').textContent,/Noch kein verbindlicher Termin/);
   await ui.submit(form);assert.match(ui.$('#a-error').textContent,/unterschreiben lassen/);
   assert.equal((await ui.env.DB.prepare('SELECT COUNT(*) count FROM orders').first()).count,0);
-  ui.draw(ui.$('#a-sign'));ui.fill(form,{paymentObligation:true});form.elements.startNow.click();
+  ui.draw(ui.$('#a-sign'));ui.fill(form,{paymentObligation:true});form.querySelector('[name="bookingMode"][value="now"]').click();
   assert.equal(form.elements.paymentObligation.checked,false);assert.equal(ui.$('[data-onsite-appointment-start]').getAttribute('datetime'),start);
   await ui.submit(form);assert.match(ui.$('#a-error').textContent,/unterschreiben lassen/);
   assert.equal((await ui.env.DB.prepare('SELECT COUNT(*) count FROM orders').first()).count,0);
   ui.draw(ui.$('#a-sign'));ui.fill(form,{paymentObligation:true,immediateStart:true});await ui.submit(form);
   const id=(await ui.env.DB.prepare('SELECT id FROM orders').first()).id;
   assert.equal((await getOrder(ui.env,id)).acceptance.snapshot.appointment.start,start);
+  assert.deepEqual(ui.errors,[]);
+});
+
+test('Vor-Ort app: a planned appointment keeps the exact Berlin time and duration in the signed snapshot',async t=>{
+  const ui=await boot(t,{page:'vor-ort.html',script:'vor-ort.js',storage:{'wg-vo-test':'1'}});
+  await ui.go('#buchung');ui.fill(ui.$('#c-new'),{name:'Geplanter Termin',address:'Teststraße 2, Horb'});await ui.submit('#c-new');await ui.submit('#v-new');await ui.submit('#s-form');
+  const form=ui.$('#a-form');form.querySelector('[name="bookingMode"][value="planned"]').click();
+  ui.fill(form,{appointmentStart:'',appointmentDuration:'240',appointmentLocation:'Werkstatt 1, Horb'});form.elements.appointmentStart.dispatchEvent(new ui.w.Event('input',{bubbles:true}));
+  assert.match(ui.$('[data-onsite-appointment-review]').textContent,/Bitte Datum und Uhrzeit wählen/);
+  ui.fill(form,{appointmentStart:'2030-06-15T10:30'});form.elements.appointmentStart.dispatchEvent(new ui.w.Event('input',{bubbles:true}));
+  const displayed={start:ui.$('[data-onsite-appointment-start]').getAttribute('datetime'),end:ui.$('[data-onsite-appointment-end]').getAttribute('datetime'),duration:Number(ui.$('[data-onsite-appointment-duration]').textContent.split(' ')[0]),delivery:ui.$('[data-onsite-appointment-delivery]').textContent,location:ui.$('[data-onsite-appointment-location]').textContent};
+  assert.deepEqual(displayed,{start:'2030-06-15T08:30:00.000Z',end:'2030-06-15T12:30:00.000Z',duration:240,delivery:'Kunde bringt',location:'Werkstatt 1, Horb'});
+  ui.draw(ui.$('#a-sign'));ui.fill(form,{paymentObligation:true});await ui.submit(form);
+  const id=(await ui.env.DB.prepare('SELECT id FROM orders').first()).id,saved=await getOrder(ui.env,id);
+  assert.equal(saved.status,'Termin verbindlich');assert.equal(saved.acceptance.immediateStart,false);assert.equal(saved.acceptance.snapshot.appointment.start,displayed.start);
+  for(const key of ['start','end','duration','delivery','location'])assert.equal(saved.appointment[key],displayed[key],key+' stored exactly as shown');
+  assert.deepEqual(ui.errors,[]);
+});
+
+test('Vor-Ort app: scheduling later saves only the signed offer without an appointment',async t=>{
+  const ui=await boot(t,{page:'vor-ort.html',script:'vor-ort.js',storage:{'wg-vo-test':'1'}});
+  await ui.go('#buchung');ui.fill(ui.$('#c-new'),{name:'Termin später'});await ui.submit('#c-new');await ui.submit('#v-new');await ui.submit('#s-form');
+  const form=ui.$('#a-form');form.querySelector('[name="bookingMode"][value="later"]').click();
+  assert.equal(ui.$('[data-onsite-appointment-start]'),null);ui.draw(ui.$('#a-sign'));ui.fill(form,{paymentObligation:true});await ui.submit(form);
+  const id=(await ui.env.DB.prepare('SELECT id FROM orders').first()).id,saved=await getOrder(ui.env,id);
+  assert.equal(saved.status,'Angenommen');assert.ok(!saved.appointment);assert.equal(saved.acceptance.snapshot.appointment,undefined);assert.ok(saved.acceptance.signature);assert.equal(saved.acceptance.immediateStart,false);
   assert.deepEqual(ui.errors,[]);
 });
 
@@ -478,15 +504,28 @@ test('panel: operational agenda links existing appointments, follow-ups and unpa
   ui.fill(ui.$('#createform'),{name:'Agenda Kunde',vehicle:'BMW M4',plate:'HOR-AG 7'});await ui.submit('#createform');
   const row=await ui.env.DB.prepare('SELECT id FROM orders').first(),current=await getOrder(ui.env,row.id);
   const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-  const yesterday=new Date(Date.parse(today+'T12:00:00Z')-86400000).toISOString().slice(0,10);
+  const yesterday=new Date(Date.parse(today+'T12:00:00Z')-86400000).toISOString().slice(0,10),tomorrow=new Date(Date.parse(today+'T12:00:00Z')+86400000).toISOString().slice(0,10);
   current.status='Termin verbindlich';current.appointment={start:today+'T12:00:00.000Z',end:today+'T14:00:00.000Z',duration:120,delivery:'Kunde bringt',confirmation:{at:new Date().toISOString(),mode:'Test'}};
   current.notes=[{at:new Date().toISOString(),kind:'Wiedervorlage',note:'Lackzustand telefonisch besprechen',followUp:today}];
   current.invoice={provider:'qonto',status:'unpaid',number:'RE-TEST',dueDate:yesterday,totalCents:34900};
   await saveOrder(ui.env,current,current.version,'Synthetischer Agenda-Test');await ui.click('[data-click="back"]');await ui.click('[data-click="refresh"]');
   assert.match(ui.$('.operations-panel.compact').textContent,/Jetzt & als Nächstes/);assert.match(ui.$('.operations-panel.compact').textContent,/Lackzustand telefonisch besprechen/);
   await ui.go('#calendar');assert.match(ui.text(),/Deine nächsten 7 Tage/);assert.match(ui.text(),/349,00\s*€/);assert.match(ui.text(),/Rechnungssummen, kein Kontostand/);assert.match(ui.text(),/Keine Kapazitätsaussage/);
-  assert.ok(ui.$('.agenda-item.appointment[data-order]'));assert.ok(ui.$('.agenda-item.followup[data-order]'));assert.ok(ui.$('.calendar-month[open]'));assert.ok(ui.$('.calendar-item[data-order]'));
+  assert.ok(ui.$('.agenda-item.appointment[data-order]'));assert.ok(ui.$('.agenda-item.followup[data-order]'));assert.ok(ui.$('.schedule-calendar'));assert.ok(ui.$('.schedule-event[data-order]'));assert.ok(ui.$('.schedule-day .schedule-detail[data-order]'));
+  assert.equal(ui.w.document.querySelectorAll('.schedule-grid .schedule-cell').length,42);assert.equal(ui.$(`.schedule-date[data-day="${today}"]`).getAttribute('aria-pressed'),'true');
+  await ui.click(`.schedule-date[data-day="${tomorrow}"]`);assert.ok(ui.$('.schedule-day .schedule-empty'));assert.equal(ui.$(`.schedule-date[data-day="${tomorrow}"]`).getAttribute('aria-pressed'),'true');
+  ui.$(`.schedule-date[data-day="${tomorrow}"]`).dispatchEvent(new ui.w.KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));await ui.settle();assert.ok(ui.$('.schedule-day .schedule-detail[data-order]'));
   await ui.click('.agenda-item.invoice');assert.match(ui.text(),/Agenda Kunde/);assert.match(ui.text(),/Kunde & Anfrage/);assert.deepEqual(ui.errors,[]);
+});
+
+test('panel: calendar keyboard navigation crosses a month boundary and keeps the selected day focused',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});await ui.go('#calendar');
+  const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),current=new Date(today+'T12:00:00Z');
+  const last=new Date(Date.UTC(current.getUTCFullYear(),current.getUTCMonth()+1,0,12)),lastDay=last.toISOString().slice(0,10),next=new Date(last);next.setUTCDate(next.getUTCDate()+1);const nextDay=next.toISOString().slice(0,10);
+  await ui.click(`.schedule-date[data-day="${lastDay}"]`);const button=ui.$(`.schedule-date[data-day="${lastDay}"]`);button.dispatchEvent(new ui.w.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));await ui.settle();
+  const month=new Intl.DateTimeFormat('de-DE',{month:'long',year:'numeric',timeZone:'UTC'}).format(next);
+  assert.equal(ui.$('#schedule-month-title').textContent,month);assert.equal(ui.$(`.schedule-date[data-day="${nextDay}"]`).getAttribute('aria-pressed'),'true');assert.equal(ui.w.document.activeElement.dataset.day,nextDay);assert.equal(ui.w.document.querySelectorAll('.schedule-grid .schedule-cell').length,42);
+  assert.deepEqual(ui.errors,[]);
 });
 
 test('panel: overview has one clear work queue and hash navigation updates the visible screen',async t=>{
@@ -508,9 +547,10 @@ test('panel: overview has one clear work queue and hash navigation updates the v
 test('panel: navigation groups daily work, customers, finance subpages and administration without dead routes',async t=>{
   const env=environment();env.STANDALONE_AUTH='true';const ui=await boot(t,{page:'index.html',script:'app.js',env});
   const ids=[...ui.w.document.querySelectorAll('.sidebar [data-view]')].map(button=>button.dataset.view);
-  assert.deepEqual(ids.slice(0,11),['overview','requests','active','orders','customers','chat','whatsapp','mailbox','care','business','protocols']);
-  assert.deepEqual(ids.slice(11,18),['finance','finance-income','finance-expenses','finance-invoices','finance-receipts','finance-bank','finance-advisor']);
-  assert.equal(ids.at(-1),'settings');assert.ok(!ids.includes('calendar'));
+  assert.deepEqual(ids.slice(0,12),['calendar','overview','requests','active','orders','customers','chat','whatsapp','mailbox','care','business','protocols']);
+  assert.deepEqual(ids.slice(12,19),['finance','finance-income','finance-expenses','finance-invoices','finance-receipts','finance-bank','finance-advisor']);
+  assert.equal(ids.at(-1),'settings');assert.equal(ids[0],'calendar');
+  const mobileIds=[...ui.w.document.querySelectorAll('.mobile-dock [data-view]')].map(button=>button.dataset.view);assert.equal(mobileIds[0],'calendar');assert.equal(ui.w.document.querySelectorAll('.mobile-dock > button').length,6);
   const agenda=ui.$('.overview-shell .operations-panel'),stats=ui.$('.overview-shell > .stats');
   assert.ok(agenda.compareDocumentPosition(stats)&ui.w.Node.DOCUMENT_POSITION_FOLLOWING,'Tagesplanung steht vor den Kennzahlen');
   for(const [view,title] of [['finance','Finanzübersicht'],['finance-income','Einnahmen'],['finance-expenses','Ausgaben'],['finance-invoices','Rechnungen'],['finance-receipts','Belege'],['finance-bank','Bank'],['finance-advisor','Steuerberater']]){

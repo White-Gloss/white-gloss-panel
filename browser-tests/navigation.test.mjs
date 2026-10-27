@@ -47,3 +47,25 @@ for(const width of [1440,1024,805,390,320])test(`compact operator workspace rema
   await page.evaluate(()=>{location.hash='#overview';});await page.locator('.overview-shell').waitFor();assert.equal(await page.locator('.sidebar [data-view="overview"]').getAttribute('aria-current'),'page');
   await f.screenshot('operator-workspace-'+width,{fullPage:true});assert.deepEqual(f.errors,[]);
 });
+
+for(const width of [1440,390,320])test(`calendar workspace stays precise and usable at ${width}px`,async t=>{
+  const f=await browserFixture(t,{viewport:{width,height:900}}),{page}=f,today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  await f.seedOrder({status:'Termin verbindlich',appointment:{start:today+'T10:00:00.000Z',end:today+'T13:00:00.000Z',duration:180,delivery:'Kunde bringt',location:'Teststraße 1, Horb',confirmation:{at:new Date().toISOString(),mode:'Test'}}});
+  await page.goto(origin+'/#calendar');await page.locator('.schedule-event[data-order]').waitFor();
+  assert.equal(await page.locator('.schedule-grid .schedule-cell').count(),42);assert.equal(await page.locator(`.schedule-date[data-day="${today}"]`).getAttribute('aria-pressed'),'true');assert.equal(await page.locator('.schedule-day .schedule-detail[data-order]').count(),1);
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'calendar causes no horizontal page overflow');
+  await f.screenshot('operator-calendar-'+width,{fullPage:true});
+  const month=await page.locator('#schedule-month-title').textContent();await page.locator('[data-click="nextMonth"]').click();assert.notEqual(await page.locator('#schedule-month-title').textContent(),month);await page.locator('[data-click="today"]').click();assert.equal(await page.locator('#schedule-month-title').textContent(),month);
+  assert.deepEqual(f.errors,[]);
+});
+
+for(const width of [1440,390])test(`on-site booking presents all scheduling modes without layout overflow at ${width}px`,async t=>{
+  const f=await browserFixture(t,{viewport:{width,height:900}}),{page}=f;await page.goto(origin+'/vor-ort#buchung');
+  await page.locator('#c-new [name="name"]').fill('Layout Test');await page.locator('#c-new [type="submit"]').click();await page.locator('#v-new').waitFor();await page.locator('#v-new [type="submit"]').click();await page.locator('#s-form').waitFor();await page.locator('#s-form [type="submit"]').click();await page.locator('#a-form').waitFor();
+  assert.equal(await page.locator('.vo-booking-steps li').count(),4);assert.equal(await page.locator('[name="bookingMode"]').count(),3);
+  await page.locator('[name="bookingMode"][value="planned"]').check();await page.locator('[name="appointmentStart"]').fill('2030-06-15T10:30');await page.locator('[name="appointmentDuration"]').fill('240');
+  assert.equal(await page.locator('[data-onsite-appointment-start]').getAttribute('datetime'),'2030-06-15T08:30:00.000Z');assert.match(await page.locator('[data-onsite-appointment-duration]').textContent(),/240 Minuten/);
+  await page.locator('[name="bookingMode"][value="later"]').check();assert.equal(await page.locator('[data-schedule-editor]').isVisible(),false);assert.match(await page.locator('[data-onsite-appointment-review]').textContent(),/Noch kein verbindlicher Termin/);
+  await page.locator('[name="bookingMode"][value="planned"]').check();assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'booking causes no horizontal page overflow');
+  await f.screenshot('onsite-booking-'+width,{fullPage:true});assert.deepEqual(f.errors,[]);
+});
