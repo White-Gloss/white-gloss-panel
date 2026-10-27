@@ -37,6 +37,7 @@ export async function bankAccountingSchema(env){
 
 async function readJSON(request){need(request.headers.get('origin')===new URL(request.url).origin,'Ungültiger Ursprung.',403);need(request.headers.get('content-type')?.startsWith('application/json'),'JSON-Eingabe erforderlich.',415);const raw=await request.text();need(raw.length<=5000,'Anfrage zu groß.',413);try{const parsed=JSON.parse(raw);need(parsed&&typeof parsed==='object'&&!Array.isArray(parsed),'Ungültige Eingabe.');return parsed;}catch(error){if(error instanceof AppError)throw error;throw new AppError('Ungültige Eingabe.',400);}}
 
+function financialDigest(row){return digest({id:row.id,status:row.status,side:row.side,amount:row.amount_cents,currency:row.currency,settledAt:row.settled_at??null});}
 function normalize(row){
   need(row&&uuid(row.id),'Qonto-Umsatz ohne gültige Kennung.',502);
   need(['credit','debit'].includes(row.side)&&['pending','declined','completed','reversed'].includes(row.status),'Qonto-Umsatzstatus ungültig.',502);
@@ -45,7 +46,7 @@ function normalize(row){
   need(validISO(row.updated_at),'Qonto-Änderungszeit fehlt.',502);
   need(row.settled_at===null||row.settled_at===undefined||validISO(row.settled_at),'Qonto-Buchungszeit ungültig.',502);
   const raw=JSON.stringify(row);need(raw.length<=30000,'Qonto-Umsatz ist zu umfangreich.',502);
-  return {id:row.id,status:row.status,side:row.side,amount:row.amount_cents,currency:row.currency,label:text(row.label,250),reference:text(row.reference,250),settledAt:row.settled_at??null,updatedAt:row.updated_at,raw,sha256:digest(row)};
+  return {id:row.id,status:row.status,side:row.side,amount:row.amount_cents,currency:row.currency,label:text(row.label,250),reference:text(row.reference,250),settledAt:row.settled_at??null,updatedAt:row.updated_at,raw,sha256:digest(row),financialSha256:financialDigest(row)};
 }
 
 async function fetchAccount(config,iban){
@@ -66,9 +67,9 @@ async function sync(env){
   const config=await qontoAccess(env),accounts=config.qontoAccounts;
   need(Array.isArray(accounts)&&accounts.length>0,'Bitte Qonto-Konten erneut prüfen.',409);
   const latest=await env.DB.prepare('SELECT * FROM accounting_bank_revisions WHERE revision_id IN (SELECT MAX(revision_id) FROM accounting_bank_revisions GROUP BY organization_id,account_iban,provider_id)').all();
-  const known=new Map(latest.results.map(row=>[row.organization_id+'|'+row.account_iban+'|'+row.provider_id,row.sha256]));
+  const known=new Map(latest.results.map(row=>[row.organization_id+'|'+row.account_iban+'|'+row.provider_id,financialDigest(JSON.parse(row.raw_json))]));
   const additions=[],at=new Date().toISOString();let checked=0;
-  for(const account of accounts){need(typeof account.iban==='string'&&/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(account.iban),'Qonto-Konto ist nicht eindeutig.',409);const rows=await fetchAccount(config,account.iban);checked+=rows.length;for(const row of rows){const key=config.qontoOrganizationId+'|'+account.iban+'|'+row.id;if(known.get(key)!==row.sha256)additions.push({account:account.iban,row});}}
+  for(const account of accounts){need(typeof account.iban==='string'&&/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(account.iban),'Qonto-Konto ist nicht eindeutig.',409);const rows=await fetchAccount(config,account.iban);checked+=rows.length;for(const row of rows){const key=config.qontoOrganizationId+'|'+account.iban+'|'+row.id;if(known.get(key)!==row.financialSha256)additions.push({account:account.iban,row});}}
   // All Qonto pages were validated before a single local mutation. A repeated sync
   // only stores changed provider snapshots (unique provider identity + content hash).
   const statements=[];

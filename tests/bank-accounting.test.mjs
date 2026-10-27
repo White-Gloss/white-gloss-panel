@@ -55,3 +55,19 @@ test('one failed account prevents a partial multi-account bank import',async t=>
   assert.equal((await f.call('/api/accounting/bank/sync','owner',{})).status,502);
   assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM accounting_bank_revisions').first()).n,0);
 });
+
+test('Qonto text-only updates do not invalidate a reviewed financial revision',async t=>{
+  const f=await fixture(t),id=randomUUID();
+  const row={id,side:'credit',status:'completed',amount_cents:11900,currency:'EUR',label:'Ursprünglicher Text',reference:'WG-100',settled_at:'2026-10-17T11:00:00.000Z',updated_at:'2026-10-17T11:00:00.000Z'};
+  const realFetch=globalThis.fetch;globalThis.fetch=async()=>Response.json({transactions:[row],meta:{current_page:1,total_pages:1,total_count:1,per_page:100}});t.after(()=>{globalThis.fetch=realFetch;});
+  assert.equal((await f.call('/api/accounting/bank/sync','owner',{})).status,200);
+  const before=(await (await f.call('/api/accounting/bank','owner')).json()).items[0];
+  assert.equal((await f.call('/api/accounting/bank/classify','owner',{revisionId:before.revisionId,version:0,category:'SERVICE_B2C',note:'Manuell geprüft'})).status,200);
+  Object.assign(row,{label:'Redaktionell geänderter Text',reference:'Geänderte Referenz',updated_at:'2026-10-18T11:00:00.000Z'});
+  const sync=await f.call('/api/accounting/bank/sync','owner',{});assert.equal(sync.status,200);assert.equal((await sync.clone().json()).imported,0);
+  const after=(await (await f.call('/api/accounting/bank','owner')).json()).items[0];assert.equal(after.revisionId,before.revisionId);
+  assert.equal((await f.call('/api/accounting/bank/classify','owner',{revisionId:before.revisionId,version:1,category:'SERVICE_B2C',note:'Weiterhin fachlich gültig'})).status,200);
+  Object.assign(row,{amount_cents:12000,updated_at:'2026-10-19T11:00:00.000Z'});
+  const changed=await f.call('/api/accounting/bank/sync','owner',{});assert.equal(changed.status,200);assert.equal((await changed.clone().json()).imported,1);
+  assert.equal((await f.call('/api/accounting/bank/classify','owner',{revisionId:before.revisionId,version:2,category:'SERVICE_B2C'})).status,409,'a real financial change still requires a fresh review');
+});
