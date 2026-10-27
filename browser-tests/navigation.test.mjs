@@ -35,3 +35,14 @@ test('desktop menu still scrolls with enlarged text and its final link can recei
   const last=page.locator('.sidebar a[href="/vor-ort"]');await last.focus();
   const box=await last.boundingBox();assert.ok(box.y>=0&&box.y+box.height<=600);assert.ok(await page.locator('.sidebar').evaluate(el=>el.scrollTop>0));assert.deepEqual(f.errors,[]);
 });
+
+for(const width of [1440,1024,805,390,320])test(`compact operator workspace remains usable without page overflow at ${width}px`,async t=>{
+  const f=await browserFixture(t,{viewport:{width,height:900}}),{page}=f;await page.goto(origin);await page.locator('.overview-shell').waitFor();
+  assert.equal(await page.locator('.overview-orders').count(),1);assert.equal(await page.locator('.operations-panel').count(),1);assert.equal(await page.locator('.premium-hero,.premium-modules,.integration-grid').count(),0);
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal page overflow');
+  const topbar=await page.locator('.topbar').boundingBox();assert.ok(topbar.height<=(width<=760?65:69),'compact application header');
+  const search=await page.locator('#search').boundingBox();assert.ok(search.x>=0&&search.x+search.width<=width,'global search stays inside the viewport');
+  await page.evaluate(()=>{location.hash='#system';});await page.locator('.system-page').waitFor();
+  await page.evaluate(()=>{location.hash='#overview';});await page.locator('.overview-shell').waitFor();assert.equal(await page.locator('.sidebar [data-view="overview"]').getAttribute('aria-current'),'page');
+  await f.screenshot('operator-workspace-'+width,{fullPage:true});assert.deepEqual(f.errors,[]);
+});

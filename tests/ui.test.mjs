@@ -42,7 +42,7 @@ async function boot(t,{page,script,hash='',path=null,env=environment(),storage={
 
 test('panel: create, edit every step, sign on site, protocol with paint thickness, replacement and payments',async t=>{
   const ui=await boot(t,{page:'index.html',script:'app.js'});
-  assert.match(ui.text(),/Dein Betrieb im Blick/);
+  assert.match(ui.$('.overview-shell > .heading h1').textContent,/^Übersicht$/);
   await ui.click('[data-click="test"]');await ui.click('[data-click="create"]');
   const create=ui.$('#createform');assert.ok(create);ui.fill(create,{name:'Erika Test',phone:'0151 2345678',vehicle:'VW Golf',plate:'HOR-WG 1'});await ui.submit(create);
   assert.match(ui.text(),/Kunde & Anfrage/);let o=(await ui.env.DB.prepare('SELECT * FROM orders').first());assert.ok(o);
@@ -486,4 +486,20 @@ test('panel: operational agenda links existing appointments, follow-ups and unpa
   await ui.click('.sidebar [data-view="calendar"]');assert.match(ui.text(),/Deine nächsten 7 Tage/);assert.match(ui.text(),/349,00\s*€/);assert.match(ui.text(),/Rechnungssummen, kein Kontostand/);assert.match(ui.text(),/Keine Kapazitätsaussage/);
   assert.ok(ui.$('.agenda-item.appointment[data-order]'));assert.ok(ui.$('.agenda-item.followup[data-order]'));assert.ok(ui.$('.calendar-month[open]'));assert.ok(ui.$('.calendar-item[data-order]'));
   await ui.click('.agenda-item.invoice');assert.match(ui.text(),/Agenda Kunde/);assert.match(ui.text(),/Kunde & Anfrage/);assert.deepEqual(ui.errors,[]);
+});
+
+test('panel: overview has one clear work queue and hash navigation updates the visible screen',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});
+  assert.equal(ui.w.document.querySelectorAll('.overview-shell').length,1);
+  assert.equal(ui.w.document.querySelectorAll('.operations-panel').length,1);
+  assert.equal(ui.w.document.querySelectorAll('.overview-orders').length,1);
+  assert.equal(ui.w.document.querySelectorAll('.premium-hero,.premium-modules,.integration-grid').length,0);
+  assert.equal(ui.w.document.querySelectorAll('script[src="/premium.js"],link[href="/premium.css"],link[href="/agency.css"]').length,0);
+  await ui.go('#system');assert.ok(ui.$('.system-page'));assert.equal(ui.$('.sidebar [data-view="system"]').getAttribute('aria-current'),'page');
+  await ui.go('#overview');assert.equal(ui.$('.overview-shell > .heading h1').textContent,'Übersicht');assert.equal(ui.$('.sidebar [data-view="overview"]').getAttribute('aria-current'),'page');
+  await ui.click('[data-click="test"]');await ui.click('[data-click="create"]');ui.fill(ui.$('#createform'),{name:'Navigation Test',vehicle:'BMW M4'});await ui.submit('#createform');
+  const id=(await ui.env.DB.prepare('SELECT id FROM orders').first()).id;
+  await ui.go('#overview');assert.ok(ui.$('.overview-orders'));assert.equal(ui.w.document.querySelectorAll('.overview-shell [data-click="create"]').length,1);
+  await ui.go('#auftrag='+id);assert.match(ui.$('.detail-header').textContent,/Navigation Test/);
+  await ui.go('#finance');assert.equal(ui.$('.detail-header'),null);assert.match(ui.$('.content > .heading h1').textContent,/Finanzen/);assert.deepEqual(ui.errors,[]);
 });
