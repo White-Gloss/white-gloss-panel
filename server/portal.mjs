@@ -45,7 +45,10 @@ export async function portalSchema(env){
   await env.DB.batch([
     "CREATE TABLE IF NOT EXISTS portal_requests(id TEXT PRIMARY KEY,order_id TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('extras','termin')),data TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'offen' CHECK(status IN ('offen','übernommen','erledigt','abgelehnt')),created_at TEXT NOT NULL,decided_at TEXT)",
     'CREATE INDEX IF NOT EXISTS portal_requests_order ON portal_requests(order_id,created_at)',
-    "CREATE TRIGGER IF NOT EXISTS no_portal_request_delete BEFORE DELETE ON portal_requests BEGIN SELECT RAISE(ABORT,'Kundenwünsche werden nicht gelöscht'); END"
+    "CREATE TRIGGER IF NOT EXISTS no_portal_request_delete BEFORE DELETE ON portal_requests BEGIN SELECT RAISE(ABORT,'Kundenwünsche werden nicht gelöscht'); END",
+    "CREATE TABLE IF NOT EXISTS portal_change_requests(id TEXT PRIMARY KEY,order_id TEXT NOT NULL,data TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'offen' CHECK(status IN ('offen','erledigt','abgelehnt')),created_at TEXT NOT NULL,decided_at TEXT)",
+    'CREATE INDEX IF NOT EXISTS portal_change_requests_order ON portal_change_requests(order_id,created_at)',
+    "CREATE TRIGGER IF NOT EXISTS no_portal_change_request_delete BEFORE DELETE ON portal_change_requests BEGIN SELECT RAISE(ABORT,'Kundenwünsche werden nicht gelöscht'); END"
   ].map(sql=>env.DB.prepare(sql)));
 }
 
@@ -78,7 +81,8 @@ export function availableExtras(o,requested=new Set()){
 }
 function requestedExtras(requests){return new Set(requests.filter(r=>r.kind==='extras'&&['offen','übernommen'].includes(r.status)).flatMap(r=>(r.extras??[]).map(e=>e.id)));}
 async function requestsOf(env,orderId){
-  return (await env.DB.prepare('SELECT id,kind,data,status,created_at,decided_at FROM portal_requests WHERE order_id=? ORDER BY created_at DESC LIMIT 50').bind(orderId).all()).results.map(r=>({id:r.id,kind:r.kind,status:r.status,createdAt:r.created_at,decidedAt:r.decided_at,...JSON.parse(r.data)}));
+  const rows=(await env.DB.prepare("SELECT * FROM (SELECT id,kind,data,status,created_at,decided_at FROM portal_requests WHERE order_id=? UNION ALL SELECT id,'details' AS kind,data,status,created_at,decided_at FROM portal_change_requests WHERE order_id=?) ORDER BY created_at DESC LIMIT 50").bind(orderId,orderId).all()).results;
+  return rows.map(r=>({id:r.id,kind:r.kind,status:r.status,createdAt:r.created_at,decidedAt:r.decided_at,...JSON.parse(r.data)}));
 }
 function offerView(o){
   const doc=['Preise prüfen'].includes(o.status)?null:o.offer;if(!doc)return null;
@@ -113,6 +117,7 @@ async function portalOrder(env,o,config,preview){
     id:o.id,wg:o.wg,status:o.status,statusText:o.status==='Angenommen'&&o.appointment&&!o.appointment.confirmation?'Ihr Termin ist vorgeschlagen. Bitte bestätigen Sie ihn mit Ihrer Unterschrift.':STATUS_TEXT[o.status]??o.status,step:STEP_OF[o.status]??null,steps:STEPS,closed:CLOSED.includes(o.status),restricted:false,canReschedule:Boolean(a)&&RESCHEDULE.includes(o.status),
     createdAt:o.createdAt??null,vehicle:o.source?.vehicle??'',plate:o.source?.plate??'',package:packages.find(p=>p.id===packageOf(o))?.name??o.source?.package??'',vehicleClass:classOf(o)?.label??o.source?.vehicleClass??'',
     desiredDate:o.source?.desiredDate??'',delivery:o.source?.delivery??'',appointment:a,offer:offerView(o),todo,documents,invoice,
+    inquiry:{name:o.source?.name??'',phone:o.source?.phone??'',vehicle:o.source?.vehicle??'',plate:o.source?.plate??'',vehicleClass:classOf(o)?.label??o.source?.vehicleClass??'',package:packages.find(p=>p.id===packageOf(o))?.name??o.source?.package??'',desiredDate:o.source?.desiredDate??'',timeWindow:o.source?.timeWindow??'',delivery:o.source?.delivery??'',address:[o.source?.address,o.source?.city].filter(Boolean).join(', '),note:o.source?.note??''},
     ...await (async()=>{const requests=await requestsOf(env,o.id);return {extras:availableExtras(o,requestedExtras(requests)),requests};})(),
     review:done&&/^https:\/\//.test(config.reviewUrl??'')?config.reviewUrl:null
   };
@@ -205,6 +210,13 @@ export async function handlePortal(env,request,identity,isOwner){
     await portalNotice(env,o.id,'Termin im Kundenportal bestätigt und unterschrieben.',now).catch(()=>null);
     return json({ok:true,message:'Vielen Dank! Ihr Termin ist jetzt verbindlich bestätigt.'});
   }
+  if(op==='angaben'){
+    const wish=text(input.wish,1000);need(wish.length>=3,'Bitte beschreiben Sie kurz, welche Angaben geändert werden sollen.');
+    const id=randomUUID(),at=new Date(now).toISOString();
+    await env.DB.prepare('INSERT INTO portal_change_requests(id,order_id,data,created_at) VALUES(?,?,?,?)').bind(id,o.id,JSON.stringify({wish}),at).run();
+    await portalNotice(env,o.id,'Korrektur der Anfragedaten über das Kundenportal (noch nicht übernommen):\n'+wish,now).catch(()=>null);
+    return json({ok:true,id,message:'Danke! Ihr Änderungswunsch ist bei uns. Wir prüfen ihn und bestätigen die Übernahme hier im Portal.'});
+  }
   if(op==='termin'){
     need(o.appointment&&RESCHEDULE.includes(o.status),'Für diesen Auftrag kann kein Terminwunsch mehr gesendet werden.',409);
     const wish=text(input.wish,500);need(wish.length>=3,'Bitte beschreiben Sie kurz Ihren Wunsch.');
@@ -221,15 +233,18 @@ export async function handlePortalAdmin(env,request,isOwner){
   const url=new URL(request.url);if(!url.pathname.startsWith('/api/portal-admin/'))return null;
   need(isOwner,'Nur für den Betreiber.',403);
   if(request.method==='GET'&&url.pathname==='/api/portal-admin/requests'){
-    const order=url.searchParams.get('order');
-    const rows=order?(await env.DB.prepare('SELECT r.*,o.wg,o.data AS order_data FROM portal_requests r JOIN orders o ON o.id=r.order_id WHERE r.order_id=? ORDER BY r.created_at DESC LIMIT 50').bind(order).all()).results:(await env.DB.prepare("SELECT r.*,o.wg,o.data AS order_data FROM portal_requests r JOIN orders o ON o.id=r.order_id WHERE r.status='offen' AND json_extract(o.data,'$.trash.deletedAt') IS NULL ORDER BY r.created_at DESC LIMIT 100").all()).results;
+    const order=url.searchParams.get('order'),condition=order?'r.order_id=?':"r.status='offen' AND json_extract(o.data,'$.trash.deletedAt') IS NULL",params=order?[order]:[];
+    const regular=(await env.DB.prepare(`SELECT r.*,o.wg,o.data AS order_data FROM portal_requests r JOIN orders o ON o.id=r.order_id WHERE ${condition} ORDER BY r.created_at DESC LIMIT 100`).bind(...params).all()).results;
+    const changes=(await env.DB.prepare(`SELECT r.*,o.wg,o.data AS order_data,'details' AS kind FROM portal_change_requests r JOIN orders o ON o.id=r.order_id WHERE ${condition} ORDER BY r.created_at DESC LIMIT 100`).bind(...params).all()).results;
+    const rows=[...regular,...changes].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,100);
     return json({requests:rows.map(r=>{const d=JSON.parse(r.order_data);return {id:r.id,orderId:r.order_id,wg:r.wg,name:d.source?.name??'',kind:r.kind,status:r.status,createdAt:r.created_at,decidedAt:r.decided_at,synthetic:d.synthetic===true,...JSON.parse(r.data)};})});
   }
   if(request.method==='POST'&&url.pathname==='/api/portal-admin/request'){
     const input=await readJSON(request);need(UUID.test(input.id??''),'Kundenwunsch nicht gefunden.',404);
-    const row=await env.DB.prepare('SELECT * FROM portal_requests WHERE id=?').bind(input.id).first();need(row,'Kundenwunsch nicht gefunden.',404);
+    const regular=await env.DB.prepare('SELECT * FROM portal_requests WHERE id=?').bind(input.id).first();
+    const change=regular?null:await env.DB.prepare("SELECT *,'details' AS kind FROM portal_change_requests WHERE id=?").bind(input.id).first(),row=regular??change,table=regular?'portal_requests':'portal_change_requests';need(row,'Kundenwunsch nicht gefunden.',404);
     need(row.status==='offen','Dieser Kundenwunsch wurde bereits bearbeitet.',409);
-    const at=new Date().toISOString(),decide=status=>env.DB.prepare("UPDATE portal_requests SET status=?,decided_at=? WHERE id=? AND status='offen'").bind(status,at,row.id);
+    const at=new Date().toISOString(),decide=status=>env.DB.prepare(`UPDATE ${table} SET status=?,decided_at=? WHERE id=? AND status='offen'`).bind(status,at,row.id);
     if(input.decision==='apply'){
       need(row.kind==='extras','Nur Zusatzleistungen lassen sich in die Leistungen übernehmen.');
       const o=await getOrder(env,row.order_id);assertRecordOperation(o,'operate');

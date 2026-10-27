@@ -66,6 +66,22 @@ test('customer portal shows status, appointment, services and books extras as a 
   assert.deepEqual(ui.errors,[]);
 });
 
+test('customer sees the original inquiry and sends a traceable correction request',async t=>{
+  const f=await setup(t);
+  const ui=await boot(t,{app:f.app,path:'/kunde',cookie:f.customerCookie});
+  assert.match(ui.$('.portal-inquiry').textContent,/Ihre Anfrage und Angaben/);
+  assert.match(ui.$('.portal-inquiry').textContent,/FDS-WG 1/);
+  assert.match(ui.$('.portal-inquiry').textContent,/VW Golf/);
+  const form=ui.$('[data-form="angaben"]');assert.ok(form);
+  form.elements.wish.value='Kennzeichen FDS-WG 2 statt FDS-WG 1';form.requestSubmit();await ui.settle();
+  assert.match(ui.$('#toast').textContent,/Änderungswunsch/);
+  assert.match(ui.$('.portal-inquiry .portal-requests').textContent,/Kennzeichen FDS-WG 2.*Angefragt/);
+  assert.match(ui.$('.portal-inquiry').textContent,/FDS-WG 1/,'the displayed order data stays unchanged until operator review');
+  await ui.click('[data-act="chat"]');
+  assert.match(ui.$('#portal-chat').textContent,/Korrektur der Anfragedaten/);
+  assert.deepEqual(ui.errors,[]);
+});
+
 test('owner preview shows the customer view with all actions disabled',async t=>{
   const f=await setup(t);
   const ui=await boot(t,{app:f.app,path:'/kunde?vorschau='+f.order.id,cookie:f.ownerCookie});

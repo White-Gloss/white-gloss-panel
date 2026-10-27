@@ -74,6 +74,21 @@ test('extras are requests: stored, posted to the chat and applied only by the ow
   await assert.rejects(()=>f.env.DB.prepare('DELETE FROM portal_requests').run(),/nicht gelöscht/);
 });
 
+test('inquiry corrections are visible requests and never overwrite order data directly',async t=>{
+  const f=await fixture(t),o=await order(f.env,{status:'Preise prüfen'});
+  const initial=await f.ok(await f.get('/api/portal/me',f.customer));assert.equal(initial.orders[0].inquiry.plate,'FDS-WG 1');assert.equal(initial.orders[0].inquiry.vehicle,'VW Golf');
+  assert.equal((await f.post('/api/portal/o/'+o.id+'/angaben',f.customer,{wish:'x'})).status,400);
+  assert.equal((await f.post('/api/portal/o/'+o.id+'/angaben',f.stranger,{wish:'Anderes Kennzeichen'})).status,403);
+  const sent=await f.ok(await f.post('/api/portal/o/'+o.id+'/angaben',f.customer,{wish:'Kennzeichen FDS-WG 2 statt FDS-WG 1'}));
+  assert.equal((await getOrder(f.env,o.id)).source.plate,'FDS-WG 1','customer correction cannot silently alter the order');
+  let me=await f.ok(await f.get('/api/portal/me',f.customer));assert.equal(me.orders[0].requests[0].kind,'details');assert.equal(me.orders[0].requests[0].status,'offen');
+  const list=await f.ok(await f.get('/api/portal-admin/requests',f.owner));assert.equal(list.requests[0].kind,'details');assert.match(list.requests[0].wish,/FDS-WG 2/);
+  assert.equal((await f.post('/api/portal-admin/request',f.owner,{id:sent.id,decision:'apply'})).status,400);
+  await f.ok(await f.post('/api/portal-admin/request',f.owner,{id:sent.id,decision:'done'}));
+  me=await f.ok(await f.get('/api/portal/me',f.customer));assert.equal(me.orders[0].requests[0].status,'erledigt');
+  await assert.rejects(()=>f.env.DB.prepare('DELETE FROM portal_change_requests').run(),/nicht gelöscht/);
+});
+
 test('appointment wishes and the chat link work for the customer; a revoked chat link stays revoked',async t=>{
   const f=await fixture(t),o=await order(f.env,{extra:{appointment:{start:'2030-10-14T07:00:00.000Z',end:'2030-10-14T13:00:00.000Z',delivery:'Kunde bringt',location:''}}});
   const wish=await f.ok(await f.post('/api/portal/o/'+o.id+'/termin',f.customer,{wish:'Lieber eine Woche später'}));
