@@ -48,7 +48,9 @@ async function setup(t,{withEvidence=false}={}){
     const at=new Date().toISOString(),id=randomUUID();
     const order={id,wg:'WG-004321',version:1,status:'Preise prüfen',synthetic:false,source:{id:'431',name:'Erika Muster',vehicle:'VW Golf'},notes:[],payments:[],createdAt:at,updatedAt:at};
     await env.DB.prepare('INSERT INTO orders(id,wg,website_id,status,data,updated_at,actor,action,synthetic) VALUES(?,?,?,?,?,?,?,?,0)').bind(id,order.wg,'431',order.status,JSON.stringify(order),at,'test','fixture').run();
-    await env.DB.prepare('INSERT INTO jobs(id,order_id,kind,state,created_at,updated_at,detail) VALUES(?,?,?,?,?,?,?)').bind(randomUUID(),id,'offer','sent',at,at,'Provider-ID vorhanden').run();
+    await env.DB.prepare('INSERT INTO jobs(id,order_id,kind,state,created_at,updated_at,provider_id,detail) VALUES(?,?,?,?,?,?,?,?)').bind(randomUUID(),id,'offer','sent',at,at,'re_offer_123','An den Versanddienst übergeben. Die Zustellung ist noch nicht bestätigt.').run();
+    await env.DB.prepare('INSERT INTO jobs(id,order_id,kind,state,created_at,updated_at,provider_id,detail) VALUES(?,?,?,?,?,?,?,?)').bind(randomUUID(),id,'invoice-mail','failed',at,at,null,'Resend HTTP 422: Empfängeradresse abgelehnt.').run();
+    await env.DB.prepare('INSERT INTO jobs(id,order_id,kind,state,created_at,updated_at,provider_id,detail) VALUES(?,?,?,?,?,?,?,?)').bind(randomUUID(),id,'calendar-abc','sent',at,at,'google-event-123','Kalender bestätigt.').run();
   }
   return {env,app,ownerCookie,customerCookie};
 }
@@ -109,22 +111,31 @@ async function boot(t,{app,cookie,websiteResponse}){
   return {w,$,click,settle,errors,websiteRequests,text:()=>w.document.body.textContent};
 }
 
-test('system status separates live probes, website bookings and provider acceptance',async t=>{
+test('system status separates measured probes, website bookings and the mail transaction log',async t=>{
   const fixture=await setup(t,{withEvidence:true});
   const ui=await boot(t,{...fixture,cookie:fixture.ownerCookie,websiteResponse:()=>new Response('Website',{status:200})});
   await ui.click('[data-view="system"]');
   assert.match(ui.text(),/System & Status/);
   assert.match(ui.text(),/Website → Backend → Panel/);
-  assert.match(ui.text(),/Letzte E-Mail-Vorgänge/);
-  assert.equal(ui.$('[data-probe="hosting"] .system-state').textContent,'Verbunden');
-  assert.equal(ui.$('[data-probe="website"] .system-state').textContent,'Verbunden');
-  assert.match(ui.$('[data-probe="website"]').textContent,/HTTP 200/);
+  assert.match(ui.text(),/E-Mail-Transaktionslog/);
+  assert.equal(ui.$('[data-probe="hosting"] .system-state').textContent,'OK');
+  assert.equal(ui.$('[data-probe="website"] .system-state').textContent,'OK');
+  assert.match(ui.$('[data-probe="website"]').textContent,/HTTP-Status200/);
+  assert.match(ui.$('[data-probe="website"]').textContent,/\d+ ms/);
+  assert.match(ui.$('[data-probe="website"]').textContent,/Panel → white-gloss.de/);
+  assert.match(ui.$('[data-probe="hosting"]').textContent,/Browser → Panel/);
   assert.equal(ui.websiteRequests.length,1);
   assert.equal(ui.websiteRequests[0].options.redirect,'manual');
-  assert.match(ui.text(),/WG-004321 · Erika Muster/);
-  assert.match(ui.text(),/Website-ID 431/);
-  assert.match(ui.text(),/An Versanddienst übergeben/);
-  assert.doesNotMatch(ui.text(),/Zugestellt/);
+  const importedOrders=ui.$('.system-disclosure').textContent;
+  assert.match(importedOrders,/WG-004321Erika Muster/);
+  assert.match(importedOrders,/Website-ID \/ angelegt/);
+  assert.match(importedOrders,/431/);
+  const mailLog=ui.$('.system-mail-table').textContent;
+  assert.match(mailLog,/An Versanddienst übergeben/);
+  assert.match(mailLog,/re_offer_123/);
+  assert.match(mailLog,/Resend HTTP 422/);
+  assert.doesNotMatch(mailLog,/calendar-abc/);
+  assert.doesNotMatch(mailLog,/Zugestellt/);
   assert.equal(ui.$('.system-test [data-click="create"]'),null);
   assert.equal(ui.$('.system-test [data-click="test"]').textContent,'Testbereich aktivieren');
   await ui.click('.system-test [data-click="test"]');
@@ -133,31 +144,52 @@ test('system status separates live probes, website bookings and provider accepta
   assert.deepEqual(ui.errors,[]);
 });
 
-test('system status shows website failures instead of inventing success',async t=>{
+test('system status shows measured website failures instead of inventing success',async t=>{
   const fixture=await setup(t);
   const ui=await boot(t,{...fixture,cookie:fixture.ownerCookie,websiteResponse:()=>new Response('Störung',{status:503})});
   await ui.click('[data-view="system"]');
-  assert.equal(ui.$('[data-probe="website"] .system-state').textContent,'Fehlgeschlagen');
-  assert.match(ui.$('[data-probe="website"]').textContent,/HTTP 503/);
-  assert.equal(ui.$('[data-probe="hosting"] .system-state').textContent,'Verbunden');
+  assert.equal(ui.$('[data-probe="website"] .system-state').textContent,'Down');
+  assert.match(ui.$('[data-probe="website"]').textContent,/HTTP-Status503/);
+  assert.match(ui.$('[data-probe="website"]').textContent,/\d+ ms/);
+  assert.equal(ui.$('[data-probe="hosting"] .system-state').textContent,'OK');
   assert.equal(ui.$('[data-system-check="website"]').closest('.system-item').querySelector('.system-state').textContent,'Ausstehend');
   const customer=[...ui.w.document.querySelectorAll('.system-item')].find(item=>item.querySelector('h3').textContent==='Kundenportal');
   assert.equal(customer.querySelector('.system-state').textContent,'Verbunden');
   assert.deepEqual(ui.errors,[]);
 });
 
-test('website probe is owner-only and returns only technical evidence',async t=>{
+test('website probe is owner-only and returns measured technical evidence',async t=>{
   const fixture=await setup(t);
   assert.equal((await call(fixture.app,null,'/api/system/website')).status,401);
   assert.equal((await call(fixture.app,fixture.customerCookie,'/api/system/website')).status,403);
-  const previousFetch=globalThis.fetch;
-  t.after(()=>{globalThis.fetch=previousFetch;});
+  const previousFetch=globalThis.fetch,previousNow=Date.now;
+  t.after(()=>{globalThis.fetch=previousFetch;Date.now=previousNow;});
   globalThis.fetch=async()=>new Response(null,{status:200});
   const response=await call(fixture.app,fixture.ownerCookie,'/api/system/website');
   assert.equal(response.status,200);
   const data=await response.json();
   assert.equal(data.ok,true);
+  assert.equal(data.state,'ok');
   assert.equal(data.status,200);
+  assert.ok(Number.isSafeInteger(data.latencyMs)&&data.latencyMs>=0);
   assert.ok(Number.isFinite(Date.parse(data.checkedAt)));
-  assert.deepEqual(Object.keys(data).sort(),['checkedAt','ok','status']);
+  assert.deepEqual(Object.keys(data).sort(),['checkedAt','latencyMs','ok','state','status']);
+  let latencyOffset=0;
+  Date.now=()=>previousNow()+latencyOffset;
+  globalThis.fetch=async()=>{latencyOffset=5000;return new Response(null,{status:200});};
+  const slow=await(await call(fixture.app,fixture.ownerCookie,'/api/system/website')).json();
+  Date.now=previousNow;
+  assert.equal(slow.ok,false,JSON.stringify(slow));
+  assert.equal(slow.state,'warning');
+  assert.equal(slow.status,200);
+  assert.ok(slow.latencyMs>=5000&&slow.latencyMs<5100);
+  globalThis.fetch=async()=>new Response(null,{status:503});
+  const unavailable=await(await call(fixture.app,fixture.ownerCookie,'/api/system/website')).json();
+  assert.equal(unavailable.state,'down');
+  assert.equal(unavailable.status,503);
+  globalThis.fetch=async()=>{throw Error('Synthetic network failure');};
+  const offline=await(await call(fixture.app,fixture.ownerCookie,'/api/system/website')).json();
+  assert.equal(offline.state,'down');
+  assert.equal(offline.status,null);
+  assert.match(offline.error,/nicht erreichbar/);
 });

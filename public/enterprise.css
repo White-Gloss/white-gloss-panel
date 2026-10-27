@@ -113,6 +113,32 @@ dialog{border-radius:8px;box-shadow:0 24px 70px #0e121826}.modalhead,.modalfoote
 .system-test p{margin:0;font-size:12px;color:var(--wg-subtle)}
 .system-test .actions{justify-content:flex-end}
 .system-footnote{margin:-8px 0 0;font-size:11px;color:var(--wg-subtle)}
+.system-measurement-note{margin:0;padding:12px 20px;border-top:1px solid var(--wg-rule);background:#fafaf8;color:var(--wg-subtle);font-size:11px}
+.system-metrics{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin:4px 0 0;border:1px solid var(--wg-rule);border-radius:4px;background:#fafaf8}
+.system-metrics div{min-width:0;padding:9px 11px;border-right:1px solid var(--wg-rule)}
+.system-metrics div:last-child{border-right:0}
+.system-metrics dt{margin-bottom:2px;color:var(--wg-subtle);font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.system-metrics dd{margin:0;color:var(--wg-ink);font-size:11px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.system-table-wrap{width:100%;overflow-x:auto;scrollbar-width:thin}
+.system-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px}
+.system-table th{padding:10px 14px;background:#f7f7f5;border-bottom:1px solid var(--wg-rule);color:var(--wg-subtle);font-size:9px;font-weight:600;letter-spacing:.07em;text-align:left;text-transform:uppercase}
+.system-table td{padding:12px 14px;border-bottom:1px solid #e9e9e6;color:var(--wg-copy);vertical-align:top;overflow-wrap:anywhere}
+.system-table tbody tr:last-child td{border-bottom:0}
+.system-table td>strong,.system-table td>span{display:block}
+.system-table td>strong{margin-bottom:3px;color:var(--wg-ink);font-size:12px;font-weight:600}
+.system-table td>span{margin-top:3px;color:var(--wg-subtle);font-size:11px;line-height:1.5}
+.system-table td>.system-state{display:inline-flex;margin:0 0 5px}
+.system-table code{color:var(--wg-copy);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:10px;word-break:break-all}
+.system-table .system-number{font-variant-numeric:tabular-nums}
+.system-table .system-detail{min-width:220px;color:var(--wg-subtle);font-size:11px;line-height:1.55}
+.system-inbox-table{min-width:760px}.system-inbox-table th:nth-child(1){width:29%}.system-inbox-table th:nth-child(2){width:24%}.system-inbox-table th:nth-child(3){width:30%}.system-inbox-table th:nth-child(4){width:17%}
+.system-mail-table{min-width:1050px}.system-mail-table th:nth-child(1){width:13%}.system-mail-table th:nth-child(2){width:18%}.system-mail-table th:nth-child(3){width:17%}.system-mail-table th:nth-child(4){width:17%}.system-mail-table th:nth-child(5){width:35%}
+.system-run-table{min-width:760px}.system-run-table th:first-child{width:25%}.system-run-table th:nth-child(2){width:20%}
+.system-row-error td{background:#fdf8f6}.system-row-error td:first-child{box-shadow:inset 2px 0 var(--wg-error)}
+.system-disclosure{border-top:1px solid var(--wg-rule)}
+.system-disclosure summary{padding:12px 20px;color:var(--wg-copy);cursor:pointer;font-size:11px;font-weight:600}
+.system-disclosure[open] summary{border-bottom:1px solid var(--wg-rule)}
+.system-ledger-head .actions{flex:none;justify-content:flex-end}
 
 /* Kundenportal und Kanzlei verwenden dieselbe sachliche Material- und Abstandslogik. */
 .portal-page{background:var(--wg-canvas)}
@@ -149,6 +175,8 @@ dialog{border-radius:8px;box-shadow:0 24px 70px #0e121826}.modalhead,.modalfoote
   .card-title,.card-body,.formsection,.detail{padding:18px}.stat{padding:17px 15px}.premium-hero{padding:20px}
   .system-grid{grid-template-columns:1fr}.system-item:nth-child(odd){border-right:0}.system-item:nth-last-child(-n+2){border-bottom:1px solid var(--wg-rule)}.system-item:last-child{border-bottom:0}
   .system-test{grid-template-columns:1fr}.system-test .actions{justify-content:flex-start}.system-columns{gap:20px}
+  .system-ledger-head{align-items:flex-start;flex-direction:column}.system-ledger-head .actions{justify-content:flex-start;flex-wrap:wrap}
+  .system-metrics{grid-template-columns:1fr}.system-metrics div{border-right:0;border-bottom:1px solid var(--wg-rule)}.system-metrics div:last-child{border-bottom:0}
   .portal-main{padding:20px 12px 32px}.portal-card{padding:17px}.portal-hello{font-size:25px}
   .advisor-shell,.books-shell{padding:22px 16px}.advisor-shell .card,.books-shell .card{padding:17px}.advisor-header h1,.books-header h1{font-size:27px}
 }

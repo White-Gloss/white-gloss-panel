@@ -23,4 +23,7 @@ export const SCHEMA=[
  ,`CREATE TRIGGER IF NOT EXISTS no_customer_delete BEFORE DELETE ON customers BEGIN SELECT RAISE(ABORT,'Kunden werden nicht gelöscht'); END`
  ,`CREATE TRIGGER IF NOT EXISTS no_vehicle_delete BEFORE DELETE ON vehicles BEGIN SELECT RAISE(ABORT,'Fahrzeuge werden nicht gelöscht'); END`
  ,`CREATE TRIGGER IF NOT EXISTS no_order_delete BEFORE DELETE ON orders BEGIN SELECT RAISE(ABORT,'Aufträge werden nicht gelöscht'); END`
+ ,`CREATE TABLE IF NOT EXISTS website_inbox(website_id TEXT PRIMARY KEY,source TEXT NOT NULL,validation TEXT NOT NULL,errors TEXT NOT NULL,first_seen_at TEXT NOT NULL,last_checked_at TEXT NOT NULL,order_id TEXT)`
+ ,`CREATE INDEX IF NOT EXISTS website_inbox_checked ON website_inbox(last_checked_at DESC)`
+ ,`CREATE TABLE IF NOT EXISTS website_import_runs(id TEXT PRIMARY KEY,mode TEXT NOT NULL,checked_count INTEGER NOT NULL,created_count INTEGER NOT NULL,updated_count INTEGER NOT NULL,skipped_count INTEGER NOT NULL,rejected_count INTEGER NOT NULL,baseline_initialized INTEGER NOT NULL,checked_at TEXT NOT NULL)`
 ];
