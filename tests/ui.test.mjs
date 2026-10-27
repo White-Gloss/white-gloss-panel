@@ -49,6 +49,7 @@ test('panel: create, edit every step, sign on site, protocol with paint thicknes
   // Source edit.
   ui.fill(ui.$('#sourceform'),{email:'erika@example.invalid',note:'Hund im Auto'});await ui.submit('#sourceform');
   assert.equal((await getOrder(ui.env,o.id)).source.note,'Hund im Auto');
+  const change=ui.$('.change-summary');assert.ok(change,'latest order change is visible');assert.match(change.textContent,/Betreiber/);assert.match(change.textContent,/E-Mail/);assert.match(change.textContent,/Hinweis \/ Wünsche/);
   // Prices without required fields, then on-site signature.
   await ui.click('[data-tab="price"]');await ui.submit('#priceform');
   await ui.click('[data-click="onsiteAccept"]');ui.draw(ui.$('#customerSign'));ui.fill(ui.$('#signform'),{paymentObligation:true,immediateStart:true});await ui.submit('#signform');
@@ -176,7 +177,7 @@ test('customer offer page shows the price note and withdrawal text and records t
 test('panel: every page and every order tab renders without errors on desktop and phone layouts',async t=>{
   const env=environment();await signedOrderWithPendingIntake(env);
   const ui=await boot(t,{page:'index.html',script:'app.js',env});await ui.click('[data-click="test"]');
-  for(const view of ['overview','orders','customers','calendar','protocols','finance','care','dilution','settings']){await ui.click(`[data-view="${view}"]`);await ui.settle();assert.ok(ui.$('#content').textContent.length>50,view);}
+  for(const view of ['overview','orders','customers','calendar','protocols','finance','care','dilution','settings']){await ui.go('#'+view);await ui.settle();assert.ok(ui.$('#content').textContent.length>50,view);}
   assert.ok(ui.$('#settingsform [name="withdrawalText"]'));
   await ui.click('[data-view="orders"]');await ui.click(ui.$('tr[data-order]'));
   for(const tab of ['source','price','intake','return','payment','notes']){await ui.click(`[data-tab="${tab}"]`);assert.ok(ui.$('.detail').textContent.length>20,tab);}
@@ -337,7 +338,7 @@ test('panel: mobile navigation separates enquiries, running work and finance whi
   assert.equal(ui.$('.sidebar.open'),null);assert.equal(ui.$('.sidebar-backdrop').hidden,true);
   await ui.click('.mobile-dock [data-view="requests"]');assert.match(ui.$('h1').textContent,/Kundenanfragen/);
   await ui.click('.mobile-dock [data-view="active"]');assert.match(ui.$('h1').textContent,/Laufende Aufträge/);
-  await ui.click('.mobile-dock [data-view="finance"]');assert.match(ui.$('h1').textContent,/Finanzen/);
+  await ui.click('.mobile-dock [data-view="finance"]');assert.match(ui.$('h1').textContent,/Finanz/);
   await ui.click('.mobile-dock [data-click="menu"]');await ui.click('.sidebar [data-view="orders"]');assert.match(ui.$('h1').textContent,/Alle Aufträge/);
   assert.equal((await ui.env.DB.prepare('SELECT COUNT(*) n FROM orders').first()).n,0);
   assert.deepEqual(ui.errors,[]);
@@ -345,8 +346,8 @@ test('panel: mobile navigation separates enquiries, running work and finance whi
 
 test('panel: grouped navigation and care queue use real order follow-ups',async t=>{
   const ui=await boot(t,{page:'index.html',script:'app.js'});
-  assert.equal(ui.w.document.querySelectorAll('.sidebar .navgroup').length,3);
-  assert.match(ui.$('.sidebar').textContent,/TAGESGESCHÄFT/);assert.match(ui.$('.sidebar').textContent,/KUNDEN & DOKUMENTE/);
+  assert.equal(ui.w.document.querySelectorAll('.sidebar .navgroup').length,4);
+  assert.match(ui.$('.sidebar').textContent,/ARBEIT & PLANUNG/);assert.match(ui.$('.sidebar').textContent,/KUNDEN & KOMMUNIKATION/);assert.match(ui.$('.sidebar').textContent,/FINANZEN/);
   await ui.click('.sidebar [data-view="care"]');assert.match(ui.$('.care-queue').textContent,/Keine Wiedervorlagen geplant/);
   await ui.click('[data-click="test"]');await ui.click('.sidebar [data-view="overview"]');await ui.click('[data-click="create"]');ui.fill(ui.$('#createform'),{name:'Betreuung Test',vehicle:'BMW M4'});await ui.submit('#createform');
   await ui.click('[data-tab="notes"]');const yesterday=new Date(Date.now()-86400000).toISOString().slice(0,10);
@@ -483,7 +484,7 @@ test('panel: operational agenda links existing appointments, follow-ups and unpa
   current.invoice={provider:'qonto',status:'unpaid',number:'RE-TEST',dueDate:yesterday,totalCents:34900};
   await saveOrder(ui.env,current,current.version,'Synthetischer Agenda-Test');await ui.click('[data-click="back"]');await ui.click('[data-click="refresh"]');
   assert.match(ui.$('.operations-panel.compact').textContent,/Jetzt & als Nächstes/);assert.match(ui.$('.operations-panel.compact').textContent,/Lackzustand telefonisch besprechen/);
-  await ui.click('.sidebar [data-view="calendar"]');assert.match(ui.text(),/Deine nächsten 7 Tage/);assert.match(ui.text(),/349,00\s*€/);assert.match(ui.text(),/Rechnungssummen, kein Kontostand/);assert.match(ui.text(),/Keine Kapazitätsaussage/);
+  await ui.go('#calendar');assert.match(ui.text(),/Deine nächsten 7 Tage/);assert.match(ui.text(),/349,00\s*€/);assert.match(ui.text(),/Rechnungssummen, kein Kontostand/);assert.match(ui.text(),/Keine Kapazitätsaussage/);
   assert.ok(ui.$('.agenda-item.appointment[data-order]'));assert.ok(ui.$('.agenda-item.followup[data-order]'));assert.ok(ui.$('.calendar-month[open]'));assert.ok(ui.$('.calendar-item[data-order]'));
   await ui.click('.agenda-item.invoice');assert.match(ui.text(),/Agenda Kunde/);assert.match(ui.text(),/Kunde & Anfrage/);assert.deepEqual(ui.errors,[]);
 });
@@ -501,5 +502,32 @@ test('panel: overview has one clear work queue and hash navigation updates the v
   const id=(await ui.env.DB.prepare('SELECT id FROM orders').first()).id;
   await ui.go('#overview');assert.ok(ui.$('.overview-orders'));assert.equal(ui.w.document.querySelectorAll('.overview-shell [data-click="create"]').length,1);
   await ui.go('#auftrag='+id);assert.match(ui.$('.detail-header').textContent,/Navigation Test/);
-  await ui.go('#finance');assert.equal(ui.$('.detail-header'),null);assert.match(ui.$('.content > .heading h1').textContent,/Finanzen/);assert.deepEqual(ui.errors,[]);
+  await ui.go('#finance');assert.equal(ui.$('.detail-header'),null);assert.match(ui.$('.content > .heading h1').textContent,/Finanz/);assert.deepEqual(ui.errors,[]);
+});
+
+test('panel: navigation groups daily work, customers, finance subpages and administration without dead routes',async t=>{
+  const env=environment();env.STANDALONE_AUTH='true';const ui=await boot(t,{page:'index.html',script:'app.js',env});
+  const ids=[...ui.w.document.querySelectorAll('.sidebar [data-view]')].map(button=>button.dataset.view);
+  assert.deepEqual(ids.slice(0,11),['overview','requests','active','orders','customers','chat','whatsapp','mailbox','care','business','protocols']);
+  assert.deepEqual(ids.slice(11,18),['finance','finance-income','finance-expenses','finance-invoices','finance-receipts','finance-bank','finance-advisor']);
+  assert.equal(ids.at(-1),'settings');assert.ok(!ids.includes('calendar'));
+  const agenda=ui.$('.overview-shell .operations-panel'),stats=ui.$('.overview-shell > .stats');
+  assert.ok(agenda.compareDocumentPosition(stats)&ui.w.Node.DOCUMENT_POSITION_FOLLOWING,'Tagesplanung steht vor den Kennzahlen');
+  for(const [view,title] of [['finance','Finanzübersicht'],['finance-income','Einnahmen'],['finance-expenses','Ausgaben'],['finance-invoices','Rechnungen'],['finance-receipts','Belege'],['finance-bank','Bank'],['finance-advisor','Steuerberater']]){
+    await ui.go('#'+view);assert.equal(ui.$('.content > .heading h1').textContent,title,view);assert.equal(ui.$(`.sidebar [data-view="${view}"]`).getAttribute('aria-current'),'page',view);
+  }
+  await ui.go('#trash');assert.match(ui.$('h1').textContent,/Papierkorb/);await ui.go('#system');assert.ok(ui.$('.system-page'));
+  assert.deepEqual(ui.errors,[]);
+});
+
+test('Vor-Ort app: pickup outside the tariff and a custom service keep one exact signed total',async t=>{
+  const ui=await boot(t,{page:'vor-ort.html',script:'vor-ort.js',storage:{'wg-vo-test':'1'}});
+  await ui.go('#buchung');ui.fill(ui.$('#c-new'),{name:'TEST · Abholung',address:'TEST · Musterweg 1'});await ui.submit('#c-new');await ui.settle();await ui.submit('#v-new');await ui.settle();
+  const form=ui.$('#s-form');ui.fill(form,{delivery:'Abholung',pickupKm:'80',customTitle:'Zusätzliche Fleckbehandlung',customPrice:'30,00',customNote:'TEST · nur nach Materialprüfung'});form.dispatchEvent(new ui.w.Event('input',{bubbles:true}));
+  assert.equal(form.elements.pickupPrice.disabled,false);assert.match(ui.$('#s-total').textContent,/Preis ergänzen/);await ui.submit(form);assert.ok(ui.$('#s-form'),'Ohne individuellen Abholpreis bleibt die Buchung im Leistungsschritt.');
+  ui.fill(form,{pickupPrice:'95,00'});form.dispatchEvent(new ui.w.Event('input',{bubbles:true}));assert.match(ui.$('#s-total').textContent,/274,00/);await ui.submit(form);await ui.settle();
+  assert.equal(ui.$('[data-onsite-appointment-delivery]').textContent,'Abholung');ui.draw(ui.$('#a-sign'));ui.fill(ui.$('#a-form'),{paymentObligation:true});await ui.submit('#a-form');await ui.settle();
+  const row=await ui.env.DB.prepare('SELECT id FROM orders').first(),o=await getOrder(ui.env,row.id);
+  assert.equal(o.offer.totalCents,27400);assert.equal(o.offer.pickupCents,9500);assert.equal(o.source.delivery,'Abholung');assert.equal(o.appointment.delivery,'Abholung');
+  assert.equal(o.offer.lines.find(line=>line.kind==='pickup').amountCents,9500);assert.equal(o.offer.lines.find(line=>line.id==='custom-service').amountCents,3000);assert.equal(o.acceptance.snapshot.offer.totalCents,27400);assert.deepEqual(ui.errors,[]);
 });

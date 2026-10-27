@@ -31,6 +31,7 @@ test('Qonto bank sync is read-only, revisioned and manually classified by direct
   assert.equal((await f.call('/api/accounting/bank/classify','owner',{revisionId:credit.revisionId,version:0,category:'SERVICE_B2C',note:'Privatkunde, Dienstleistung'})).status,200);
   assert.equal((await f.call('/api/accounting/bank/classify','owner',{revisionId:debit.revisionId,version:0,category:'OPERATING_EXPENSE',note:'Qonto-Karte'})).status,200);
   assert.equal((await f.call('/api/accounting/bank/classify','owner',{revisionId:credit.revisionId,version:0,category:'SERVICE_B2B'})).status,409);
+  data=await (await f.call('/api/accounting/bank','owner')).json();assert.equal(data.items.find(item=>item.providerId===creditId).classification.actor,'owner');assert.equal(data.items.find(item=>item.providerId===debitId).classification.actor,'owner');
   rows[0]={...rows[0],status:'reversed',updated_at:'2026-10-18T11:00:00.000Z'};
   const changed=await (await f.call('/api/accounting/bank/sync','owner',{})).json();assert.equal(changed.imported,1);
   data=await (await f.call('/api/accounting/bank','owner')).json();assert.equal(data.items.find(item=>item.providerId===creditId).status,'reversed');

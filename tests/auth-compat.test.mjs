@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {PanelDatabase} from '../server/storage.mjs';
-import {authSchema,digest,issueCustomerAccess,redeemLogin,sessionIdentity,pruneAuth} from '../server/auth.mjs';
+import {authSchema,digest,issueCustomerAccess,redeemLogin,sessionIdentity,pruneAuth,logout,REMEMBER_DEVICE_MS} from '../server/auth.mjs';
 
 const owner='owner@example.invalid',customer='customer@example.invalid',origin='https://panel.example.invalid';
 async function fixture(t){const env={DB:new PanelDatabase(':memory:'),OWNER_EMAIL_SHA256:digest(owner),CONFIG_KEY:Buffer.alloc(32,9).toString('base64'),PANEL_ORIGIN:origin};t.after(()=>env.DB.close());await authSchema(env);return env;}
@@ -35,8 +35,9 @@ test('a verified one-time customer PIN binds its session to the existing credent
   await env.DB.prepare('INSERT INTO orders(id,wg,status,data,updated_at,actor,action) VALUES(?,?,?,?,?,?,?)').bind(id,order.wg,'Angebot offen',JSON.stringify(order),new Date().toISOString(),'test','synthetic fixture').run();
   await env.DB.prepare('INSERT INTO offer_tokens VALUES(?,?,?,0)').bind(digest(token),id,expiresAt).run();
   const access=await issueCustomerAccess(env,customer,'/angebot/'+token),loginToken=new URL(access.url).searchParams.get('token');
-  const response=await redeemLogin(env,new Request(origin+'/auth/redeem',{method:'POST',headers:{origin,'Content-Type':'application/json'},body:JSON.stringify({token:loginToken,pin:access.pin})}));
-  assert.equal(response.status,200);const cookie=response.headers.get('set-cookie').split(';')[0],hash=digest(cookie.split('=')[1]),request=new Request(origin,{headers:{cookie}});
+  const response=await redeemLogin(env,new Request(origin+'/auth/redeem',{method:'POST',headers:{origin,'Content-Type':'application/json'},body:JSON.stringify({token:loginToken,pin:access.pin,remember:true})}));
+  assert.equal(response.status,200);assert.match(response.headers.get('set-cookie'),/Max-Age=86400/);const cookie=response.headers.get('set-cookie').split(';')[0],hash=digest(cookie.split('=')[1]),request=new Request(origin,{headers:{cookie}});
+  assert.equal((await env.DB.prepare('SELECT COUNT(*) n FROM auth_session_preferences').first()).n,0);
   assert.equal((await env.DB.prepare('SELECT revision FROM auth_customer_sessions WHERE session_hash=?').bind(hash).first()).revision,'current');
   assert.equal(await sessionIdentity(env,request),customer);
   await env.DB.prepare('UPDATE auth_customer_credentials SET revision=? WHERE email=?').bind('replacement',customer).run();
@@ -48,4 +49,29 @@ test('pruning removes revision proofs for expired sessions and preserves active 
   await pruneAuth(env,now);
   assert.equal((await env.DB.prepare('SELECT COUNT(*) n FROM auth_customer_sessions').first()).n,1);
   assert.ok(await env.DB.prepare('SELECT 1 FROM auth_customer_sessions WHERE session_hash=?').bind(active.hash).first());
+});
+async function rememberedOwner(env,now){
+  const raw=randomBytes(32).toString('hex');await env.DB.prepare('INSERT INTO auth_tokens(hash,email,return_to,expires_at) VALUES(?,?,?,?)').bind(digest(raw),owner,'/vor-ort',now+600000).run();
+  const response=await redeemLogin(env,new Request(origin+'/auth/redeem',{method:'POST',headers:{origin,'Content-Type':'application/json'},body:JSON.stringify({token:raw,remember:true})}),now);
+  assert.equal(response.status,200);const cookie=response.headers.get('set-cookie').split(';')[0];return {response,cookie,hash:digest(cookie.split('=')[1]),request:new Request(origin,{headers:{cookie}})};
+}
+test('explicit owner device login survives the normal idle limit but expires after thirty days and logout',async t=>{
+  const env=await fixture(t),now=Date.now(),login=await rememberedOwner(env,now);
+  assert.match(login.response.headers.get('set-cookie'),/Max-Age=2592000/);
+  assert.equal(await sessionIdentity(env,login.request,now+4*3600000+1),owner);
+  assert.equal(await sessionIdentity(env,login.request,now+REMEMBER_DEVICE_MS+1),null);
+  const second=await rememberedOwner(env,now),logoutResponse=await logout(env,new Request(origin+'/auth/logout',{method:'POST',headers:{origin,cookie:second.cookie}}));
+  assert.equal(logoutResponse.status,200);assert.match(logoutResponse.headers.get('set-cookie'),/Max-Age=0/);
+  assert.equal(await sessionIdentity(env,second.request,now),null);
+});
+test('normal sessions stay short and pruning respects only the remembered owner lifetime',async t=>{
+  const env=await fixture(t),now=Date.now(),normal=await session(env,owner,now),remembered=await rememberedOwner(env,now);
+  assert.equal(await sessionIdentity(env,normal.request,now+4*3600000+1),null);
+  await env.DB.prepare('INSERT INTO auth_sessions VALUES(?,?,?,?)').bind('normal-prune',owner,now+86400000,now).run();
+  await pruneAuth(env,now+4*3600000+1);
+  assert.equal(await env.DB.prepare("SELECT 1 FROM auth_sessions WHERE hash='normal-prune'").first(),null);
+  assert.ok(await env.DB.prepare('SELECT 1 FROM auth_sessions WHERE hash=?').bind(remembered.hash).first());
+  await pruneAuth(env,now+REMEMBER_DEVICE_MS+1);
+  assert.equal(await env.DB.prepare('SELECT 1 FROM auth_sessions WHERE hash=?').bind(remembered.hash).first(),null);
+  assert.equal((await env.DB.prepare('SELECT COUNT(*) n FROM auth_session_preferences').first()).n,0);
 });

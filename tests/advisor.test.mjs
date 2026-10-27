@@ -5,6 +5,7 @@ import {PanelDatabase} from '../server/storage.mjs';
 import {createApplication} from '../server/application.mjs';
 import {digest} from '../server/auth.mjs';
 import {csvCell} from '../server/advisor-finance.mjs';
+import ExcelJS from 'exceljs';
 
 const origin='https://panel.example.invalid',password='Ein langer Testsatz mit 24 Zeichen!',email='berater@example.invalid';
 async function fixture(t){
@@ -99,6 +100,9 @@ test('receipt and bank pagination has no 200-row cap; exports are complete for t
     let cursor=null,seen=[];do{const r=await f.call('/api/advisor/'+kind+(cursor?'?cursor='+cursor:'')),page=await r.json();assert.equal(r.status,200);seen.push(...page.items.map(x=>x.id));cursor=page.nextCursor;}while(cursor);
     assert.equal(seen.length,207);assert.equal(new Set(seen).size,207);assert.ok(!seen.includes(synthetic));
     const csv=await f.call('/api/advisor/export?kind='+kind+'&from=2026-10-01&to=2026-10-31');assert.equal(csv.status,200);assert.equal((await csv.text()).trim().split('\r\n').length,208);
+    const xlsx=await f.call('/api/advisor/export?kind='+kind+'&from=2026-10-01&to=2026-10-31&format=xlsx');assert.equal(xlsx.status,200);assert.match(xlsx.headers.get('content-type'),/spreadsheetml/);assert.match(xlsx.headers.get('content-disposition'),/\.xlsx"/);
+    const bytes=Buffer.from(await xlsx.arrayBuffer());assert.equal(bytes.subarray(0,2).toString(),'PK');const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(bytes);const sheet=workbook.worksheets[0];assert.equal(sheet.rowCount,208);assert.equal(sheet.getCell('A1').value,'id');
+    const strings=sheet.getSheetValues().flat().filter(value=>typeof value==='string'),malicious=strings.find(value=>value.includes('DANGEROUS'));if(kind==='documents')assert.ok(malicious?.startsWith("'"),'spreadsheet formulas stay inert');
   }
   assert.equal((await f.call('/api/advisor/document/'+synthetic)).status,404);
   const id=await f.doc();assert.equal((await f.call('/api/advisor/document/'+id)).status,200);f.files.get(id).body[8]=0;assert.equal((await f.call('/api/advisor/document/'+id)).status,503);

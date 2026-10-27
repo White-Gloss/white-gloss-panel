@@ -89,7 +89,7 @@ test('panel inbox: unread badge, open the chat from an order and reply',async t=
   const f=await setup(t,storage);
   // Die Aufräum-Hooks laufen in Reihenfolge ihrer Registrierung: Erst setup() schließt die
   // SQLite-Datei, danach darf Windows das temporäre Verzeichnis entfernen.
-  t.after(()=>rmSync(dir,{recursive:true,force:true}));
+  t.after(()=>rmSync(dir,{recursive:true,force:true,maxRetries:5,retryDelay:50}));
   const ui=await boot(t,{app:f.app,page:'index.html',script:'app.js',path:'/',cookie:f.ownerCookie});
   await ui.click('[data-view="orders"]');await ui.click(ui.$('tr[data-order]')??ui.$('[data-order]'));
   await ui.click('[data-click="orderChat"]');

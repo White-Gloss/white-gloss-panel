@@ -87,7 +87,7 @@ async function list(env){
   const rows=(await env.DB.prepare(`SELECT r.* FROM accounting_bank_revisions r WHERE r.revision_id IN
     (SELECT MAX(revision_id) FROM accounting_bank_revisions GROUP BY organization_id,account_iban,provider_id)
     ORDER BY COALESCE(r.settled_at,r.provider_updated_at) DESC LIMIT 200`).all()).results;
-  const items=[];for(const r of rows){const c=await env.DB.prepare('SELECT * FROM accounting_bank_classifications WHERE bank_revision_id=? ORDER BY version DESC LIMIT 1').bind(r.revision_id).first();items.push({revisionId:r.revision_id,accountIban:r.account_iban,providerId:r.provider_id,status:r.status,side:r.side,amountMinor:r.amount_minor,currency:r.currency,label:r.label,reference:r.reference,settledAt:r.settled_at,updatedAt:r.provider_updated_at,classification:c?{version:c.version,category:c.category,documentId:c.document_id,note:c.note,createdAt:c.created_at}:null});}return {items};
+  const items=[];for(const r of rows){const c=await env.DB.prepare('SELECT * FROM accounting_bank_classifications WHERE bank_revision_id=? ORDER BY version DESC LIMIT 1').bind(r.revision_id).first();items.push({revisionId:r.revision_id,accountIban:r.account_iban,providerId:r.provider_id,status:r.status,side:r.side,amountMinor:r.amount_minor,currency:r.currency,label:r.label,reference:r.reference,settledAt:r.settled_at,updatedAt:r.provider_updated_at,classification:c?{version:c.version,category:c.category,documentId:c.document_id,note:c.note,createdAt:c.created_at,actor:c.actor}:null});}return {items};
 }
 
 async function classify(env,request){

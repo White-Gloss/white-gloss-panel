@@ -82,6 +82,30 @@ test('customer sees the original inquiry and sends a traceable correction reques
   assert.deepEqual(ui.errors,[]);
 });
 
+test('customer overview offers one contact path and valid direct navigation',async t=>{
+  const f=await setup(t),ui=await boot(t,{app:f.app,path:'/kunde',cookie:f.customerCookie});
+  assert.match(ui.$('.portal-next-clear h2').textContent,/Termin ist verbindlich bestätigt/);
+  const links=[...ui.w.document.querySelectorAll('.portal-jump a')];assert.equal(links.length,4);
+  for(const link of links)assert.ok(ui.w.document.querySelector(link.getAttribute('href')),'navigation target exists: '+link.getAttribute('href'));
+  const ids=[...ui.w.document.querySelectorAll('[id]')].map(el=>el.id);assert.equal(new Set(ids).size,ids.length,'no duplicate anchors or form IDs');
+  assert.equal(ui.w.document.querySelectorAll('[data-act="chat"]').length,1,'the real chat button stays unique');
+  await ui.click('[data-act="contact"]');assert.ok(ui.$('#portal-chat .chat'),'the secondary contact action opens the same order chat');
+  assert.equal(ui.$('[data-act="chat"]').textContent,'Chat ist geöffnet');assert.deepEqual(ui.errors,[]);
+});
+
+test('owner preview also disables a ready offer link and cannot write to the portal',async t=>{
+  const f=await setup(t),token=randomBytes(32).toString('hex'),order=structuredClone(f.order);
+  order.status='Angebot offen';order.offerToken=token;delete order.acceptance;
+  await f.env.DB.prepare("UPDATE orders SET status='Angebot offen',version=version+1,data=? WHERE id=?").bind(JSON.stringify(order),order.id).run();
+  await f.env.DB.prepare('INSERT INTO offer_tokens VALUES(?,?,?,0)').bind(digest(token),order.id,new Date(Date.now()+86400000).toISOString()).run();
+  const ui=await boot(t,{app:f.app,path:'/kunde?vorschau='+order.id,cookie:f.ownerCookie});
+  assert.equal(ui.$('.portal-todo [aria-disabled="true"]').getAttribute('href'),null,'offer cannot be opened as an action in the preview');
+  assert.equal(ui.w.document.querySelectorAll('.portal-todo [data-act]').length,0);
+  assert.ok([...ui.w.document.querySelectorAll('[data-act]')].every(button=>button.disabled),'every remaining action is visibly disabled');
+  const response=await f.app.fetch(new Request(origin+'/api/portal/o/'+order.id+'/termin',{method:'POST',headers:{origin,'Content-Type':'application/json',cookie:f.ownerCookie},body:JSON.stringify({wish:'Kein Schreibzugriff in der Vorschau'})}));
+  assert.equal(response.status,403);assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM portal_requests WHERE order_id=?').bind(order.id).first()).n,0);assert.deepEqual(ui.errors,[]);
+});
+
 test('owner preview shows the customer view with all actions disabled',async t=>{
   const f=await setup(t);
   const ui=await boot(t,{app:f.app,path:'/kunde?vorschau='+f.order.id,cookie:f.ownerCookie});
@@ -179,9 +203,10 @@ test('a stale appointment form displays the conflict without confirming the newl
 test('customer portal renders issued invoice amounts, own PDF downloads and the completed review link',async t=>{
   const f=await setup(t),at=new Date().toISOString(),invoiceId=randomUUID(),assetId=randomUUID(),bytes=Buffer.from('%PDF-1.7\nTEST · cached customer invoice');
   const invoice={provider:'qonto',id:invoiceId,number:'WG-4711',status:'unpaid',issueDate:'2030-10-01',dueDate:'2030-10-08',totalCents:45625,vatBasisPoints:1900,mode:'invoice',lines:[{title:'Reinigung und vereinbarte Mehrarbeit',amountCents:45625}],payment:{beneficiary:'TEST · White Gloss',iban:'DE89370400440532013000'},url:'https://pay.qonto.com/invoices/synthetic'};
-  const order={...f.order,status:'Erledigt',completedAt:at,invoice};await f.env.DB.prepare("UPDATE orders SET status='Erledigt',version=version+1,data=? WHERE id=?").bind(JSON.stringify(order),order.id).run();
+  const order={...f.order,status:'Erledigt',completedAt:at,invoice,payments:[{id:'partial-payment',amountCents:10000,at:'2030-10-02T10:00:00.000Z',method:'Überweisung'}]};await f.env.DB.prepare("UPDATE orders SET status='Erledigt',version=version+1,data=? WHERE id=?").bind(JSON.stringify(order),order.id).run();
   await f.env.BUCKET.put(assetId,bytes,{httpMetadata:{contentType:'application/pdf'}});await f.env.DB.prepare('INSERT INTO assets VALUES(?,?,?,?,?,?,?)').bind(assetId,order.id,'invoice','application/pdf',digest(bytes),bytes.length,at).run();await f.env.DB.prepare('INSERT INTO invoice_documents VALUES(?,?,?,?)').bind(order.id,invoiceId,assetId,at).run();await setting(f.env,'reviewUrl','https://g.page/r/white-gloss-test/review');
   const ui=await boot(t,{app:f.app,path:'/kunde',cookie:f.customerCookie});assert.match(ui.$('.portal-invoice').textContent,/456,25/);assert.match(ui.$('.portal-invoice').textContent,/Offen/);assert.match(ui.$('.portal-invoice').textContent,/DE89370400440532013000/);
+  assert.match(ui.$('.portal-amount').textContent,/Noch zu zahlen356,25/);assert.match(ui.$('.portal-invoice-lines').textContent,/Reinigung und vereinbarte Mehrarbeit456,25/);assert.match(ui.$('.portal-invoice .portal-facts').textContent,/Bereits gezahlt100,00/);
   const pay=ui.$('.portal-invoice a[target="_blank"]');assert.equal(pay.href,invoice.url);assert.match(pay.rel,/noopener/);assert.match(pay.rel,/noreferrer/);
   const pdf=ui.$('.portal-invoice a[download]'),response=await f.app.fetch(new Request(new URL(pdf.getAttribute('href'),origin),{headers:{cookie:f.customerCookie}}));assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'application/pdf');assert.deepEqual(Buffer.from(await response.arrayBuffer()),bytes);
   const doc=ui.$('.portal-docs a');assert.ok(doc.hasAttribute('download'));assert.match(doc.textContent,/ohne Kundenunterschrift/);const confirmation=await f.app.fetch(new Request(new URL(doc.getAttribute('href'),origin),{headers:{cookie:f.customerCookie}}));assert.equal(confirmation.status,200);assert.equal(Buffer.from(await confirmation.arrayBuffer()).subarray(0,5).toString(),'%PDF-');

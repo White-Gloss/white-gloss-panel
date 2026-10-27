@@ -8,22 +8,24 @@ import {fileURLToPath} from 'node:url';
 
 const installer=fileURLToPath(new URL('../deploy/install-panel.sh',import.meta.url));
 const helper=fileURLToPath(new URL('../deploy/panel-release.sh',import.meta.url));
+// These fixtures execute Linux shell installers; the real GitHub runner keeps full coverage.
+const shellTest=process.platform==='linux'?test:test.skip;
 const commit='a1'.repeat(20),hash='b2'.repeat(32);
-const panelUid=process.getuid()||65534,panelGid=process.getgid()||65534;
+const panelUid=process.getuid?.()??65534,panelGid=process.getgid?.()??65534;
 function shell(script,args=[]){return spawnSync('/bin/bash',['-c',script,'synthetic-deployment-test',...args],{encoding:'utf8'});}
 async function fixture(t){const path=await mkdtemp(resolve(tmpdir(),'white-gloss-installer-test-'));t.after(()=>rm(path,{recursive:true,force:true}));return path;}
 
-test('deployment shell files parse without executing a server or privileged command',()=>{
+shellTest('deployment shell files parse without executing a server or privileged command',()=>{
   for(const path of [installer,helper]){const result=spawnSync('/bin/bash',['-n',path],{encoding:'utf8'});assert.equal(result.status,0,result.stderr);}
 });
 
-test('release helper accepts only the commit-bound upload path and full lowercase hashes',()=>{
+shellTest('release helper accepts only the commit-bound upload path and full lowercase hashes',()=>{
   const valid=['/home/white-gloss-ci/white-gloss-panel-'+commit+'.tar.gz',hash,commit];
   const cases=[{args:valid,valid:true},{args:valid.slice(1)},{args:[...valid,'extra']},{args:['/tmp/white-gloss-panel-'+commit+'.tar.gz',hash,commit]},{args:[valid[0]+'/../../installer',hash,commit]},{args:[valid[0],hash.toUpperCase(),commit]},{args:[valid[0],hash,commit+'\n']},{args:[valid[0],hash,'$(touch /tmp/never-execute)']}];
   for(const entry of cases){const result=shell('source "$1"; shift; valid_install_arguments "$@"',[helper,...entry.args]);assert.equal(result.status===0,entry.valid===true,JSON.stringify(entry.args));assert.equal(result.stdout,'');}
 });
 
-test('root installer guard rejects a writable or caller-owned tree and symlink',async t=>{
+shellTest('root installer guard rejects a writable or caller-owned tree and symlink',async t=>{
   const root=await fixture(t),file=resolve(root,'installer.sh'),link=resolve(root,'installer-link.sh');
   await writeFile(file,'synthetic fixture',{mode:0o666});await symlink(file,link);
   for(const path of [file,link]){const result=shell('source "$1"; root_protected_path "$2" file',[helper,path]);assert.notEqual(result.status,0);}
@@ -31,7 +33,7 @@ test('root installer guard rejects a writable or caller-owned tree and symlink',
   assert.equal(protectedFile.status,0,protectedFile.stderr);
 });
 
-test('every privileged service template, initialization script and existing configuration must be protected',()=>{
+shellTest('every privileged service template, initialization script and existing configuration must be protected',()=>{
   const names=['install-panel.sh','prepare-environment.mjs','white-gloss-panel.service','white-gloss-panel-maintenance.service','white-gloss-panel-maintenance.timer','white-gloss-panel-backup.service','white-gloss-panel-backup.timer','white-gloss-panel.caddy'];
   const paths=[...names.map(name=>'/usr/local/lib/white-gloss-panel/'+name),'/etc/white-gloss-panel/environment'];
   for(const path of paths){
@@ -47,7 +49,7 @@ validate_release_assets /usr/local/lib/white-gloss-panel`,[helper]);
   assert.equal(result.status,0,result.stderr);assert.deepEqual(result.stdout.trim().split('\n'),paths);
 });
 
-test('service installation takes all privileged templates from the administrator directory',()=>{
+shellTest('service installation takes all privileged templates from the administrator directory',()=>{
   const result=shell(`source "$1"
 installer_directory=/synthetic/administrator
 target=/synthetic/uploaded-release
@@ -58,7 +60,7 @@ install_trusted_service_templates`,[installer]);
   assert.deepEqual(result.stdout.trim().split('\n'),['white-gloss-panel.service','white-gloss-panel-maintenance.service','white-gloss-panel-maintenance.timer','white-gloss-panel-backup.service','white-gloss-panel-backup.timer','white-gloss-panel.caddy'].map(name=>'/synthetic/administrator/'+name));
 });
 
-test('privileged Python ignores modules in the caller directory',async t=>{
+shellTest('privileged Python ignores modules in the caller directory',async t=>{
   const root=await fixture(t),marker=resolve(root,'unsafe-import'),archive=resolve(root,'empty.tar.gz');
   const payload='from pathlib import Path\nPath('+JSON.stringify(marker)+').write_text("unexpected privileged import")\nraise RuntimeError("caller module imported")\n';
   await writeFile(resolve(root,'pathlib.py'),payload);await writeFile(resolve(root,'tarfile.py'),payload);
@@ -71,7 +73,7 @@ test('privileged Python ignores modules in the caller directory',async t=>{
   await assert.rejects(readFile(marker),{code:'ENOENT'});
 });
 
-test('panel data directories are created and repaired through directory descriptors',async t=>{
+shellTest('panel data directories are created and repaired through directory descriptors',async t=>{
   const root=await fixture(t),uid=panelUid,gid=panelGid;
   const prepare=()=>shell('source "$1"; prepare_panel_data_directories "$2" "$3" "$4"',[installer,root,String(uid),String(gid)]);
   let result=prepare();assert.equal(result.status,0,result.stderr);
@@ -81,7 +83,7 @@ test('panel data directories are created and repaired through directory descript
   for(const path of paths)assert.equal((await stat(path)).mode&0o777,0o700);
 });
 
-test('panel data symlinks never change the outside directory or its contents',async t=>{
+shellTest('panel data symlinks never change the outside directory or its contents',async t=>{
   for(const child of ['base','data','backups'])await t.test(child,async t=>{
     const root=await fixture(t),outside=resolve(root,'outside'),marker=resolve(outside,'untouched'),base=resolve(root,'white-gloss-panel');
     await mkdir(outside,{mode:0o750});await writeFile(marker,'outside fixture',{mode:0o640});
@@ -96,14 +98,14 @@ test('panel data symlinks never change the outside directory or its contents',as
   });
 });
 
-test('panel data preparation refuses uid zero and writable parent directories',async t=>{
+shellTest('panel data preparation refuses uid zero and writable parent directories',async t=>{
   const root=await fixture(t);
   let result=shell('source "$1"; prepare_panel_data_directories "$2" 0 "$3"',[installer,root,String(panelGid)]);assert.notEqual(result.status,0);
   await chmod(root,0o777);
   result=shell('source "$1"; prepare_panel_data_directories "$2" "$3" "$4"',[installer,root,String(panelUid),String(panelGid)]);assert.notEqual(result.status,0);
 });
 
-test('only owned temporary release link names with the expected destination are removed',async t=>{
+shellTest('only owned temporary release link names with the expected destination are removed',async t=>{
   const root=await fixture(t),next=resolve(root,'current.next'),other=resolve(root,'current.rollback');
   await symlink('/srv/white-gloss-panel/releases/'+commit,next);
   let result=shell('source "$1"; clear_release_link "$2"',[installer,next]);assert.equal(result.status,0,result.stderr);
@@ -115,7 +117,7 @@ test('only owned temporary release link names with the expected destination are 
   result=shell('source "$1"; clear_release_link "$2"',[installer,unrelated]);assert.notEqual(result.status,0);
 });
 
-test('a failed pre-activation backup restores timer activity and enablement and preserves its failure',async t=>{
+shellTest('a failed pre-activation backup restores timer activity and enablement and preserves its failure',async t=>{
   const root=await fixture(t),log=resolve(root,'commands');
   const result=shell(`source "$1"
 log=$2
@@ -137,7 +139,7 @@ pause_panel_jobs`,[installer,log]);
   assert.deepEqual((await readFile(log,'utf8')).trim().split('\n'),['stop synthetic-maintenance.timer synthetic-backup.timer','stop white-gloss-panel-maintenance.service white-gloss-panel-backup.service','start white-gloss-panel-backup.service','enable synthetic-maintenance.timer','start synthetic-maintenance.timer','disable synthetic-backup.timer','stop synthetic-backup.timer']);
 });
 
-test('first installation tolerates absent panel units without attempting an existing-release backup',()=>{
+shellTest('first installation tolerates absent panel units without attempting an existing-release backup',()=>{
   const result=shell(`source "$1"
 systemctl() { [[ $1 == stop ]] || exit 77; return 5; }
 previous=''
@@ -147,7 +149,7 @@ printf 'first installation can continue\\n'`,[installer]);
   assert.equal(result.status,0,result.stderr);assert.equal(result.stdout,'first installation can continue\n');
 });
 
-test('status never certifies a commit when a required service or timer is inactive',()=>{
+shellTest('status never certifies a commit when a required service or timer is inactive',()=>{
   for(const failed of ['white-gloss-panel.service','white-gloss-panel-maintenance.timer','white-gloss-panel-backup.timer','white-gloss.service','caddy.service']){
     const result=shell(`source "$1"
 synthetic_commit=$2
@@ -159,7 +161,7 @@ release_status`,[helper,commit,failed]);
   }
 });
 
-test('an already active healthy commit is checked without running the installer again',()=>{
+shellTest('an already active healthy commit is checked without running the installer again',()=>{
   const result=shell(`source "$1"
 synthetic_commit=$2
 id() { printf '0\\n'; }

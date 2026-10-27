@@ -37,7 +37,7 @@ test('operator B2B section publishes net vehicle card without touching the exist
 
 test('operator finance section reviews an uploaded receipt and saves a manual draft',async t=>{
   const ui=await setup(t),pdf=Buffer.from('%PDF-1.7\nsynthetic UI receipt\n%%EOF');const uploaded=await (await ui.call('/api/accounting/document?name=Reiniger.pdf',pdf,'application/pdf')).json();
-  await ui.click('.sidebar [data-view="finance"]');assert.match(ui.$('#accounting-root').textContent,/Reiniger.pdf/);
+  await ui.click('.sidebar [data-view="finance-receipts"]');assert.match(ui.$('#accounting-root').textContent,/Reiniger.pdf/);
   const form=ui.$('[data-accounting-classify]');assert.ok(form);form.elements.category.value='CLEANING_SUPPLIES';form.elements.paymentPath.value='QONTO_CARD';form.elements.amount.value='119,00';form.elements.partner.value='Testlieferant';form.requestSubmit();await ui.settle();
   assert.equal((await ui.env.DB.prepare('SELECT category FROM accounting_classifications WHERE document_id=?').bind(uploaded.id).first()).category,'CLEANING_SUPPLIES');
   assert.match(ui.$('#accounting-root').textContent,/Zuordnungsentwurf/);assert.deepEqual(ui.errors,[]);
@@ -47,7 +47,7 @@ test('operator finance section distinguishes a customer receipt from an owner pr
   const ui=await setup(t),id=randomUUID(),org=randomUUID();
   await ui.env.DB.prepare(`INSERT INTO accounting_bank_revisions(organization_id,account_iban,provider_id,sha256,status,side,amount_minor,currency,label,reference,settled_at,provider_updated_at,raw_json,received_at)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(org,'DE89370400440532013000',id,'a'.repeat(64),'completed','credit',10000,'EUR','Privatkunde Muster','WG-4711','2026-10-17T11:00:00.000Z','2026-10-17T11:00:00.000Z','{}','2026-10-17T11:00:00.000Z').run();
-  await ui.click('.sidebar [data-view="finance"]');const form=ui.$('[data-bank-classify]');assert.ok(form);assert.match(ui.$('.accounting-bank-row').textContent,/100,00\s*€/);
+  await ui.click('.sidebar [data-view="finance-income"]');const form=ui.$('[data-bank-classify]');assert.ok(form);assert.match(ui.$('.accounting-bank-row').textContent,/100,00\s*€/);
   assert.match(form.elements.category.textContent,/Dienstleistung · Privatkunde/);assert.match(form.elements.category.textContent,/Privateinlage des Inhabers/);
   form.elements.category.value='SERVICE_B2C';form.elements.note.value='Kundenleistung';form.requestSubmit();await ui.settle();
   assert.match(ui.$('.accounting-bank-row summary').textContent,/Dienstleistung · Privatkunde/);

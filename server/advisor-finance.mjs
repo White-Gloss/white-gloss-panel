@@ -137,14 +137,31 @@ async function comments(env,request,context,url){
   const items=rows.slice(0,50);return advisorJSON({items,nextCursor:rows.length>50?String(items.at(-1).cursor):null});
 }
 
+function spreadsheetCell(value){
+  if(typeof value==='number')return value;
+  let raw=String(value??'');if(/^[\s\u0000-\u001f]*[=+@-]/.test(raw)||/^[\t\r\n]/.test(raw))raw="'"+raw;
+  return raw;
+}
 export function csvCell(value){
   if(typeof value==='number')return String(value);
-  let raw=String(value??'');if(/^[\s\u0000-\u001f]*[=+@-]/.test(raw)||/^[\t\r\n]/.test(raw))raw="'"+raw;
-  return '"'+raw.replaceAll('"','""')+'"';
+  return '"'+String(spreadsheetCell(value)).replaceAll('"','""')+'"';
+}
+async function xlsxBuffer(rows,fields,kind,from,to){
+  const {default:ExcelJS}=await import('exceljs'),workbook=new ExcelJS.Workbook();
+  workbook.creator='White Gloss';workbook.lastModifiedBy='White Gloss';workbook.created=new Date();workbook.modified=new Date();
+  const sheet=workbook.addWorksheet({documents:'Belege',bank:'Bankumsätze',invoices:'Rechnungen'}[kind],{views:[{state:'frozen',ySplit:1,showGridLines:false}]});
+  sheet.addRow(fields);for(const row of rows)sheet.addRow(fields.map(key=>spreadsheetCell(row[key])));
+  sheet.getRow(1).font={bold:true,color:{argb:'FFFFFFFF'}};sheet.getRow(1).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF182534'}};sheet.getRow(1).height=24;
+  sheet.autoFilter={from:{row:1,column:1},to:{row:1,column:fields.length}};
+  fields.forEach((field,index)=>{const column=sheet.getColumn(index+1),sample=[field,...rows.slice(0,200).map(row=>String(spreadsheetCell(row[field])??''))];column.width=Math.min(48,Math.max(12,...sample.map(value=>value.length+2)));if(field.endsWith('_minor')||field.endsWith('_cents')||field==='version')column.numFmt='0';});
+  const notes=workbook.addWorksheet('Hinweise',{views:[{showGridLines:false}]});
+  notes.addRows([['White Gloss Kanzleiexport'],['Bereich',kind],['Zeitraum',from+' bis '+to],['Erstellt',new Date().toISOString()],['Datenquelle','White Gloss Panel · gespeicherte Finanzdaten'],['Beträge','Felder mit der Endung _minor oder _cents enthalten Centbeträge.'],['Abgrenzung','Kein DATEV-Buchungsstapel. Originaldateien werden separat heruntergeladen.']]);
+  notes.getColumn(1).width=22;notes.getColumn(2).width=88;notes.getCell('A1').font={bold:true,size:16,color:{argb:'FF182534'}};notes.getColumn(1).font={bold:true};
+  return workbook.xlsx.writeBuffer();
 }
 async function exportCSV(env,url,context){
-  const kind=url.searchParams.get('kind'),from=url.searchParams.get('from'),to=url.searchParams.get('to');
-  need(Object.hasOwn(queries,kind),'Export ungültig.');
+  const kind=url.searchParams.get('kind'),from=url.searchParams.get('from'),to=url.searchParams.get('to'),format=url.searchParams.get('format')??'csv';
+  need(Object.hasOwn(queries,kind),'Export ungültig.');need(['csv','xlsx'].includes(format),'Exportformat ungültig.');
   need(validDay(from)&&validDay(to)&&from<=to&&Date.parse(to)-Date.parse(from)<=366*86400000,'Zeitraum von höchstens 366 Tagen wählen.');
   const day={documents:"substr(COALESCE(c.document_date,d.received_at),1,10)",bank:"substr(COALESCE(r.settled_at,r.provider_updated_at),1,10)",invoices:"substr(json_extract(j.value,'$.issueDate'),1,10)"}[kind];
   const rows=(await env.DB.prepare(queries[kind]+` AND ${day} BETWEEN ? AND ? ORDER BY ${day} LIMIT 10001`).bind(from,to).all()).results;
@@ -154,9 +171,9 @@ async function exportCSV(env,url,context){
     bank:['id','account_iban','provider_id','status','side','amount_minor','currency','label','reference','settled_at','provider_updated_at','version','category','document_id','note'],
     invoices:['id','order_id','number','issue_date','due_date','status','total_cents','paid_at','provider','customer','historical']
   }[kind];
-  const csv='\uFEFF'+[fields.map(csvCell).join(';'),...rows.map(row=>fields.map(key=>csvCell(row[key])).join(';'))].join('\r\n')+'\r\n';
-  await advisorStillActive(env,context);await advisorAudit(env,context.actor,'EXPORT',`${kind}:${from}:${to}`).run();
-  return new Response(csv,{headers:{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="white-gloss-${kind}-${from}-${to}.csv"`,'Cache-Control':'no-store'}});
+  const body=format==='xlsx'?await xlsxBuffer(rows,fields,kind,from,to):'\uFEFF'+[fields.map(csvCell).join(';'),...rows.map(row=>fields.map(key=>csvCell(row[key])).join(';'))].join('\r\n')+'\r\n';
+  await advisorStillActive(env,context);await advisorAudit(env,context.actor,'EXPORT',`${kind}:${from}:${to}:${format}`).run();
+  return new Response(body,{headers:{'Content-Type':format==='xlsx'?'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="white-gloss-${kind}-${from}-${to}.${format}"`,'Cache-Control':'no-store'}});
 }
 
 export async function handleAdvisorFinance(env,request,context){

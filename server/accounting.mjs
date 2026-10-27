@@ -58,7 +58,7 @@ async function fileBytes(request){
   const valid=mime==='application/pdf'?bytes.subarray(0,5).toString()==='%PDF-':mime==='image/jpeg'?bytes[0]===0xff&&bytes[1]===0xd8&&bytes.at(-2)===0xff&&bytes.at(-1)===0xd9:mime==='image/png'?bytes.subarray(0,8).equals(Buffer.from('89504e470d0a1a0a','hex')):bytes.toString('ascii',0,4)==='RIFF'&&bytes.toString('ascii',8,12)==='WEBP';
   need(valid,'Dateiinhalt passt nicht zum Dateityp.',415);return {bytes,mime};
 }
-function classification(row){return row?{id:row.id,version:row.version,category:row.category,paymentPath:row.payment_path,amountMinor:row.amount_minor,documentDate:row.document_date,partner:row.partner,note:row.note,createdAt:row.created_at}:null;}
+function classification(row){return row?{id:row.id,version:row.version,category:row.category,paymentPath:row.payment_path,amountMinor:row.amount_minor,documentDate:row.document_date,partner:row.partner,note:row.note,createdAt:row.created_at,actor:row.actor}:null;}
 
 export async function handleAccounting(env,request,isOwner){
   const url=new URL(request.url),path=url.pathname;if(path!==ROOT&&!path.startsWith(ROOT+'/'))return null;
@@ -66,9 +66,9 @@ export async function handleAccounting(env,request,isOwner){
   if(request.method==='GET'&&path===ROOT){
     const synthetic=url.searchParams.get('test')==='true'?1:0;
     const profile=await env.DB.prepare('SELECT * FROM accounting_profile WHERE id=1').first();
-    const docs=(await env.DB.prepare(`SELECT d.*, (SELECT COUNT(*) FROM accounting_documents duplicate WHERE duplicate.sha256=d.sha256 AND duplicate.synthetic=d.synthetic) AS duplicate_count
-      FROM accounting_documents d WHERE d.synthetic=? ORDER BY d.received_at DESC LIMIT 200`).bind(synthetic).all()).results;
-    const result=[];for(const doc of docs){const last=await env.DB.prepare('SELECT * FROM accounting_classifications WHERE document_id=? ORDER BY version DESC LIMIT 1').bind(doc.id).first();result.push({id:doc.id,filename:doc.filename,mime:doc.mime,size:doc.size,sha256:doc.sha256,receivedAt:doc.received_at,source:doc.source,duplicateCount:doc.duplicate_count,classification:classification(last)});}
+    const docs=(await env.DB.prepare(`SELECT d.*,ma.message_id AS mail_message_id, (SELECT COUNT(*) FROM accounting_documents duplicate WHERE duplicate.sha256=d.sha256 AND duplicate.synthetic=d.synthetic) AS duplicate_count
+      FROM accounting_documents d LEFT JOIN mail_attachments ma ON ma.document_id=d.id WHERE d.synthetic=? ORDER BY d.received_at DESC LIMIT 200`).bind(synthetic).all()).results;
+    const result=[];for(const doc of docs){const last=await env.DB.prepare('SELECT * FROM accounting_classifications WHERE document_id=? ORDER BY version DESC LIMIT 1').bind(doc.id).first();result.push({id:doc.id,filename:doc.filename,mime:doc.mime,size:doc.size,sha256:doc.sha256,receivedAt:doc.received_at,source:doc.mail_message_id?'EMAIL':doc.source,mailMessageId:doc.mail_message_id??null,duplicateCount:doc.duplicate_count,classification:classification(last)});}
     return response({profile:{legalForm:profile.legal_form,profitMethod:profile.profit_method,vatRegime:profile.vat_regime,vatTiming:profile.vat_timing,vatTimingEvidence:profile.vat_timing_evidence,reserveMode:profile.reserve_mode,reserveTargetAccountId:profile.reserve_target_account_id,reservePolicy:profile.reserve_policy,datevTarget:profile.datev_target,ownerName:profile.owner_name,vatId:profile.vat_id},documents:result});
   }
   if(request.method==='GET'&&path.startsWith(ROOT+'/document/')){

@@ -32,8 +32,9 @@ test('owner login stores only salted slow hashes and does not expose them in pan
   const state=await (await app.fetch(new Request(origin+'/api/state',{headers:{cookie}}))).text();assert.ok(!state.includes(row.salt)&&!state.includes(row.derived));
   assert.equal((await app.fetch(post('/auth/password/login',{email:owner,password:'incorrect'}))).status,401);
   assert.equal((await app.fetch(post('/auth/password/login',{email:customer,password}))).status,401);
-  const result=await app.fetch(post('/auth/password/login',{email:owner.toUpperCase(),password}));assert.equal(result.status,200);assert.match(result.headers.get('set-cookie'),/HttpOnly; Secure; SameSite=Lax/);
-  assert.equal(await sessionIdentity(env,new Request(origin,{headers:{cookie:result.headers.get('set-cookie').split(';')[0]}})),owner);
+  const result=await app.fetch(post('/auth/password/login',{email:owner.toUpperCase(),password,remember:true}));assert.equal(result.status,200);assert.match(result.headers.get('set-cookie'),/HttpOnly; Secure; SameSite=Lax/);assert.match(result.headers.get('set-cookie'),/Max-Age=2592000/);
+  const sessionCookie=result.headers.get('set-cookie').split(';')[0];assert.equal((await env.DB.prepare('SELECT remember FROM auth_session_preferences WHERE session_hash=?').bind(digest(sessionCookie.split('=')[1])).first()).remember,1);
+  assert.equal(await sessionIdentity(env,new Request(origin,{headers:{cookie:sessionCookie}})),owner);
 });
 test('password changes require current password or email reauthentication and revoke prior sessions and links',async t=>{
   const {env,app,cookie}=await configured(t);assert.equal((await app.fetch(post('/auth/password',{password,confirmation:password},cookie))).status,409);

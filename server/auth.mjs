@@ -11,6 +11,7 @@ function cookie(request,name){const entry=(request.headers.get('cookie')??'').sp
 export async function authSchema(env){await init(env);await env.DB.batch([
   'CREATE TABLE IF NOT EXISTS auth_tokens(hash TEXT PRIMARY KEY,email TEXT NOT NULL,return_to TEXT NOT NULL,expires_at INTEGER NOT NULL,consumed INTEGER NOT NULL DEFAULT 0)',
   'CREATE TABLE IF NOT EXISTS auth_sessions(hash TEXT PRIMARY KEY,email TEXT NOT NULL,expires_at INTEGER NOT NULL,last_at INTEGER NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS auth_session_preferences(session_hash TEXT PRIMARY KEY,remember INTEGER NOT NULL DEFAULT 0)',
   'CREATE TABLE IF NOT EXISTS auth_rates(subject TEXT NOT NULL,bucket INTEGER NOT NULL,count INTEGER NOT NULL,PRIMARY KEY(subject,bucket))',
   'CREATE TABLE IF NOT EXISTS auth_session_proofs(session_hash TEXT PRIMARY KEY,email_verified_at INTEGER NOT NULL)',
   'CREATE TABLE IF NOT EXISTS auth_passwords(owner_hash TEXT PRIMARY KEY,salt TEXT NOT NULL,derived TEXT NOT NULL,revision TEXT NOT NULL,changed_at INTEGER NOT NULL)',
@@ -18,9 +19,19 @@ export async function authSchema(env){await init(env);await env.DB.batch([
   'CREATE TABLE IF NOT EXISTS auth_customer_credentials(email TEXT PRIMARY KEY,salt TEXT NOT NULL,derived TEXT NOT NULL,revision TEXT NOT NULL,changed_at INTEGER NOT NULL)',
   'CREATE TABLE IF NOT EXISTS auth_customer_sessions(session_hash TEXT PRIMARY KEY,revision TEXT NOT NULL)'
 ].map(query=>env.DB.prepare(query)));}
+export const REMEMBER_DEVICE_MS=30*86400000;
 export const sessionHash=request=>digest(cookie(request,'__Host-wg-session'));
-export function sessionCookie(result,raw){result.headers.set('Set-Cookie','__Host-wg-session='+raw+'; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400');return result;}
-export async function sessionIdentity(env,request,now=Date.now()){const raw=cookie(request,'__Host-wg-session');if(!/^[a-f0-9]{64}$/.test(raw))return null;const row=await env.DB.prepare('SELECT email,expires_at,last_at FROM auth_sessions WHERE hash=?').bind(digest(raw)).first();if(!row||row.expires_at<=now||row.last_at+4*3600000<=now)return null;if(digest(row.email)!==env.OWNER_EMAIL_SHA256){const credential=await env.DB.prepare('SELECT revision FROM auth_customer_credentials WHERE email=?').bind(row.email).first();if(credential){const proof=await env.DB.prepare('SELECT revision FROM auth_customer_sessions WHERE session_hash=?').bind(digest(raw)).first();if(proof?.revision!==credential.revision)return null;}}await env.DB.prepare('UPDATE auth_sessions SET last_at=? WHERE hash=?').bind(now,digest(raw)).run();return row.email;}
+export function sessionCookie(result,raw,remember=false){result.headers.set('Set-Cookie','__Host-wg-session='+raw+'; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age='+(remember?REMEMBER_DEVICE_MS/1000:86400));return result;}
+export async function sessionIdentity(env,request,now=Date.now()){
+  const raw=cookie(request,'__Host-wg-session');if(!/^[a-f0-9]{64}$/.test(raw))return null;const hash=digest(raw);
+  const row=await env.DB.prepare('SELECT s.email,s.expires_at,s.last_at,EXISTS(SELECT 1 FROM auth_session_preferences p WHERE p.session_hash=s.hash AND p.remember=1) AS remembered FROM auth_sessions s WHERE s.hash=?').bind(hash).first();
+  const owner=row&&digest(row.email)===env.OWNER_EMAIL_SHA256,remembered=owner&&row.remembered===1,idle=remembered?REMEMBER_DEVICE_MS:4*3600000;
+  // Only an explicitly remembered owner device gets the longer lifetime. Existing sessions and
+  // every customer session retain the four-hour inactivity limit, even if a preference was forged.
+  if(!row||row.expires_at<=now||row.last_at+idle<=now)return null;
+  if(!owner){const credential=await env.DB.prepare('SELECT revision FROM auth_customer_credentials WHERE email=?').bind(row.email).first();if(credential){const proof=await env.DB.prepare('SELECT revision FROM auth_customer_sessions WHERE session_hash=?').bind(hash).first();if(proof?.revision!==credential.revision)return null;}}
+  await env.DB.prepare('UPDATE auth_sessions SET last_at=? WHERE hash=?').bind(now,hash).run();return row.email;
+}
 export async function limited(env,subject,now,max){const bucket=Math.floor(now/3600000);await env.DB.prepare('INSERT INTO auth_rates(subject,bucket,count) VALUES(?,?,1) ON CONFLICT(subject,bucket) DO UPDATE SET count=count+1').bind(digest(subject),bucket).run();return (await env.DB.prepare('SELECT count FROM auth_rates WHERE subject=? AND bucket=?').bind(digest(subject),bucket).first()).count>max;}
 async function eligible(env,email,returnTo,now){if(digest(email)===env.OWNER_EMAIL_SHA256)return true;if(returnTo==='/kunde')return Boolean(await env.DB.prepare("SELECT 1 FROM orders WHERE synthetic=0 AND lower(trim(json_extract(data,'$.source.email')))=? AND json_extract(data,'$.trash.deletedAt') IS NULL LIMIT 1").bind(email.trim().toLowerCase()).first()||await env.DB.prepare("SELECT 1 FROM business_portal_access a JOIN customers c ON c.id=a.customer_id WHERE a.email=? AND a.active=1 AND c.synthetic=0 AND lower(trim(json_extract(c.data,'$.email')))=a.email LIMIT 1").bind(email.trim().toLowerCase()).first());if(!customerPath(returnTo))return false;const document=returnTo.startsWith('/dokument/'),invoice=returnTo.startsWith('/rechnung/'),chat=returnTo.startsWith('/chat/'),token=returnTo.slice(returnTo.lastIndexOf('/')+1);const row=await env.DB.prepare(chat?'SELECT o.data FROM chat_threads t JOIN orders o ON o.id=t.order_id WHERE t.token_hash=? AND t.token_expires_at>?':invoice?'SELECT o.data FROM invoice_tokens t JOIN orders o ON o.id=t.order_id WHERE t.hash=? AND t.revoked=0 AND t.expires_at>?':document?'SELECT o.data FROM document_requests t JOIN orders o ON o.id=t.order_id WHERE t.hash=? AND t.revoked=0 AND t.expires_at>?':'SELECT o.data FROM offer_tokens t JOIN orders o ON o.id=t.order_id WHERE t.hash=? AND t.revoked=0 AND t.expires_at>?').bind(digest(token),new Date(now).toISOString()).first();if(!row)return false;const order=JSON.parse(row.data);return !order.synthetic&&(order.source.email??'').trim().toLowerCase()===email;}
 const pinDigest=(env,hash,pin)=>createHmac('sha256',Buffer.from(env.CONFIG_KEY,'base64')).update('customer-pin:'+hash+':'+pin).digest('hex');
@@ -56,12 +67,12 @@ export async function requestLogin(env,request,now=Date.now()){
 }
 export async function redeemLogin(env,request,now=Date.now()){
   if(request.headers.get('origin')!==env.PANEL_ORIGIN||!request.headers.get('content-type')?.startsWith('application/json'))return response({error:'Ungültiger Ursprung.'},403);
-  const raw=await request.text();if(raw.length>200)return response({error:'Ungültige Anfrage.'},400);let value,pin;try{const input=JSON.parse(raw);value=input.token;pin=input.pin;}catch{return response({error:'Ungültiger Link.'},400);}
+  const raw=await request.text();if(raw.length>500)return response({error:'Ungültige Anfrage.'},400);let value,pin,remember;try{const input=JSON.parse(raw);value=input.token;pin=input.pin;remember=input.remember===true;}catch{return response({error:'Ungültiger Link.'},400);}
   if(!/^[a-f0-9]{64}$/.test(value??''))return response({error:'Ungültiger Link.'},400);
   const loginHash=digest(value),sessionToken=token(),sessionHash=digest(sessionToken);
   const loginRecord=await env.DB.prepare('SELECT email,consumed,expires_at FROM auth_tokens WHERE hash=?').bind(loginHash).first();
   if(!loginRecord||loginRecord.consumed||loginRecord.expires_at<=now)return response({error:'Dieser Link ist abgelaufen oder bereits verwendet. Bitte einen neuen Link anfordern.'},409);
-  const customer=digest(loginRecord.email)!==env.OWNER_EMAIL_SHA256;
+  const customer=digest(loginRecord.email)!==env.OWNER_EMAIL_SHA256;remember=remember&&!customer;
   if(customer){
     if(typeof pin!=='string'||!/^\d{6}$/.test(pin))return response({error:'Bitte die sechsstellige PIN aus derselben E-Mail eingeben.',pinRequired:true},400);
     const attempted=await env.DB.prepare('UPDATE auth_customer_pins SET attempts=attempts+1 WHERE login_hash=? AND attempts<5').bind(loginHash).run();
@@ -71,15 +82,24 @@ export async function redeemLogin(env,request,now=Date.now()){
   }
   const pinGuard=customer?' AND EXISTS(SELECT 1 FROM auth_customer_pins WHERE login_hash=? AND pin_digest=? AND attempts<=5)':'';
   const results=await env.DB.batch([
-    env.DB.prepare('INSERT INTO auth_sessions(hash,email,expires_at,last_at) SELECT ?,email,?,? FROM auth_tokens WHERE hash=? AND consumed=0 AND expires_at>?'+pinGuard).bind(sessionHash,now+86400000,now,loginHash,now,...(customer?[loginHash,pinDigest(env,loginHash,pin)]:[])),
+    env.DB.prepare('INSERT INTO auth_sessions(hash,email,expires_at,last_at) SELECT ?,email,?,? FROM auth_tokens WHERE hash=? AND consumed=0 AND expires_at>?'+pinGuard).bind(sessionHash,now+(remember?REMEMBER_DEVICE_MS:86400000),now,loginHash,now,...(customer?[loginHash,pinDigest(env,loginHash,pin)]:[])),
     env.DB.prepare('UPDATE auth_tokens SET consumed=1 WHERE hash=? AND EXISTS(SELECT 1 FROM auth_sessions WHERE hash=?)').bind(loginHash,sessionHash),
     env.DB.prepare('INSERT INTO auth_session_proofs SELECT ?,? WHERE EXISTS(SELECT 1 FROM auth_sessions WHERE hash=?)').bind(sessionHash,now,sessionHash),
+    ...(remember?[env.DB.prepare('INSERT INTO auth_session_preferences SELECT ?,1 WHERE EXISTS(SELECT 1 FROM auth_sessions WHERE hash=?)').bind(sessionHash,sessionHash)]:[]),
     ...(customer?[env.DB.prepare('INSERT INTO auth_customer_sessions SELECT ?,revision FROM auth_customer_credentials WHERE email=? AND EXISTS(SELECT 1 FROM auth_sessions WHERE hash=?)').bind(sessionHash,loginRecord.email,sessionHash)]:[])
   ]);
   if(!results[0].meta.changes)return response({error:'Dieser Link ist abgelaufen oder bereits verwendet. Bitte einen neuen Link anfordern.'},409);
   const login=await env.DB.prepare('SELECT return_to FROM auth_tokens WHERE hash=?').bind(loginHash).first();
-  const result=response({returnTo:safeReturn(login.return_to)});result.headers.set('Set-Cookie','__Host-wg-session='+sessionToken+'; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400');return result;
+  return sessionCookie(response({returnTo:safeReturn(login.return_to)}),sessionToken,remember);
 }
 export async function logout(env,request){if(request.headers.get('origin')!==env.PANEL_ORIGIN)return response({error:'Ungültiger Ursprung.'},403);const raw=cookie(request,'__Host-wg-session');if(raw)await env.DB.prepare('DELETE FROM auth_sessions WHERE hash=?').bind(digest(raw)).run();const result=response({ok:true});result.headers.set('Set-Cookie','__Host-wg-session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0');return result;}
 export function loginPage(){return new Response('<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>White Gloss · Anmeldung</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/brand.css"><main class="appoff card"><span class="brandmark">WG</span><h1>Dein persönlicher Zugang</h1><p id="auth-description">Melde dich mit deiner Betreiber-E-Mail und deinem Passwort an.</p><form id="auth-form"><label>E-Mail-Adresse<input id="auth-email" type="email" autocomplete="username" maxlength="180" required></label><label id="auth-password-label">Passwort<input id="auth-password" type="password" autocomplete="current-password" maxlength="128" required></label><button class="primary" type="submit">Anmelden</button></form><p><button id="auth-recovery" type="button">Passwort einrichten / vergessen</button></p><p id="auth-message" role="status"></p><script type="module" src="/auth.js"></script></main></html>',{headers:{...authHeaders,'Content-Type':'text/html; charset=utf-8'}});}
-export async function pruneAuth(env,now=Date.now()){await env.DB.batch([env.DB.prepare('DELETE FROM auth_tokens WHERE expires_at<?').bind(now-86400000),env.DB.prepare('DELETE FROM auth_customer_pins WHERE NOT EXISTS(SELECT 1 FROM auth_tokens WHERE hash=login_hash)'),env.DB.prepare('DELETE FROM auth_sessions WHERE expires_at<? OR last_at<?').bind(now,now-4*3600000),env.DB.prepare('DELETE FROM auth_session_proofs WHERE NOT EXISTS(SELECT 1 FROM auth_sessions WHERE hash=session_hash)'),env.DB.prepare('DELETE FROM auth_customer_sessions WHERE NOT EXISTS(SELECT 1 FROM auth_sessions WHERE hash=session_hash)'),env.DB.prepare('DELETE FROM auth_rates WHERE bucket<?').bind(Math.floor(now/3600000)-24)]);}
+export async function pruneAuth(env,now=Date.now()){await env.DB.batch([
+  env.DB.prepare('DELETE FROM auth_tokens WHERE expires_at<?').bind(now-86400000),
+  env.DB.prepare('DELETE FROM auth_customer_pins WHERE NOT EXISTS(SELECT 1 FROM auth_tokens WHERE hash=login_hash)'),
+  env.DB.prepare('DELETE FROM auth_sessions WHERE expires_at<? OR (last_at<? AND NOT EXISTS(SELECT 1 FROM auth_session_preferences p WHERE p.session_hash=auth_sessions.hash AND p.remember=1)) OR (last_at<? AND EXISTS(SELECT 1 FROM auth_session_preferences p WHERE p.session_hash=auth_sessions.hash AND p.remember=1))').bind(now,now-4*3600000,now-REMEMBER_DEVICE_MS),
+  env.DB.prepare('DELETE FROM auth_session_preferences WHERE NOT EXISTS(SELECT 1 FROM auth_sessions WHERE hash=session_hash)'),
+  env.DB.prepare('DELETE FROM auth_session_proofs WHERE NOT EXISTS(SELECT 1 FROM auth_sessions WHERE hash=session_hash)'),
+  env.DB.prepare('DELETE FROM auth_customer_sessions WHERE NOT EXISTS(SELECT 1 FROM auth_sessions WHERE hash=session_hash)'),
+  env.DB.prepare('DELETE FROM auth_rates WHERE bucket<?').bind(Math.floor(now/3600000)-24)
+]);}

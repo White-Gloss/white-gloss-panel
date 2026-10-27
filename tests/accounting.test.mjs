@@ -33,7 +33,7 @@ test('original receipt is private and immutable; manual classification is versio
   assert.equal(first.status,200,await first.text());
   const stale=await f.call('/api/accounting/classify','owner',{documentId:id,version:0,category:'RENT',paymentPath:'CASH'});assert.equal(stale.status,409);
   const second=await f.call('/api/accounting/classify','owner',{documentId:id,version:1,category:'OTHER_EXPENSE',paymentPath:'PRIVATE',amountMinor:11900,note:'Korrigierter Entwurf'});assert.equal(second.status,200);
-  const view=await (await f.call('/api/accounting','owner')).json();assert.equal(view.documents[0].classification.version,2);assert.equal(view.documents[0].classification.paymentPath,'PRIVATE');
+  const view=await (await f.call('/api/accounting','owner')).json();assert.equal(view.documents[0].classification.version,2);assert.equal(view.documents[0].classification.paymentPath,'PRIVATE');assert.equal(view.documents[0].classification.actor,'owner');
   assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM accounting_classifications').first()).n,2);
   assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM accounting_events').first()).n,3);
   await assert.rejects(()=>f.env.DB.prepare('DELETE FROM accounting_documents').run(),/nicht gelöscht/);

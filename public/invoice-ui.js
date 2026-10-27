@@ -85,7 +85,7 @@ function draftLineHTML(line = {}) {
 }
 export function invoiceDraftForm(order) {
   if (order.invoice && order.invoice.status !== "canceled") throw Error("Die Rechnung ist bereits ausgestellt und bleibt unverändert.");
-  return `<p>${invoiceEsc(order.wg)} · ${invoiceEsc(order.source?.name)} · Angebot ${invoiceMoney(order.offer?.totalCents ?? 0)} brutto</p><p class="hint">Hier bearbeitest du ausschließlich den Rechnungsentwurf. Beschreibe Mehrarbeit und die dazu vereinbarte Preisänderung. Das gespeicherte Angebot und seine Unterschrift bleiben unverändert. Erst nach der anschließenden Rechnungsprüfung wird die Rechnung ausgestellt.</p><form id="invoiceDraftform"><div data-invoice-draft-lines>${invoiceLines(order).map(draftLineHTML).join("")}</div><button type="button" data-invoice-add>Position hinzufügen</button><label>Grund der Änderung / Vereinbarung mit dem Kunden<textarea name="reason" maxlength="2000" required>${invoiceEsc(order.invoiceDraft?.reason ?? "")}</textarea></label><p data-invoice-draft-total aria-live="polite"></p><button type="submit" class="primary">Entwurf speichern</button><div id="modal-error" class="error"></div></form>`;
+  return `<p>${invoiceEsc(order.wg)} · ${invoiceEsc(order.source?.name)} · Angebot ${invoiceMoney(order.offer?.totalCents ?? 0)} brutto</p><p class="hint">Hier bearbeitest du ausschließlich den Rechnungsentwurf. Beschreibe Mehrarbeit und die dazu vereinbarte Preisänderung. Das gespeicherte Angebot und seine Unterschrift bleiben unverändert. Erst nach der anschließenden Rechnungsprüfung wird die Rechnung ausgestellt.</p><form id="invoiceDraftform"><div data-invoice-draft-lines>${invoiceLines(order).map(draftLineHTML).join("")}</div><div class="actions"><button type="button" data-invoice-add>Eigene Position hinzufügen</button><button type="button" data-invoice-add-pickup>Abholung & Rückgabe ergänzen</button></div><label>Grund der Änderung / Vereinbarung mit dem Kunden<textarea name="reason" maxlength="2000" required>${invoiceEsc(order.invoiceDraft?.reason ?? "")}</textarea></label><p data-invoice-draft-total aria-live="polite"></p><button type="submit" class="primary">Entwurf speichern</button><div id="modal-error" class="error"></div></form>`;
 }
 function parseDraftAmount(value) {
   const raw = String(value ?? "").trim();
@@ -126,6 +126,14 @@ export function mountInvoiceDraftForm(form) {
     if (target?.hasAttribute("data-invoice-add")) {
       if (form.querySelectorAll("[data-invoice-draft-line]").length >= 100) return;
       form.querySelector("[data-invoice-draft-lines]").insertAdjacentHTML("beforeend", draftLineHTML());
+      update();
+    }
+    if (target?.hasAttribute("data-invoice-add-pickup")) {
+      const rows = [...form.querySelectorAll("[data-invoice-draft-line]")];
+      if (rows.length >= 100) return;
+      const existing = rows.find((row) => row.querySelector("[data-draft-title]").value.trim() === "Abholung und Rückbringung");
+      if (existing) { existing.querySelector("[data-draft-amount]").focus(); return; }
+      form.querySelector("[data-invoice-draft-lines]").insertAdjacentHTML("beforeend", draftLineHTML({ title: "Abholung und Rückbringung", description: "Nach Vereinbarung", amountCents: 0 }));
       update();
     }
     if (target?.hasAttribute("data-invoice-remove") && form.querySelectorAll("[data-invoice-draft-line]").length > 1) {

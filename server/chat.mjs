@@ -10,6 +10,7 @@ import {configuration,getOrder,init,protect,setting,unprotect} from '../src/work
 import {digest,issueCustomerAccess,limited} from './auth.mjs';
 import {recordOperationIssue,assertRecordOperation,assertCurrentRecordOperation} from '../src/record-compat.mjs';
 import {isTrashedOrder} from '../src/order-trash.mjs';
+import {notifyOwner} from './push.mjs';
 
 export const CHAT_LIMITS=Object.freeze({text:4000,filesPerMessage:10,fileBytes:15*1024*1024,pendingFiles:20,filesPerThread:1000,history:1000,waitSeconds:25});
 const LINK_DAYS=365,UNSENT_HOURS=24;
@@ -62,6 +63,10 @@ function waitFor(threadId,ms){
 // Email hints run after the answer to the sender; tests and shutdown can wait for them.
 const inflight=new Set();
 export async function chatNotificationsSettled(){await Promise.allSettled([...inflight]);}
+function ownerPush(env,order){
+  if(order.synthetic)return;
+  const task=notifyOwner(env,'chat').catch(()=>({sent:0,failed:0,removed:0}));inflight.add(task);task.finally(()=>inflight.delete(task));
+}
 
 // --- Reading ---
 async function threadById(env,id){need(UUID.test(id??''),'Chat nicht gefunden.',404);const row=await env.DB.prepare('SELECT * FROM chat_threads WHERE id=?').bind(id).first();need(row,'Chat nicht gefunden.',404);return row;}
@@ -166,7 +171,7 @@ async function storeFile(env,thread,sender,request,now){
 }
 
 async function postMessage(env,thread,sender,request,now,fileUrl,notify=true){
-  assertRecordOperation(await getOrder(env,thread.order_id),'chat');
+  const order=await getOrder(env,thread.order_id);assertRecordOperation(order,'chat');
   const input=await readJSON(env,request);
   need(!thread.closed,'Dieser Chat ist beendet. Bitte telefonisch oder per E-Mail Kontakt aufnehmen.',409);
   const text=String(input.text??'').replace(/\r\n?/g,'\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g,'').trim();
@@ -207,6 +212,7 @@ async function postMessage(env,thread,sender,request,now,fileUrl,notify=true){
   const row=await env.DB.prepare('SELECT id FROM chat_messages WHERE thread_id=? AND client_id=?').bind(thread.id,clientId).first();
   wake(thread.id);
   const message=(await messagesAfter(env,thread.id,0,fileUrl,Number(row.id)))[0];
+  if(sender==='customer')ownerPush(env,order);
   if(notify){const task=notifyThread(env,thread.id,Date.now()).catch(error=>setting(env,'chatNotifyError',String(error?.message??error)).catch(()=>{}));inflight.add(task);task.finally(()=>inflight.delete(task));}
   return {message};
 }
@@ -256,6 +262,7 @@ export async function portalChat(env,orderId,now=Date.now()){
 // Hinweis aus dem Kundenportal (Zusatzleistung, Terminwunsch) als Kundennachricht im Chat,
 // damit der Betreiber ihn im Posteingang sieht und wie gewohnt benachrichtigt wird.
 export async function portalNotice(env,orderId,text,now=Date.now()){
+  const order=await getOrder(env,orderId);assertRecordOperation(order,'chat');
   const thread=await threadForOrder(env,orderId,now);if(thread.closed)return false;
   const at=iso(now),clientId='portal-'+randomUUID(),body=String(text).slice(0,CHAT_LIMITS.text);
   const [inserted]=await env.DB.batch([
@@ -264,7 +271,7 @@ export async function portalNotice(env,orderId,text,now=Date.now()){
     env.DB.prepare('UPDATE chat_threads SET last_at=? WHERE id=? AND EXISTS(SELECT 1 FROM chat_messages WHERE thread_id=? AND client_id=?)').bind(at,thread.id,thread.id,clientId)
   ]);
   if(!inserted.meta.changes)return false;
-  wake(thread.id);
+  wake(thread.id);ownerPush(env,order);
   const task=notifyThread(env,thread.id,Date.now()).catch(error=>setting(env,'chatNotifyError',String(error?.message??error)).catch(()=>{}));inflight.add(task);task.finally(()=>inflight.delete(task));
   return true;
 }

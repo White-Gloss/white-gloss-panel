@@ -75,6 +75,8 @@ export const packages = [
     "name": "Basisreinigung",
     "priceCents": 14900,
     "duration": "ca. 3 Std.",
+    "scopeSummary": "Innenreinigung · Außenwäsche · Sprühversiegelung",
+    "conditionNote": "Verschmutzung und Materialzustand vor Beginn prüfen.",
     "items": [
       "Handwäsche mit pH-neutralem Shampoo",
       "Felgen- und Reifenreinigung",
@@ -89,6 +91,8 @@ export const packages = [
     "name": "Reinigung & Politur",
     "priceCents": 34900,
     "duration": "ca. 6 Std.",
+    "scopeSummary": "Tiefenreinigung innen · Lackaufbereitung und einstufige Politur · Wachs",
+    "conditionNote": "Umfang und Eignung der Politur nach Prüfung des Lackzustands festlegen.",
     "items": [
       "Alle Leistungen des Pakets Basisreinigung",
       "Entfernung von Lackablagerungen mit Reinigungsknete und Eisenentferner",
@@ -103,6 +107,8 @@ export const packages = [
     "name": "Keramikschutz",
     "priceCents": 89900,
     "duration": "ca. 2 Tage",
+    "scopeSummary": "Innen- und Außenaufbereitung · Lackkorrektur · Keramik statt Wachs",
+    "conditionNote": "Umfang der Lackkorrektur nach Lackzustand und Messwerten festlegen; Keramik ersetzt den Wachsauftrag.",
     "items": [
       "Reinigung und Innenraumpflege wie im Paket Reinigung & Politur; Keramikversiegelung ersetzt den Wachsauftrag",
       "Mehrstufige Lackkorrektur zur Reduzierung feiner Waschkratzer und Hologramme, soweit der Lackzustand es zulässt",

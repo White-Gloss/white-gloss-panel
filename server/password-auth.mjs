@@ -1,6 +1,6 @@
 import {randomBytes,scrypt,timingSafeEqual} from 'node:crypto';
 import {AppError} from '../src/domain.mjs';
-import {authResponse,digest,limited,safeReturn,sessionHash,sessionCookie,sessionIdentity} from './auth.mjs';
+import {authResponse,digest,limited,safeReturn,sessionHash,sessionCookie,sessionIdentity,REMEMBER_DEVICE_MS} from './auth.mjs';
 
 // OWASP scrypt minimum: N=2^17, r=8, p=1. Salt and derived key only; no plaintext.
 const cost={N:131072,r:8,p:1,maxmem:256*1024*1024};
@@ -33,11 +33,14 @@ export async function passwordLogin(env,request,now=Date.now()){
   await throttled(env,request,email,now);
   const row=digest(email)===env.OWNER_EMAIL_SHA256?await env.DB.prepare('SELECT * FROM auth_passwords WHERE owner_hash=?').bind(env.OWNER_EMAIL_SHA256).first():null;
   if(!await matches(password,row))return authResponse({error:'E-Mail-Adresse oder Passwort stimmen nicht. Für die erste Anmeldung bitte „Passwort einrichten / vergessen“ verwenden.'},401);
-  const raw=randomBytes(32).toString('hex');
+  const raw=randomBytes(32).toString('hex'),remember=input.remember===true,hash=digest(raw);
   // A concurrent password reset cannot turn a previously checked password into a new session.
-  const inserted=await env.DB.prepare('INSERT INTO auth_sessions(hash,email,expires_at,last_at) SELECT ?,?,?,? FROM auth_passwords WHERE owner_hash=? AND revision=?').bind(digest(raw),email,now+86400000,now,env.OWNER_EMAIL_SHA256,row.revision).run();
-  if(!inserted.meta.changes)return authResponse({error:'Bitte erneut anmelden.'},409);
-  return sessionCookie(authResponse({returnTo:input.returnTo==='/vor-ort'?safeReturn(input.returnTo):'/'}),raw);
+  const results=await env.DB.batch([
+    env.DB.prepare('INSERT INTO auth_sessions(hash,email,expires_at,last_at) SELECT ?,?,?,? FROM auth_passwords WHERE owner_hash=? AND revision=?').bind(hash,email,now+(remember?REMEMBER_DEVICE_MS:86400000),now,env.OWNER_EMAIL_SHA256,row.revision),
+    ...(remember?[env.DB.prepare('INSERT INTO auth_session_preferences SELECT ?,1 WHERE EXISTS(SELECT 1 FROM auth_sessions WHERE hash=?)').bind(hash,hash)]:[])
+  ]);
+  if(!results[0].meta.changes)return authResponse({error:'Bitte erneut anmelden.'},409);
+  return sessionCookie(authResponse({returnTo:input.returnTo==='/vor-ort'?safeReturn(input.returnTo):'/'}),raw,remember);
 }
 export async function savePassword(env,request,now=Date.now()){
   const input=await inputFor(env,request),email=await sessionIdentity(env,request,now);
@@ -55,9 +58,9 @@ export async function savePassword(env,request,now=Date.now()){
     needsProof=false;
   }
   const salt=randomBytes(32).toString('hex'),derived=(await derive(input.password,salt)).toString('hex'),revision=randomBytes(32).toString('hex');
-  const active="EXISTS(SELECT 1 FROM auth_sessions WHERE hash=? AND email=? AND expires_at>? AND last_at>?)";
+  const active="EXISTS(SELECT 1 FROM auth_sessions s WHERE s.hash=? AND s.email=? AND s.expires_at>? AND s.last_at+(CASE WHEN EXISTS(SELECT 1 FROM auth_session_preferences p WHERE p.session_hash=s.hash AND p.remember=1) THEN ? ELSE 14400000 END)>?)";
   const verified=needsProof?' AND EXISTS(SELECT 1 FROM auth_session_proofs WHERE session_hash=? AND email_verified_at BETWEEN ? AND ?)':'';
-  const guards=[currentHash,email,now,now-4*3600000,...(needsProof?[currentHash,now-600000,now]:[])];
+  const guards=[currentHash,email,now,REMEMBER_DEVICE_MS,now,...(needsProof?[currentHash,now-600000,now]:[])];
   const mutation=row?env.DB.prepare('UPDATE auth_passwords SET salt=?,derived=?,revision=?,changed_at=? WHERE owner_hash=? AND revision=? AND '+active+verified).bind(salt,derived,revision,now,env.OWNER_EMAIL_SHA256,row.revision,...guards):env.DB.prepare('INSERT INTO auth_passwords SELECT ?,?,?,?,? WHERE '+active+verified+' ON CONFLICT(owner_hash) DO NOTHING').bind(env.OWNER_EMAIL_SHA256,salt,derived,revision,now,...guards);
   const raw=randomBytes(32).toString('hex'),newHash=digest(raw);
   const results=await env.DB.batch([

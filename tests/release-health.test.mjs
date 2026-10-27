@@ -17,10 +17,11 @@ async function fixture(t){
 async function release(root,name,manifest){
   const directory=resolve(root,name);
   await mkdir(resolve(directory,'server'),{recursive:true});await mkdir(resolve(directory,'dist'));
-  await symlink(resolve(source,'src'),resolve(directory,'src'),'dir');
+  await symlink(resolve(source,'src'),resolve(directory,'src'),process.platform==='win32'?'junction':'dir');
+  await symlink(resolve(source,'node_modules'),resolve(directory,'node_modules'),process.platform==='win32'?'junction':'dir');
   for(const name of await readdir(resolve(source,'server'))){
     const target=resolve(directory,'server',name),original=resolve(source,'server',name);
-    if(['application.mjs','release.mjs'].includes(name))await copyFile(original,target);
+    if(process.platform==='win32'||['application.mjs','release.mjs'].includes(name))await copyFile(original,target);
     else await symlink(original,target);
   }
   if(manifest!==undefined)await writeFile(resolve(directory,'dist/release.json'),manifest);
@@ -47,9 +48,9 @@ test('health keeps the loaded release when current changes or its manifest is re
   const root=await fixture(t),nextCommit='b2'.repeat(20);
   const first=await release(root,'release-a',JSON.stringify({commit}));
   const next=await release(root,'release-b',JSON.stringify({commit:nextCommit}));
-  const current=resolve(root,'current');await symlink(first,current,'dir');
+  const current=resolve(root,'current'),linkType=process.platform==='win32'?'junction':'dir';await symlink(first,current,linkType);
   const oldApp=await application(t,current);
-  await unlink(current);await symlink(next,current,'dir');
+  await unlink(current);await symlink(next,current,linkType);
   await writeFile(resolve(first,'dist/release.json'),JSON.stringify({commit:forged}));
   assert.equal((await health(oldApp)).headers.get('X-Panel-Commit'),commit);
   const newApp=await application(t,current);

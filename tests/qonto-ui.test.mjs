@@ -242,3 +242,21 @@ test("final review uses stored draft total and must be reconfirmed after changes
   assert.equal(form.elements.reviewed.checked, false);
   assert.throws(() => invoiceInput(form, o), /ausdrücklich bestätigen/);
 });
+
+test("invoice draft adds pickup once as an editable separate position", (t) => {
+  const dom = new JSDOM('<!doctype html><body><div id="modal"></div></body>');
+  t.after(() => dom.window.close());
+  dom.window.document.querySelector("#modal").innerHTML = invoiceDraftForm(order());
+  const form = dom.window.document.querySelector("#invoiceDraftform");
+  mountInvoiceDraftForm(form);
+  form.querySelector("[data-invoice-add-pickup]").click();
+  form.querySelector("[data-invoice-add-pickup]").click();
+  const rows = [...form.querySelectorAll("[data-invoice-draft-line]")];
+  assert.equal(rows.length, 3);
+  assert.equal(rows[2].querySelector("[data-draft-title]").value, "Abholung und Rückbringung");
+  rows[2].querySelector("[data-draft-amount]").value = "70,00";
+  form.elements.reason.value = "Abholung außerhalb des Angebots mit Kunden vereinbart";
+  const input = invoiceDraftInput(form);
+  assert.equal(input.lines[2].amountCents, 7000);
+  assert.equal(input.lines.reduce((sum, line) => sum + line.amountCents, 0), 18900);
+});
