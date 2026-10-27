@@ -343,6 +343,20 @@ test('panel: mobile navigation separates enquiries, running work and finance whi
   assert.deepEqual(ui.errors,[]);
 });
 
+test('panel: grouped navigation and care queue use real order follow-ups',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});
+  assert.equal(ui.w.document.querySelectorAll('.sidebar .navgroup').length,3);
+  assert.match(ui.$('.sidebar').textContent,/TAGESGESCHÄFT/);assert.match(ui.$('.sidebar').textContent,/KUNDEN & DOKUMENTE/);
+  await ui.click('.sidebar [data-view="care"]');assert.match(ui.$('.care-queue').textContent,/Keine Wiedervorlagen geplant/);
+  await ui.click('[data-click="test"]');await ui.click('.sidebar [data-view="overview"]');await ui.click('[data-click="create"]');ui.fill(ui.$('#createform'),{name:'Betreuung Test',vehicle:'BMW M4'});await ui.submit('#createform');
+  await ui.click('[data-tab="notes"]');const yesterday=new Date(Date.now()-86400000).toISOString().slice(0,10);
+  ui.fill(ui.$('#noteform'),{kind:'Telefonat',followUp:yesterday,note:'Pflegekontrolle telefonisch abstimmen'});await ui.submit('#noteform');
+  await ui.click('[data-click="back"]');await ui.click('.sidebar [data-view="care"]');
+  assert.equal(ui.$('.care-summary .attention strong').textContent,'1');assert.match(ui.$('.care-queue-item').textContent,/Überfällig/);assert.match(ui.$('.care-queue-item').textContent,/Pflegekontrolle telefonisch abstimmen/);
+  await ui.click('.care-queue-item');assert.match(ui.$('.detail-header').textContent,/Betreuung Test/);
+  assert.deepEqual(ui.errors,[]);
+});
+
 test('Vor-Ort app: the mixer is directly available with the existing app navigation',async t=>{
   const ui=await boot(t,{page:'vor-ort.html',script:'vor-ort.js',hash:'#mischrechner'});
   assert.equal(ui.$('[data-dilution-concentrate]').textContent,'90,91 ml');

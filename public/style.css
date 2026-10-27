@@ -382,3 +382,39 @@ details>summary{cursor:pointer;min-height:44px;line-height:1.55;padding:10px 0;c
   .operations-summary strong{font-size:17px}
   .operations-summary span,.operations-summary small{font-size:9px}
 }
+
+/* Betreuungsplan: reale Wiedervorlagen aus den Auftragsnotizen. */
+.sidebar>.navgroup:not(:first-of-type){margin-top:22px}
+.care-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:20px}
+.care-summary>.card{padding:18px 20px;border-top:2px solid #b8c6d2}
+.care-summary>.card.attention{border-top-color:var(--red)}
+.care-summary span,.care-summary small{display:block;color:var(--muted);font-size:11px}
+.care-summary strong{display:block;margin:5px 0;color:var(--ink);font-size:30px;font-weight:500;font-variant-numeric:tabular-nums}
+.care-summary>.card.attention strong{color:var(--red)}
+.care-queue{overflow:hidden;margin-bottom:0}
+.care-queue-item{display:grid;grid-template-columns:120px minmax(0,1fr) auto;align-items:center;gap:18px;width:100%;min-height:88px;padding:16px 20px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:#fff;text-align:left}
+.care-queue-item:last-child{border-bottom:0}
+.care-queue-item:hover{background:#f7f9fb}
+.care-queue-item.overdue{box-shadow:inset 3px 0 var(--red)}
+.care-queue-date,.care-queue-main,.care-queue-main strong,.care-queue-main span,.care-queue-main small{display:block}
+.care-queue-date{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+.care-queue-date strong{margin-top:5px;color:var(--ink);font-size:13px;font-weight:550;letter-spacing:0;text-transform:none}
+.overdue .care-queue-date,.overdue .care-queue-date strong{color:var(--red)}
+.care-queue-main{min-width:0}
+.care-queue-main strong{color:var(--ink);font-size:13px}
+.care-queue-main span{margin-top:4px;color:#43566a;font-size:12px;overflow-wrap:anywhere}
+.care-queue-main small{margin-top:4px;color:var(--muted);font-size:11px}
+.care-queue-open{color:var(--blue);font-size:11px;white-space:nowrap}
+@media(max-width:760px){
+  .sidebar>.navgroup:not(:first-of-type){margin-top:16px}
+  .care-summary{gap:10px}
+  .care-summary>.card{padding:14px}
+  .care-summary strong{font-size:25px}
+  .care-queue-item{grid-template-columns:100px minmax(0,1fr);gap:12px;padding:15px}
+  .care-queue-open{grid-column:2}
+}
+@media(max-width:420px){
+  .care-summary small{font-size:10px}
+  .care-queue-item{grid-template-columns:1fr;gap:8px}
+  .care-queue-open{grid-column:1}
+}
