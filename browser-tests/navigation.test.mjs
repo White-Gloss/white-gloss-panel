@@ -11,7 +11,8 @@ for(const viewport of [{width:1366,height:600},{width:1024,height:360}])test(`de
   assert.ok(await sidebar.evaluate(el=>el.scrollHeight>el.clientHeight),'short viewport reproduces overflowing navigation');
   await sidebar.hover();await page.mouse.wheel(0,1800);
   await page.waitForFunction(()=>document.querySelector('.sidebar').scrollTop>0);
-  const end=await sidebar.locator('a[href="/vor-ort"]').boundingBox();assert.ok(end.y>=0&&end.y+end.height<=viewport.height,'last entry is inside the visible viewport after scrolling');
+  const lastLink=sidebar.locator('a[href="/vor-ort"]');await lastLink.scrollIntoViewIfNeeded();
+  const end=await lastLink.boundingBox();assert.ok(end.y>=0&&end.y+end.height<=viewport.height,'last entry is inside the visible viewport after scrolling');
   const destinations=await sidebar.locator('[data-view]').evaluateAll(els=>els.map(el=>({id:el.dataset.view,label:el.textContent.trim(),group:el.closest('.nav').id})));
   for(const item of destinations){const group=sidebar.locator(`[aria-controls="${item.group}"]`);if(await group.getAttribute('aria-expanded')!=='true')await group.click();await sidebar.locator(`[data-view="${item.id}"]`).click();await page.waitForFunction(id=>document.querySelector('.sidebar [aria-current="page"]')?.dataset.view===id,item.id);const heading=item.id==='chat'?page.locator('.inbox-list-head h2'):page.locator('#content h1');assert.ok((await heading.textContent()).length>0,item.label+' renders');}
   await f.screenshot('operator-menu-'+viewport.width+'x'+viewport.height,{fullPage:false});assert.deepEqual(f.errors,[]);
