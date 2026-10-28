@@ -544,6 +544,20 @@ test('panel: overview has one clear work queue and hash navigation updates the v
   await ui.go('#finance');assert.equal(ui.$('.detail-header'),null);assert.match(ui.$('.content > .heading h1').textContent,/Finanz/);assert.deepEqual(ui.errors,[]);
 });
 
+test('panel: accordion navigation preserves manual choices and opens the active section on view changes',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});
+  const expanded=index=>ui.$(`[data-nav-group="${index}"]`).getAttribute('aria-expanded');
+  const stored=()=>JSON.parse(ui.w.localStorage.getItem('wg-nav-groups'));
+  assert.deepEqual([0,1,2,3].map(expanded),['true','false','false','false']);
+  for(const index of [0,1,2,3])assert.equal(ui.$(`#nav-group-${index}`).hidden,index!==0);
+  await ui.click('[data-nav-group="2"]');assert.equal(expanded(2),'true');assert.equal(ui.$('#nav-group-2').hidden,false);assert.deepEqual(stored(),[0,2]);
+  await ui.click('[data-nav-group="1"]');await ui.click('[data-nav-group="0"]');assert.deepEqual([0,1,2,3].map(expanded),['false','true','true','false']);assert.deepEqual(stored(),[1,2]);
+  await ui.go('#system');assert.equal(expanded(3),'true');assert.equal(ui.$('#nav-group-3').hidden,false);assert.deepEqual(stored(),[1,2,3]);
+  await ui.click('[data-nav-group="3"]');await ui.click('[data-click="systemRefresh"]');assert.equal(expanded(3),'false','rendering the same view must not undo a manual close');assert.equal(ui.$('#nav-group-3').hidden,true);assert.deepEqual(stored(),[1,2]);
+  await ui.go('#overview');await ui.go('#system');assert.equal(expanded(3),'true','changing back to a view opens its section again');
+  assert.deepEqual(ui.errors,[]);
+});
+
 test('panel: navigation groups daily work, customers, finance subpages and administration without dead routes',async t=>{
   const env=environment();env.STANDALONE_AUTH='true';const ui=await boot(t,{page:'index.html',script:'app.js',env});
   const ids=[...ui.w.document.querySelectorAll('.sidebar [data-view]')].map(button=>button.dataset.view);
