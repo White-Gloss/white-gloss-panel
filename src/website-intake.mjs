@@ -9,7 +9,7 @@ export function inspectWebsiteSource(row){
   if(!/^[1-9]\d*$/.test(id)||!Number.isSafeInteger(Number(id)))errors.push('Website-ID fehlt oder ist nicht eindeutig numerisch.');
   if(source){
     if(!source.name)errors.push('Kundenname fehlt.');
-    if(!source.vehicle)errors.push('Fahrzeug fehlt.');
+    // Vehicle details are optional on the public form and can be completed during assessment.
     if(!source.package)errors.push('Leistung / Paket fehlt.');
     if(!source.phone&&!source.email)errors.push('Telefonnummer oder E-Mail-Adresse fehlt.');
     if(source.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(source.email))errors.push('E-Mail-Adresse ist ungültig.');
