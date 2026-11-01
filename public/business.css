@@ -35,8 +35,8 @@
 .business-fleet-card p{margin:4px 0!important}
 .business-fleet-price{font-size:18px!important;font-weight:700;color:#182534}
 .business-portal .portal-requests{margin-top:12px}
-.portal-sections{display:flex;gap:8px;margin:0 0 18px;padding:4px;background:#e8edf3;border-radius:12px;max-width:max-content}
-.portal-sections button{border:0;border-radius:9px;padding:10px 16px;background:transparent;color:#31445a;font-weight:600}
+.portal-sections{display:flex;gap:4px;margin:0 0 18px;padding:4px;background:var(--wg-paper);border:1px solid var(--wg-rule);border-radius:6px;max-width:max-content}
+.portal-sections button{border:0;border-radius:4px;padding:10px 16px;background:transparent;color:var(--wg-copy);font-weight:600}
 .portal-sections button[aria-current="page"]{background:#fff;color:#172a40;box-shadow:0 2px 8px #172a401a}
 @media(max-width:900px){.business-layout,.business-portal-grid{grid-template-columns:1fr}.business-accounts{position:static;grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}}
 @media(max-width:560px){.business-toolbar,.business-heading,.business-request,.business-portal-head{flex-direction:column;align-items:stretch}.business-request select{width:100%}.business-accounts{grid-template-columns:1fr}.business-card-actions>*{flex:1 1 auto}.business-gallery,.business-fleet-gallery{grid-template-columns:repeat(2,minmax(0,1fr))}.portal-sections{max-width:none}.portal-sections button{flex:1}}

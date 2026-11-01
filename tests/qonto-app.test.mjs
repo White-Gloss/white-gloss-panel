@@ -120,6 +120,7 @@ async function boot(t, hash) {
     this.removeAttribute("open");
   };
   w.scrollTo = () => {};
+  w.confirm = () => true;
   const qonto = qontoMock();
   let pending = 0;
   const fetchImpl = async (input, options = {}) => {

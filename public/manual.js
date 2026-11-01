@@ -7,9 +7,9 @@ export function readManualSelection(form){
   const f=form.elements;
   const euro=f.customPickupEuro.value.trim();return {packageId:f.packageId.value,classId:f.classId.value,extraIds:[...form.querySelectorAll('[name=extraIds]:checked:not(:disabled)')].map(e=>e.value),delivery:f.delivery.value,citySlug:f.citySlug.value,pickupKm:f.pickupKm.value,customPickupCents:euro?euroCents(euro):''};
 }
-export function manualCreateModal({synthetic,modal,customer=null,vehicles=[]}){
+export function manualCreateModal({synthetic,modal,customer=null,vehicles=[],quickBooking=false}){
   const c=customer??{},v=vehicles[0]??{};
-  modal(synthetic?'Synthetischen Testauftrag anlegen':'Neue manuelle Anfrage',`<form id="createform">
+  modal(synthetic?'Synthetischen Testauftrag anlegen':quickBooking?'Sofort buchen':'Neue manuelle Anfrage',`<form id="createform" data-quick-booking="${quickBooking}">
     <div class="sectiontitle">Kunde & Fahrzeug</div>
     ${customer?`<input type="hidden" name="customerId" value="${esc(c.id)}"><p class="notice blue">Kunde aus dem Kundenstamm: <strong>${esc(c.name||c.company||'Ohne Namen')}</strong></p>`:''}
     <div class="grid2">${field('Name','name','text',c.name??(synthetic?'Musterkunde':''))}${field('Firma','company','text',c.company??'')}${field('Telefon','phone','tel',c.phone??'')}${field('E-Mail','email','email',c.email??'')}</div>
@@ -27,7 +27,7 @@ export function manualCreateModal({synthetic,modal,customer=null,vehicles=[]}){
     <p class="hint">Bruttopreise inklusive 19 % MwSt. Die Berechnung ist der Anfragebetrag. Deinen Fixpreis legst du nach der Begutachtung fest. ${esc(priceNote)}</p>
     <label>Hinweis / zusätzliche Wünsche<textarea name="note"></textarea></label><label class="check"><input type="checkbox" name="reviewConsent" ${c.reviewConsent?'checked':''}>Kundeneinwilligung zur Bewertungsmail liegt vor.</label>
     ${synthetic?'<p class="hint">Testauftrag mit eigener TEST-Nummer. Kein Versand und keine Rechnungen.</p>':''}
-    <div class="error" id="modal-error"></div><button class="primary" type="submit">${synthetic?'Testauftrag':'Anfrage'} speichern</button></form>`);
+    <div class="error" id="modal-error"></div><button class="primary" type="submit">${synthetic?'Testauftrag':quickBooking?'Auftrag':'Anfrage'} speichern${quickBooking?' und mit Preis & Termin fortfahren':''}</button></form>`);
   const form=document.getElementById('createform');
   // The class follows the chosen vehicle from the customer master so its quote uses the right price.
   form.elements.vehicleId?.addEventListener('change',event=>{const chosen=vehicles.find(x=>x.id===event.target.value);if(chosen?.classId)form.elements.classId.value=chosen.classId;updateManualQuote(form);});

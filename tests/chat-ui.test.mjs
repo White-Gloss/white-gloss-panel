@@ -32,7 +32,7 @@ async function call(app,cookie,path,init={}){const headers=new Headers(init.head
 async function boot(t,{app,page,script,path,cookie}){
   const html=readFileSync(new URL('../dist/client/'+page,import.meta.url),'utf8').replace(/<script[^>]*><\/script>/g,'');
   const dom=new JSDOM(html,{url:origin+path,pretendToBeVisual:true});const w=dom.window;
-  w.Element.prototype.scrollIntoView=()=>{};
+  w.Element.prototype.scrollIntoView=()=>{};w.confirm=()=>true;
   // jsdom cannot decode images: a stand-in canvas returns a small JPEG, like the browser re-encoding would.
   const ctx=new Proxy({},{get:(_target,key)=>key==='canvas'?null:()=>{},set:()=>true});
   w.HTMLCanvasElement.prototype.getContext=()=>ctx;w.HTMLCanvasElement.prototype.toDataURL=()=>'data:image/jpeg;base64,/9j/';w.HTMLCanvasElement.prototype.toBlob=callback=>callback(new Blob([jpeg],{type:'image/jpeg'}));

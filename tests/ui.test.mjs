@@ -19,7 +19,7 @@ async function boot(t,{page,script,hash='',path=null,env=environment(),storage={
   const dom=new JSDOM(html,{url:origin+(path??(page==='index.html'?'/':'/vor-ort'))+hash,pretendToBeVisual:true});const w=dom.window;
   for(const [key,value] of Object.entries(storage))w.localStorage.setItem(key,value);
   w.HTMLDialogElement.prototype.showModal??=function(){this.setAttribute('open','');};w.HTMLDialogElement.prototype.close??=function(){this.removeAttribute('open');};
-  w.Element.prototype.setPointerCapture=()=>{};w.Element.prototype.scrollIntoView=()=>{};w.scrollTo=()=>{};
+  w.Element.prototype.setPointerCapture=()=>{};w.Element.prototype.scrollIntoView=()=>{};w.scrollTo=()=>{};w.confirm=()=>true;
   const ctx=new Proxy({},{get:(_target,key)=>key==='canvas'?null:()=>{},set:()=>true});
   w.HTMLCanvasElement.prototype.getContext=()=>ctx;w.HTMLCanvasElement.prototype.toDataURL=()=>signatureURL;w.HTMLCanvasElement.prototype.toBlob=callback=>callback(new Blob([Buffer.concat([png,Buffer.alloc(300)])],{type:'image/png'}));
   let pending=0;const errors=[];
@@ -509,7 +509,7 @@ test('panel: operational agenda links existing appointments, follow-ups and unpa
   current.status='Termin verbindlich';current.appointment={start:today+'T12:00:00.000Z',end:today+'T14:00:00.000Z',duration:120,delivery:'Kunde bringt',confirmation:{at:new Date().toISOString(),mode:'Test'}};
   current.notes=[{at:new Date().toISOString(),kind:'Wiedervorlage',note:'Lackzustand telefonisch besprechen',followUp:today}];
   current.invoice={provider:'qonto',status:'unpaid',number:'RE-TEST',dueDate:yesterday,totalCents:34900};
-  await saveOrder(ui.env,current,current.version,'Synthetischer Agenda-Test');await ui.click('[data-click="back"]');await ui.click('[data-click="refresh"]');
+  await saveOrder(ui.env,current,current.version,'Synthetischer Agenda-Test');await ui.click('[data-click="back"]');await ui.click('.sidebar [data-view="overview"]');await ui.click('[data-click="refresh"]');
   assert.match(ui.$('.operations-panel.compact').textContent,/Jetzt & als Nächstes/);assert.match(ui.$('.operations-panel.compact').textContent,/Lackzustand telefonisch besprechen/);
   await ui.go('#calendar');assert.match(ui.text(),/Deine nächsten 7 Tage/);assert.match(ui.text(),/349,00\s*€/);assert.match(ui.text(),/Rechnungssummen, kein Kontostand/);assert.match(ui.text(),/Keine Kapazitätsaussage/);
   assert.ok(ui.$('.agenda-item.appointment[data-order]'));assert.ok(ui.$('.agenda-item.followup[data-order]'));assert.ok(ui.$('.schedule-calendar'));assert.ok(ui.$('.schedule-event[data-order]'));assert.ok(ui.$('.schedule-day .schedule-detail[data-order]'));
@@ -585,4 +585,36 @@ test('Vor-Ort app: pickup outside the tariff and a custom service keep one exact
   const row=await ui.env.DB.prepare('SELECT id FROM orders').first(),o=await getOrder(ui.env,row.id);
   assert.equal(o.offer.totalCents,27400);assert.equal(o.offer.pickupCents,9500);assert.equal(o.source.delivery,'Abholung');assert.equal(o.appointment.delivery,'Abholung');
   assert.equal(o.offer.lines.find(line=>line.kind==='pickup').amountCents,9500);assert.equal(o.offer.lines.find(line=>line.id==='custom-service').amountCents,3000);assert.equal(o.acceptance.snapshot.offer.totalCents,27400);assert.deepEqual(ui.errors,[]);
+});
+
+
+test('Vor-Ort app resumes a saved booking draft and can deliberately discard it',async t=>{
+  const ui=await boot(t,{page:'vor-ort.html',script:'vor-ort.js',storage:{'wg-vo-test':'1'},hash:'#buchung'});
+  ui.fill(ui.$('#c-new'),{name:'TEST · Entwurf',phone:'0151 000000'});await ui.submit('#c-new');await ui.settle();
+  assert.ok(ui.w.sessionStorage.getItem('wg-vo-booking-draft-test-v1'));
+  await ui.go('#');assert.match(ui.text(),/unvollständiger Buchungsentwurf/);await ui.go('#buchung');
+  assert.equal(ui.$('#c-new').elements.name.value,'TEST · Entwurf');
+  t.mock.method(ui.w,'confirm',()=>true);await ui.click('#draft-discard');
+  assert.equal(ui.w.sessionStorage.getItem('wg-vo-booking-draft-test-v1'),null);assert.equal(ui.$('#c-new').elements.name.value,'');assert.deepEqual(ui.errors,[]);
+});
+
+test('panel quick booking opens price and appointment while agenda and keyboard tabs stay usable',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});
+  await ui.click('[data-click="test"]');await ui.click('.sidebar [data-view="calendar"]');
+  await ui.click('[data-click="calendarMode"][data-mode="agenda"]');assert.equal(ui.$('[data-click="calendarMode"][data-mode="agenda"]').getAttribute('aria-pressed'),'true');
+  await ui.click('.schedule-commandbar [data-click="bookNow"]');assert.equal(ui.$('#createform').dataset.quickBooking,'true');
+  ui.fill(ui.$('#createform'),{name:'Sofort Test',vehicle:'BMW M4'});await ui.submit('#createform');
+  assert.equal(ui.$('[role="tab"][aria-selected="true"]').dataset.tab,'price');assert.ok(ui.$('#priceform'));assert.ok(ui.$('#appointmentform'));
+  ui.$('#order-tab-price').dispatchEvent(new ui.w.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));await ui.settle();
+  assert.equal(ui.$('[role="tab"][aria-selected="true"]').dataset.tab,'intake');assert.equal(ui.w.document.activeElement.id,'order-tab-intake');assert.deepEqual(ui.errors,[]);
+});
+
+test('panel protects every edited form before navigation and keeps search return context',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});
+  await ui.click('[data-click="test"]');await ui.click('[data-click="create"]');ui.fill(ui.$('#createform'),{name:'Schutz Test'});await ui.submit('#createform');
+  ui.fill(ui.$('#sourceform'),{name:'Ungespeichert'});const confirm=t.mock.method(ui.w,'confirm',()=>false);
+  await ui.click('[data-tab="price"]');assert.equal(ui.$('[role="tab"][aria-selected="true"]').dataset.tab,'source');assert.equal(confirm.mock.callCount(),1);
+  confirm.mock.mockImplementation(()=>true);await ui.click('[data-tab="price"]');assert.equal(ui.$('[role="tab"][aria-selected="true"]').dataset.tab,'price');
+  const input=ui.$('#search');input.value='Schutz';input.dispatchEvent(new ui.w.Event('input',{bubbles:true}));await ui.settle();assert.ok(ui.$('[data-click="searchReturn"]'));
+  await ui.click('[data-click="searchReturn"]');assert.equal(ui.$('[role="tab"][aria-selected="true"]').dataset.tab,'price');assert.deepEqual(ui.errors,[]);
 });
