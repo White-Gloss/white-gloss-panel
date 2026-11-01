@@ -447,6 +447,7 @@ export async function qontoInventory(env, order) {
 
 // ---------- Rechnungsinhalt ----------
 export function qontoNetValue(grossCents, vatBasisPoints, decimals = 6) {
+  if (grossCents < 0) return "-" + qontoNetValue(-grossCents, vatBasisPoints, decimals);
   cents(grossCents);
   need([0, 700, 1900].includes(vatBasisPoints), "Ungültiger Steuersatz.");
   if (vatBasisPoints === 0) return (BigInt(grossCents) / 100n).toString() + "." + String(grossCents % 100).padStart(2, "0");
@@ -474,22 +475,17 @@ export function invoiceLines(order) {
   const draft = order.invoiceDraft;
   if (draft) need(draft.offerHash === hash(order.offer ?? null), "Das Angebot wurde seit dem Rechnungsentwurf geändert. Bitte den Entwurf erneut prüfen und speichern.", 409);
   const total = draft?.totalCents ?? order.offer?.totalCents;
-  const lines = draft ? draft.lines : order.offer?.lines?.length
+  const discountCents = draft?.discountCents ?? order.offer?.discountCents ?? 0;
+  const serviceLines = draft ? draft.lines : order.offer?.lines?.length
     ? order.offer.lines
-    : [{ title: "Fahrzeugaufbereitung", description: order.offer?.services ?? "", amountCents: order.offer?.totalCents }];
-  need(Array.isArray(lines) && lines.length > 0 && lines.length <= 100, "Bestätigte Leistungen fehlen.", 409);
-  for (const line of lines)
-    need(
-      Number.isSafeInteger(line?.amountCents) && line.amountCents >= 0 && String(line.title ?? "").trim(),
-      "Eine Leistungsposition ist unvollständig.",
-      409,
-    );
-  need(
-    Number.isSafeInteger(total) && total > 0 && total <= 100000000 &&
+    : [{ title: "Fahrzeugaufbereitung", description: order.offer?.services ?? "", amountCents: (order.offer?.totalCents ?? 0) + discountCents }];
+  const lines = [...serviceLines, ...(discountCents ? [{ title: "Rabatt", description: "Nach Vereinbarung", amountCents: -discountCents, kind: "discount" }] : [])];
+  need(Array.isArray(serviceLines) && serviceLines.length > 0 && serviceLines.length <= 100, "Bestätigte Leistungen fehlen.", 409);
+  for (const line of serviceLines)
+    need(Number.isSafeInteger(line?.amountCents) && line.amountCents >= 0 && String(line.title ?? "").trim(), "Eine Leistungsposition ist unvollständig.", 409);
+  need(Number.isSafeInteger(discountCents) && discountCents >= 0 && Number.isSafeInteger(total) && total > 0 && total <= 100000000 &&
       lines.reduce((sum, line) => sum + line.amountCents, 0) === total,
-    "Leistungspositionen stimmen nicht mit dem geprüften Rechnungsbetrag überein.",
-    409,
-  );
+    "Leistungspositionen und Rabatt stimmen nicht mit dem geprüften Rechnungsbetrag überein.", 409);
   return lines;
 }
 export function invoiceDraftReviewHash(order) {
@@ -498,12 +494,8 @@ export function invoiceDraftReviewHash(order) {
 export const invoiceAmountCents = (order) => invoiceLines(order).reduce((sum, line) => sum + line.amountCents, 0);
 export function eligibleForInvoice(order, input) {
   need(!order.synthetic, "Testaufträge erzeugen keine echten Rechnungen.", 409);
-  need(
-    ["Erledigt", "Bezahlt"].includes(order.status) && order.completedAt && order.offer,
-    "Abrechnung erst nach Arbeitsabschluss mit vereinbartem Festpreis.",
-    409,
-  );
-  need(Number.isFinite(Date.parse(order.completedAt)), "Arbeitsabschlussdatum fehlt.", 409);
+  need(!["Abgelehnt", "Storniert", "Abgelaufen"].includes(order.status), "Geschlossene Aufträge werden nicht neu abgerechnet.", 409);
+  need(order.offer, "Für die Abrechnung fehlt ein geprüftes Angebot.", 409);
   need(input && ["invoice", "paid"].includes(input.mode), "Bitte Rechnung oder Quittung auswählen.");
   need(input.reviewed === true, "Bitte Kunde, Leistungen, Steuer und Betrag ausdrücklich prüfen und bestätigen.");
   need(
@@ -575,10 +567,12 @@ export function qontoInvoicePayload(
     dueDate = input.mode === "invoice" ? addDays(issueDate, PAYMENT_TERM_DAYS) : issueDate,
     vat = VAT_OPTIONS[input.vatBasisPoints],
     texts = invoiceTexts(order, input, issueDate, dueDate, number);
-  const end = berlinDay(order.completedAt),
-    startCandidate = berlinDay(order.intake?.at ?? order.intake?.savedAt ?? order.completedAt),
+  // Ohne dokumentierten Arbeitsabschluss ist der Rechnungstag das Leistungsende.
+  const completedAt = Number.isFinite(Date.parse(order.completedAt)) ? order.completedAt : now,
+    end = berlinDay(completedAt),
+    startCandidate = berlinDay(order.intake?.at ?? order.intake?.savedAt ?? completedAt),
     start = startCandidate <= end ? startCandidate : end;
-  need(end <= issueDate, "Arbeitsabschluss liegt nach dem Rechnungsdatum.", 409);
+  need(end <= issueDate, "Das Leistungsende liegt nach dem Rechnungsdatum.", 409);
   const items = invoiceLines(order).map((line) => {
     const title = String(line.title).trim().replace(/\s+/g, " "),
       short = title.length <= 40 ? title : title.slice(0, 39).trimEnd() + "…",

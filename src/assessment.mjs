@@ -15,11 +15,13 @@ export function normalizeAssessment(input){
     const description=String(line.description??'').trim();assessmentNeed(description.length<=1000,'Leistungsbeschreibung ist zu lang.');
     const catalogId=String(line.catalogId??'');if(catalogId)assessmentNeed(line.kind==='package'?packages.some(p=>p.id===catalogId):line.kind==='extra'&&extras.some(e=>e.id===catalogId),'Katalogposition ist unbekannt.');return {id,kind:line.kind,...(catalogId?{catalogId}:{}),title,description,amountCents:assessmentCents(line.amountCents)};
   });
-  const totalCents=assessmentCents(lines.reduce((sum,line)=>sum+line.amountCents,0));
+  const subtotalCents=assessmentCents(lines.reduce((sum,line)=>sum+line.amountCents,0));
+  const discountCents=assessmentCents(input.discountCents??0);assessmentNeed(discountCents<=subtotalCents,'Der Rabatt darf nicht höher als die Summe der Leistungen sein.');
+  const totalCents=subtotalCents-discountCents;
   const pickupCents=lines.find(line=>line.kind==='pickup')?.amountCents??0;
-  // The server calculates both totals; contradictory client values are rejected.
+  // The server calculates all totals; contradictory client values are rejected.
   for(const [key,value] of Object.entries({totalCents,pickupCents}))if(input[key]!==undefined)assessmentNeed(input[key]===value,'Positionssumme stimmt nicht mit dem Gesamtpreis überein.');
-  return {condition:String(input.condition??'').trim().slice(0,2000),lines,totalCents,pickupCents,pricesReviewed:input.pricesReviewed===true,services:lines.map(line=>line.title+(line.description?' — '+line.description:'')).join('\n')};
+  return {condition:String(input.condition??'').trim().slice(0,2000),lines,subtotalCents,discountCents,totalCents,pickupCents,pricesReviewed:input.pricesReviewed===true,services:lines.map(line=>line.title+(line.description?' — '+line.description:'')).join('\n')};
 }
 export function assessmentSeed(source){
   const raw=source.raw??source;

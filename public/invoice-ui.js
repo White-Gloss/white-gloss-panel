@@ -48,15 +48,18 @@ export const invoiceStatusLabel = (status) =>
   Object.hasOwn(statusLabels, status) ? statusLabels[status] : "Unbekannter Status";
 
 export function invoiceLines(order) {
-  const lines = order.invoiceDraft ? order.invoiceDraft.lines : order.offer?.lines?.length
-    ? order.offer.lines
-    : [{ title: "Fahrzeugaufbereitung", description: order.offer?.services ?? "", amountCents: order.offer?.totalCents }];
+  const discountCents = order.invoiceDraft?.discountCents ?? order.offer?.discountCents ?? 0,
+    serviceLines = order.invoiceDraft ? order.invoiceDraft.lines : order.offer?.lines?.length
+      ? order.offer.lines
+      : [{ title: "Fahrzeugaufbereitung", description: order.offer?.services ?? "", amountCents: (order.offer?.totalCents ?? 0) + discountCents }],
+    lines = [...serviceLines, ...(discountCents ? [{ title: "Rabatt", description: "Nach Vereinbarung", amountCents: -discountCents, kind: "discount" }] : [])];
   if (
-    !lines.length ||
-    lines.some((line) => !Number.isSafeInteger(line.amountCents) || line.amountCents < 0) ||
+    !serviceLines.length ||
+    serviceLines.some((line) => !Number.isSafeInteger(line.amountCents) || line.amountCents < 0) ||
+    !Number.isSafeInteger(discountCents) || discountCents < 0 ||
     lines.reduce((sum, line) => sum + line.amountCents, 0) !== (order.invoiceDraft?.totalCents ?? order.offer?.totalCents)
   )
-    throw Error("Die gespeicherten Leistungen stimmen nicht mit dem vereinbarten Festpreis überein.");
+    throw Error("Leistungen, Rabatt und Rechnungsbetrag stimmen nicht überein.");
   return lines;
 }
 export function invoiceTotals(order, vatBasisPoints) {
@@ -78,14 +81,15 @@ export function invoiceDraftSummaryHTML(order) {
   if (order.invoice && order.invoice.status !== "canceled")
     return "";
   const draft = order.invoiceDraft;
-  return `<div class="sectiontitle">Rechnungsentwurf vor Versand</div>${draft ? `<p>Gespeicherter Rechnungsbetrag: <strong>${invoiceMoney(draft.totalCents)}</strong> · Angebot: ${invoiceMoney(order.offer?.totalCents ?? 0)}</p><p class="hint">Änderungsgrund: ${invoiceEsc(draft.reason)}</p>` : '<p class="hint">Bei unerwarteter Mehrarbeit kannst du Positionen und Beträge vor dem Ausstellen bearbeiten. Das unterschriebene Angebot bleibt erhalten.</p>'}<button data-click="invoiceDraft">${draft ? "Rechnungsentwurf bearbeiten" : "Rechnungspositionen bearbeiten"}</button>`;
+  return `<div class="sectiontitle">Rechnungsentwurf vor Versand</div>${draft ? `<p>Leistungen: ${invoiceMoney(draft.subtotalCents ?? draft.totalCents + (draft.discountCents ?? 0))} · Rabatt: ${invoiceMoney(draft.discountCents ?? 0)} · Rechnungsbetrag: <strong>${invoiceMoney(draft.totalCents)}</strong> · Angebot: ${invoiceMoney(order.offer?.totalCents ?? 0)}</p><p class="hint">Änderungsgrund: ${invoiceEsc(draft.reason)}</p>` : '<p class="hint">Bei unerwarteter Mehrarbeit kannst du Positionen, Rabatt und Beträge vor dem Ausstellen bearbeiten. Das unterschriebene Angebot bleibt erhalten.</p>'}<button data-click="invoiceDraft">${draft ? "Rechnungsentwurf bearbeiten" : "Rechnungspositionen bearbeiten"}</button>`;
 }
 function draftLineHTML(line = {}) {
   return `<fieldset class="catalog-options" data-invoice-draft-line><legend>Rechnungsposition</legend><label>Leistung<input data-draft-title value="${invoiceEsc(line.title ?? "")}" maxlength="180" required></label><label>Beschreibung<textarea data-draft-description maxlength="2000">${invoiceEsc(line.description ?? "")}</textarea></label><label>Bruttobetrag in €<input data-draft-amount inputmode="decimal" value="${Number.isSafeInteger(line.amountCents) ? (line.amountCents / 100).toFixed(2).replace(".", ",") : ""}" required></label><button type="button" data-invoice-remove>Position entfernen</button></fieldset>`;
 }
 export function invoiceDraftForm(order) {
   if (order.invoice && order.invoice.status !== "canceled") throw Error("Die Rechnung ist bereits ausgestellt und bleibt unverändert.");
-  return `<p>${invoiceEsc(order.wg)} · ${invoiceEsc(order.source?.name)} · Angebot ${invoiceMoney(order.offer?.totalCents ?? 0)} brutto</p><p class="hint">Hier bearbeitest du ausschließlich den Rechnungsentwurf. Beschreibe Mehrarbeit und die dazu vereinbarte Preisänderung. Das gespeicherte Angebot und seine Unterschrift bleiben unverändert. Erst nach der anschließenden Rechnungsprüfung wird die Rechnung ausgestellt.</p><form id="invoiceDraftform"><div data-invoice-draft-lines>${invoiceLines(order).map(draftLineHTML).join("")}</div><div class="actions"><button type="button" data-invoice-add>Eigene Position hinzufügen</button><button type="button" data-invoice-add-pickup>Abholung & Rückgabe ergänzen</button></div><label>Grund der Änderung / Vereinbarung mit dem Kunden<textarea name="reason" maxlength="2000" required>${invoiceEsc(order.invoiceDraft?.reason ?? "")}</textarea></label><p data-invoice-draft-total aria-live="polite"></p><button type="submit" class="primary">Entwurf speichern</button><div id="modal-error" class="error"></div></form>`;
+  const discountCents = order.invoiceDraft?.discountCents ?? order.offer?.discountCents ?? 0;
+  return `<p>${invoiceEsc(order.wg)} · ${invoiceEsc(order.source?.name)} · Angebot ${invoiceMoney(order.offer?.totalCents ?? 0)} brutto</p><p class="hint">Hier bearbeitest du ausschließlich den Rechnungsentwurf. Beschreibe Mehrarbeit, Rabatt und die dazu vereinbarte Preisänderung. Das gespeicherte Angebot und seine Unterschrift bleiben unverändert. Erst nach der anschließenden Rechnungsprüfung wird die Rechnung ausgestellt.</p><form id="invoiceDraftform"><div data-invoice-draft-lines>${invoiceLines(order).filter(line=>line.kind!=="discount").map(draftLineHTML).join("")}</div><div class="actions"><button type="button" data-invoice-add>Eigene Position hinzufügen</button><button type="button" data-invoice-add-pickup>Abholung & Rückgabe ergänzen</button></div><label>Rabatt in €<input name="discount" inputmode="decimal" value="${(discountCents/100).toFixed(2).replace(".",",")}" required></label><label>Grund der Änderung / Vereinbarung mit dem Kunden<textarea name="reason" maxlength="2000" required>${invoiceEsc(order.invoiceDraft?.reason ?? "")}</textarea></label><p data-invoice-draft-total aria-live="polite"></p><button type="submit" class="primary">Entwurf speichern</button><div id="modal-error" class="error"></div></form>`;
 }
 function parseDraftAmount(value) {
   const raw = String(value ?? "").trim();
@@ -108,17 +112,22 @@ export function invoiceDraftInput(form) {
   });
   const reason = form.elements.reason.value.trim();
   if (!reason || reason.length > 2000) throw Error("Bitte den Grund und die Vereinbarung zur Rechnungsänderung angeben.");
-  const totalCents = lines.reduce((sum, line) => sum + line.amountCents, 0);
+  const subtotalCents = lines.reduce((sum, line) => sum + line.amountCents, 0),
+    discountCents = parseDraftAmount(form.elements.discount.value),
+    totalCents = subtotalCents - discountCents;
+  if (discountCents > subtotalCents) throw Error("Der Rabatt darf die Leistungssumme nicht überschreiten.");
   if (!totalCents || totalCents > 100000000) throw Error("Der Rechnungsbetrag muss positiv sein und darf 1.000.000 € nicht überschreiten.");
-  return { lines, reason };
+  return { lines, discountCents, totalCents, reason };
 }
 export function mountInvoiceDraftForm(form) {
   if (!form) return;
   const update = () => {
     const total = form.querySelector("[data-invoice-draft-total]");
     try {
-      const sum = [...form.querySelectorAll("[data-draft-amount]")].reduce((amount, field) => amount + parseDraftAmount(field.value), 0);
-      total.textContent = "Rechnungsbetrag: " + invoiceMoney(sum) + " brutto";
+      const subtotal = [...form.querySelectorAll("[data-draft-amount]")].reduce((amount, field) => amount + parseDraftAmount(field.value), 0),
+        discount = parseDraftAmount(form.elements.discount.value);
+      if (discount > subtotal) throw Error("Der Rabatt darf die Leistungssumme nicht überschreiten.");
+      total.textContent = "Leistungen: " + invoiceMoney(subtotal) + " · Rabatt: −" + invoiceMoney(discount) + " · Rechnungsbetrag: " + invoiceMoney(subtotal-discount) + " brutto";
     } catch (error) { total.textContent = error.message; }
   };
   form.addEventListener("click", (event) => {
@@ -222,7 +231,7 @@ export function invoiceReview(order, input, inventory) {
     )
     .join(
       "",
-    )}</tbody></table></div>${order.invoiceDraft ? pair("Vereinbarter Angebotspreis", invoiceMoney(order.offer.totalCents)) + pair("Grund der Änderung", invoiceEsc(order.invoiceDraft.reason)) : ""}${pair("Netto", '<span class="money">' + invoiceMoney(totals.netCents) + "</span>")}${pair(invoiceEsc(VAT[input.vatBasisPoints]), '<span class="money">' + invoiceMoney(totals.taxCents) + "</span>")}<div class="fieldpair"><strong>Gesamtbetrag</strong><strong class="money">${invoiceMoney(totals.grossCents)}</strong></div><p class="hint">${client.existing ? "Der vorhandene Qonto-Kunde wird verwendet." : "Der Rechnungskunde wird mit diesen Angaben in Qonto angelegt."} Qonto stellt die Rechnung mit der Nummer ${invoiceEsc(number)} aus – eine doppelte Rechnung ist ausgeschlossen.${order.invoice?.status === "canceled" ? " Sie ersetzt die in Qonto stornierte Rechnung " + invoiceEsc(order.invoice.number) + "." : ""}${paid ? " Die Rechnung wird in Qonto sofort als bezahlt markiert und die Zahlung im Auftrag erfasst." : " Ohne Zahlungseingang folgen Zahlungserinnerung und Mahnungen nach deiner Freigabe."}${input.sendMail ? " Die PDF-Rechnung geht per E-Mail an den Kunden, Kopie an dich." : " Es wird keine E-Mail versendet."}</p>`;
+    )}</tbody></table></div>${order.invoiceDraft ? pair("Vereinbarter Angebotspreis", invoiceMoney(order.offer.totalCents)) + pair("Grund der Änderung", invoiceEsc(order.invoiceDraft.reason)) : ""}${(order.invoiceDraft?.discountCents??order.offer?.discountCents)?pair("Enthaltener Rabatt", "− "+invoiceMoney(order.invoiceDraft?.discountCents??order.offer.discountCents)):""}${pair("Netto", '<span class="money">' + invoiceMoney(totals.netCents) + "</span>")}${pair(invoiceEsc(VAT[input.vatBasisPoints]), '<span class="money">' + invoiceMoney(totals.taxCents) + "</span>")}<div class="fieldpair"><strong>Gesamtbetrag</strong><strong class="money">${invoiceMoney(totals.grossCents)}</strong></div><p class="hint">${client.existing ? "Der vorhandene Qonto-Kunde wird verwendet." : "Der Rechnungskunde wird mit diesen Angaben in Qonto angelegt."} Qonto stellt die Rechnung mit der Nummer ${invoiceEsc(number)} aus – eine doppelte Rechnung ist ausgeschlossen.${order.invoice?.status === "canceled" ? " Sie ersetzt die in Qonto stornierte Rechnung " + invoiceEsc(order.invoice.number) + "." : ""}${paid ? " Die Rechnung wird in Qonto sofort als bezahlt markiert und die Zahlung im Auftrag erfasst." : " Ohne Zahlungseingang folgen Zahlungserinnerung und Mahnungen nach deiner Freigabe."}${input.sendMail ? " Die PDF-Rechnung geht per E-Mail an den Kunden, Kopie an dich." : " Es wird keine E-Mail versendet."}</p>`;
 }
 
 export function invoiceForm(order, inventory) {

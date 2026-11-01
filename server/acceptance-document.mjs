@@ -36,7 +36,7 @@ export async function acceptanceDocument(env,order){
     for(const [label,value] of [['Kunde',[source.name,source.company].filter(Boolean).join(' · ')],['Anschrift',[source.address,source.city].filter(Boolean).join(', ')],['Kontakt',[source.phone,source.email].filter(Boolean).join(' · ')],['Fahrzeug',[source.vehicle,source.plate].filter(Boolean).join(' · ')],['Auftrag',order.wg]])field(label,value);
     heading('Vereinbarte Leistungen');
     const lines=offer.lines??[{title:offer.services||'Fahrzeugaufbereitung',amountCents:offer.totalCents}];for(const line of lines){amountLine(line.title||'Leistung',line.amountCents);if(line.description)paragraph(line.description,9,grey);}
-    y-=4;amountLine('Gesamtfestpreis inklusive Umsatzsteuer',offer.totalCents);paragraph(a.snapshot?.priceNote??priceNote,9,grey);
+    y-=4;if(offer.discountCents)amountLine('Rabatt',-offer.discountCents);amountLine('Gesamtfestpreis inklusive Umsatzsteuer',offer.totalCents);paragraph(a.snapshot?.priceNote??priceNote,9,grey);
     const appointment=a.snapshot?.appointment;
     if(appointment){heading('Gemeinsam vereinbarter Termin');field('Beginn',berlin(appointment.start));field('Voraussichtlich fertig',berlin(appointment.end));field('Übergabe',appointment.delivery);if(appointment.location)field('Ort',appointment.location);paragraph(a.signature?'Angebot und dieser Termin wurden gemeinsam mit einer Kundenunterschrift bestätigt.':'Angebot und dieser Termin wurden gemeinsam vom Betreiber freigegeben.',9,grey);}
     heading('Annahme');
@@ -46,8 +46,10 @@ export async function acceptanceDocument(env,order){
     field('Zahlungspflichtige Annahme',a.paymentObligation?(released?'Im Rahmen der Betreiberfreigabe erfasst':'Vom Kunden ausdrücklich bestätigt'):'Nicht gesondert bestätigt');
     field('Beginn vor Ablauf der Widerrufsfrist',a.immediateStart?(a.immediateStartText||'Vom Kunden ausdrücklich verlangt'):'Nicht verlangt');
     if(a.withdrawalText)field('Widerrufsbelehrung',a.withdrawalNotice?'Vor der Annahme angezeigt und bestätigt':'Vor der Annahme angezeigt');
+    if(a.cancellationText)field('Termin- und Stornobedingungen','Vor der Annahme angezeigt');
     const sig=await signatureBytes(env,order,a.signature);ensure(130);paragraph('Unterschrift Kunde'+(a.customerName?' · '+a.customerName:''),11);
     if(sig&&['image/png','image/jpeg'].includes(sig.mime)){const img=sig.mime==='image/png'?await doc.embedPng(sig.bytes):await doc.embedJpg(sig.bytes),scale=Math.min(470/img.width,85/img.height);page.drawImage(img,{x:42,y:y-85,width:img.width*scale,height:img.height*scale});y-=100;}else paragraph('Keine Unterschrift erfasst.',10,grey);
+    if(a.cancellationText){heading('Termin- und Stornobedingungen');paragraph(a.cancellationText,9);}
     if(a.withdrawalText){heading('Widerrufsbelehrung und Muster-Widerrufsformular');paragraph(a.withdrawalText,9);}
     if(a.snapshotHash){heading('Nachweis des angezeigten Angebots');paragraph(a.snapshotHash,8,grey);}
     const pages=doc.getPages();pages.forEach((item,index)=>{item.drawText(COMPANY.name+' · '+order.wg,{x:42,y:33,font,size:8,color:grey});item.drawText((index+1)+' / '+pages.length,{x:510,y:33,font,size:8,color:grey});if(order.synthetic)item.drawText('TEST · Keine echte Auftragsbestätigung',{x:42,y:48,font,size:8,color:red});});

@@ -7,6 +7,7 @@ import {createHash} from 'node:crypto';
 import {JSDOM} from 'jsdom';
 import worker,{getOrder,saveOrder} from '../src/worker.mjs';
 import {PanelDatabase} from '../server/storage.mjs';
+import {REMOTE_HANDOVER_VERSION,remoteHandoverText} from '../src/handover.mjs';
 
 const origin='https://panel.example.invalid',owner='test-owner@example.invalid';
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ypcAAAAASUVORK5CYII=','base64');
@@ -221,7 +222,7 @@ test('panel: absent customer protocol and recoverable order deletion preserve do
   await ui.click('[data-click="test"]');await ui.click('[data-click="create"]');
   ui.fill(ui.$('#createform'),{name:'Remote Test',vehicle:'Testauto'});await ui.submit('#createform');
   const row=await ui.env.DB.prepare('SELECT * FROM orders').first();
-  await ui.click('[data-tab="intake"]');ui.fill(ui.$('#protocolform'),{mileage:'54321',notes:'Schlüssel im Briefkasten'});await ui.submit('#protocolform','[data-submit="save"]');assert.ok(ui.$('[data-click="sharePdf"]'));
+  await ui.click('[data-tab="intake"]');ui.fill(ui.$('#protocolform'),{mileage:'54321',notes:'Schlüssel im Briefkasten',recipientName:'TEST · Übergabeperson'});await ui.submit('#protocolform','[data-submit="save"]');assert.ok(ui.$('[data-click="sharePdf"]'));
   await ui.submit('#protocolform','[data-submit="remote"]');
   assert.ok(ui.$('#operatorSign'));assert.equal(ui.$('#customerSign'),null);assert.equal(ui.$('#signatureform').elements.confirmed.checked,false);
   assert.equal((await getOrder(ui.env,row.id)).pending?.intake,undefined);
@@ -251,7 +252,7 @@ test('Vor-Ort app retains an absent customer draft and shows extra work in the o
   assert.equal(ui.$('#pay-form').elements.amount.value,'110,00');
   await ui.go('#auftrag='+original.id+'/annahme');assert.equal(ui.$('#p-form').elements.mileage.value,'54321');assert.equal(ui.$('#p-form').elements.notes.value,'Schlüssel im Briefkasten');
   const destinations=[];Object.defineProperty(globalThis,'location',{value:{get hash(){return ui.w.location.hash;},set hash(value){ui.w.location.hash=value;},assign(value){destinations.push(value);}},configurable:true});
-  ui.fill(ui.$('#p-form'),{notes:'Abholung dokumentiert'});await ui.submit('#p-form','[data-submit="remote"]');
+  ui.fill(ui.$('#p-form'),{notes:'Abholung dokumentiert',recipientName:'TEST · Übergabeperson'});await ui.submit('#p-form','[data-submit="remote"]');
   assert.equal(ui.$('#sig-customer'),null);assert.ok(ui.$('#sig-operator'));assert.equal(ui.$('#sig-form').elements.confirmed.checked,false);assert.deepEqual(destinations,[]);
   ui.draw(ui.$('#sig-operator'));ui.fill(ui.$('#sig-form'),{confirmed:true});await ui.submit('#sig-form');
   assert.deepEqual(destinations,['/#auftrag='+encodeURIComponent(original.id)]);
@@ -270,8 +271,8 @@ test('panel: an operator release shows its reason and time without claiming a cu
   assert.match(ui.$('.detail').textContent,/Ohne Unterschrift freigegeben \(durch den Betrieb\)/);assert.ok(ui.$('.detail').textContent.includes('am '+acceptedAt));
   assert.match(ui.$('.detail').textContent,/Grund: Telefonisch bestätigt <intern>/);assert.equal(ui.$('.detail intern'),null);assert.doesNotMatch(ui.$('.detail').textContent,/Online unterschrieben/);
   // Editing an unsigned offer keeps the archived acceptance honest as well.
-  await ui.submit('#priceform');assert.ok(ui.$('.detail details.sectiongap'));assert.doesNotMatch(ui.$('.detail details.sectiongap').textContent,/unterschrieben/i);
-  assert.match(ui.$('.detail details.sectiongap').textContent,/Grund: Telefonisch bestätigt <intern>/);assert.deepEqual(ui.errors,[]);
+  await ui.submit('#priceform');const previousOffers=[...ui.w.document.querySelectorAll('.detail > details.sectiongap')].find(el=>el.querySelector('summary')?.textContent.startsWith('Frühere Angebotsfassungen'));assert.ok(previousOffers);assert.doesNotMatch(previousOffers.textContent,/unterschrieben/i);
+  assert.match(previousOffers.textContent,/Grund: Telefonisch bestätigt <intern>/);assert.deepEqual(ui.errors,[]);
 });
 
 test('panel: Google sync is available only after the proposed appointment becomes binding',async t=>{
@@ -471,7 +472,7 @@ test('Vor-Ort app: scheduling later saves only the signed offer without an appoi
 for(const kind of ['intake','return'])test(`panel: absent ${kind} needs a fresh operator signature for each revised version`,async t=>{
   const ui=await boot(t,{page:'index.html',script:'app.js'});
   await ui.click('[data-click="test"]');await ui.click('[data-click="create"]');ui.fill(ui.$('#createform'),{name:'Fassungen Test'});await ui.submit('#createform');
-  const {id}=await ui.env.DB.prepare('SELECT id FROM orders').first();await ui.click('[data-tab="'+kind+'"]');
+  const {id}=await ui.env.DB.prepare('SELECT id FROM orders').first();await ui.click('[data-tab="'+kind+'"]');ui.fill(ui.$('#protocolform'),{recipientName:'TEST · Übergabeperson'});
   // Opening and cancelling the absent-customer dialog must not change the order.
   await ui.submit('#protocolform','[data-submit="remote"]');await ui.click('#modal [data-click="close"]');assert.equal((await getOrder(ui.env,id)).pending?.[kind],undefined);
   await ui.submit('#protocolform','[data-submit="sign"]');assert.ok(ui.$('#customerSign'));assert.ok(ui.$('#operatorSign'));await ui.click('#modal [data-click="close"]');
@@ -489,7 +490,7 @@ for(const kind of ['intake','return'])test(`customer page: absent ${kind} displa
   const env=environment();env.CUSTOMER_ACCESS_APPROVED='true';
   const call=async(path,body)=>{const r=await worker.fetch(new Request(origin+'/api/'+path,{method:'POST',headers:{origin,'oai-authenticated-user-email':owner,'Content-Type':'application/json'},body:JSON.stringify(body)}),env);const result=await r.json();assert.equal(r.status,200,JSON.stringify(result));return result;};
   let o=await call('create',{synthetic:true,source:{name:'Abwesend Kunde',vehicle:'Testfahrzeug'}});
-  const draft=await call('protocol/prepare',{id:o.id,version:o.version,kind,protocol:{customerAbsent:true,customerName:'Abwesend Kunde',operatorName:'Betrieb Test',notes:'Vorab geprüft'}});
+  const draft=await call('protocol/prepare',{id:o.id,version:o.version,kind,protocol:{customerAbsent:true,customerName:'Abwesend Kunde',operatorName:'Betrieb Test',notes:'Vorab geprüft',recipientName:'TEST · Übergabeperson',authorizationVersion:REMOTE_HANDOVER_VERSION,authorizationText:remoteHandoverText(kind)}});
   const response=await worker.fetch(new Request(origin+'/api/upload/'+o.id+'?kind=signature&draft='+draft.id+'&hash='+draft.hash,{method:'POST',headers:{origin,'oai-authenticated-user-email':owner,'Content-Type':'image/png'},body:png}),env);assert.equal(response.status,200);const operator=(await response.json()).id;
   o=await call('action',{id:o.id,version:o.version,action:'protocolRequest',input:{kind,customerAbsent:true,draftId:draft.id,snapshotHash:draft.hash,operatorSignature:operator,signaturesConfirmed:true}});
   o=await call('action',{id:o.id,version:o.version,action:'documentLink',input:{kind}});

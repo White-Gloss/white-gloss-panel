@@ -73,7 +73,25 @@ function mount(t, o, inv) {
 test("totals split the agreed gross price into net and VAT without changing the gross amount", () => {
   assert.deepEqual(invoiceTotals(order(), 1900), { grossCents: 11900, netCents: 10000, taxCents: 1900 });
   assert.deepEqual(invoiceTotals(order(), 0), { grossCents: 11900, netCents: 11900, taxCents: 0 });
-  assert.throws(() => invoiceTotals({ ...order(), offer: { ...order().offer, totalCents: 1 } }, 1900), /Festpreis/);
+  assert.throws(() => invoiceTotals({ ...order(), offer: { ...order().offer, totalCents: 1 } }, 1900), /Leistungen, Rabatt und Rechnungsbetrag/);
+});
+
+test("discount is shown separately and net, VAT and final total use the discounted amount", (t) => {
+  const discounted = order();
+  Object.assign(discounted.offer, { subtotalCents: 11900, discountCents: 1900, totalCents: 10000 });
+  assert.deepEqual(invoiceTotals(discounted, 1900), { grossCents: 10000, netCents: 8403, taxCents: 1597 });
+  const dom = new JSDOM('<!doctype html><body><div id="modal"></div></body>');
+  t.after(() => dom.window.close());
+  dom.window.document.querySelector("#modal").innerHTML = invoiceDraftForm(discounted);
+  const form = dom.window.document.querySelector("#invoiceDraftform");
+  mountInvoiceDraftForm(form);
+  form.elements.reason.value = "Rabatt mit dem Kunden vereinbart";
+  form.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  assert.match(form.querySelector("[data-invoice-draft-total]").textContent, /119,00.*19,00.*100,00/);
+  assert.deepEqual(invoiceDraftInput(form), { lines: discounted.offer.lines.map(({ title, description, amountCents }) => ({ title, description: description ?? "", amountCents })), discountCents: 1900, totalCents: 10000, reason: "Rabatt mit dem Kunden vereinbart" });
+  form.elements.discount.value = "120,00";
+  assert.throws(() => invoiceDraftInput(form), /nicht überschreiten/);
+  assert.match(invoiceDraftSummaryHTML(discounted).replaceAll("−", "-"), /Rabatt/);
 });
 
 test("invoice dialog: 7-day invoice preview with new customer address, then explicit confirmation", (t) => {

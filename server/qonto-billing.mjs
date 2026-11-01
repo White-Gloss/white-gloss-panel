@@ -101,8 +101,7 @@ async function currentVersion(env, order) {
 // Separater, bearbeitbarer Rechnungsentwurf. Unterschriebene Angebote bleiben unverändert.
 export async function saveInvoiceDraft(env, order, input) {
   assertRecordOperation(order, "invoice");
-  need(["Erledigt", "Bezahlt"].includes(order.status) && order.completedAt && order.offer,
-    "Rechnungsentwurf erst nach Arbeitsabschluss mit vereinbartem Angebot.", 409);
+  need(order.offer, "Für den Rechnungsentwurf fehlt ein geprüftes Angebot.", 409);
   need(!order.invoice || reissuable(order),
     "Diese Rechnung ist bereits ausgestellt. Auch vor dem E-Mail-Versand bleibt sie unverändert; Korrekturen erfolgen über Storno und Neuausstellung in Qonto.", 409);
   need(Array.isArray(input?.lines) && input.lines.length > 0 && input.lines.length <= 100,
@@ -118,7 +117,11 @@ export async function saveInvoiceDraft(env, order, input) {
       "Positionsbetrag muss ein nicht negativer Centbetrag sein.");
     return { title: line.title.trim(), description: String(line.description ?? "").trim(), amountCents: line.amountCents };
   });
-  const totalCents = lines.reduce((sum, line) => sum + line.amountCents, 0);
+  const subtotalCents = lines.reduce((sum, line) => sum + line.amountCents, 0),
+    discountCents = input.discountCents ?? order.invoiceDraft?.discountCents ?? 0,
+    totalCents = subtotalCents - discountCents;
+  need(Number.isSafeInteger(discountCents) && discountCents >= 0 && discountCents <= subtotalCents,
+    "Der Rabatt muss ein nicht negativer Centbetrag sein und darf die Leistungssumme nicht überschreiten.");
   need(Number.isSafeInteger(totalCents) && totalCents > 0 && totalCents <= 100000000,
     "Der Rechnungsbetrag muss positiv sein und darf 1.000.000 € nicht überschreiten.");
   need(totalCents >= paidCents(order), "Der Rechnungsbetrag darf nicht niedriger als die bereits erfassten Zahlungen sein.", 409);
@@ -137,7 +140,7 @@ export async function saveInvoiceDraft(env, order, input) {
     "Der Auftrag wurde inzwischen verändert. Bitte erneut öffnen.", 409);
   const updated = structuredClone(current), now = new Date().toISOString();
   if (updated.invoiceDraft) updated.invoiceDraftHistory = [...(updated.invoiceDraftHistory ?? []), { ...updated.invoiceDraft, replacedAt: now }];
-  updated.invoiceDraft = { lines, totalCents, reason, offerHash: hash(current.offer), createdAt: current.invoiceDraft?.createdAt ?? now, updatedAt: now };
+  updated.invoiceDraft = { lines, discountCents, subtotalCents, totalCents, reason, offerHash: hash(current.offer), createdAt: current.invoiceDraft?.createdAt ?? now, updatedAt: now };
   // Mehrarbeit kann einen zuvor bezahlten Auftrag wieder teilweise offen machen.
   if (updated.status === "Bezahlt" && !updated.paidManually && paidCents(updated) < totalCents) updated.status = "Erledigt";
   updated.updatedAt = now;

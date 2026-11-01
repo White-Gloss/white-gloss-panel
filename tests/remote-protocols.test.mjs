@@ -7,6 +7,7 @@ import {createApplication} from '../server/application.mjs';
 import {digest} from '../server/auth.mjs';
 import {providerOperations} from '../server/providers.mjs';
 import {transition,billedTotalCents} from '../src/domain.mjs';
+import {REMOTE_HANDOVER_VERSION,remoteHandoverText} from '../src/handover.mjs';
 const origin='https://panel.example.invalid',owner='owner@example.invalid',customer='customer@example.invalid';
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ypcAAAAASUVORK5CYII=','base64');
 const signature='data:image/png;base64,'+Buffer.concat([png,Buffer.alloc(300)]).toString('base64');
@@ -18,7 +19,7 @@ async function fixture(t,authorized=false){
   const request=(path,data,email=owner)=>worker.fetch(new Request(origin+'/api/'+path,{method:data===undefined?'GET':'POST',headers:{origin,'oai-authenticated-user-email':email,'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)}),env);
   const ok=async(path,data,email)=>{const response=await request(path,data,email),result=await response.json();assert.equal(response.status,200,JSON.stringify(result));return result;};
   const action=async(name,input)=>{const current=await getOrder(env,id);return ok('action',{id,version:current.version,action:name,input});};
-  const operatorDraft=async(kind='intake',protocol={})=>{const current=await getOrder(env,id),draft=await ok('protocol/prepare',{id,version:current.version,kind,protocol:{...protocol,customerAbsent:true}});const response=await worker.fetch(new Request(origin+'/api/upload/'+id+'?kind=signature&draft='+draft.id+'&hash='+draft.hash,{method:'POST',headers:{origin,'oai-authenticated-user-email':owner,'Content-Type':'image/png'},body:png}),env),uploaded=await response.json();assert.equal(response.status,200,JSON.stringify(uploaded));return {kind,customerAbsent:true,draftId:draft.id,snapshotHash:draft.hash,operatorSignature:uploaded.id,signaturesConfirmed:true};};
+  const operatorDraft=async(kind='intake',protocol={})=>{const current=await getOrder(env,id),draft=await ok('protocol/prepare',{id,version:current.version,kind,protocol:{recipientName:'TEST · Übergabeperson',authorizationVersion:REMOTE_HANDOVER_VERSION,authorizationText:remoteHandoverText(kind),...protocol,customerAbsent:true}});const response=await worker.fetch(new Request(origin+'/api/upload/'+id+'?kind=signature&draft='+draft.id+'&hash='+draft.hash,{method:'POST',headers:{origin,'oai-authenticated-user-email':owner,'Content-Type':'image/png'},body:png}),env),uploaded=await response.json();assert.equal(response.status,200,JSON.stringify(uploaded));return {kind,customerAbsent:true,draftId:draft.id,snapshotHash:draft.hash,operatorSignature:uploaded.id,signaturesConfirmed:true};};
   const absent=async(kind='intake',protocol={})=>action('protocolRequest',await operatorDraft(kind,protocol));
   const pending=async(kind='intake',protocol={})=>{await absent(kind,protocol);const order=await action('documentLink',{kind});return 'document/'+order.pending[kind].token;};
   const signing=async route=>{const shown=await ok(route,undefined,customer);return {signature,confirmed:true,snapshotHash:digest(JSON.stringify(shown))};};
@@ -56,6 +57,22 @@ test('remote preparation requires explicit absence and the operator signature bo
   assert.equal((await attempt({...first,draftId:present.id,snapshotHash:present.hash,operatorSignature:'test-bound'})).status,409);
   assert.equal((await getOrder(f.env,f.id)).pending,undefined);
   await f.action('note',{note:'Änderung nach Anzeige'});assert.equal((await attempt(first)).status,409);
+});
+
+test('absent handovers require a named recipient and the exact versioned declaration for each independent protocol',async t=>{
+  const f=await fixture(t,true);
+  await assert.rejects(f.operatorDraft('intake',{recipientName:''}),/berechtigte Person/);
+  await assert.rejects(f.operatorDraft('intake',{authorizationVersion:'alt'}),/unvollständig oder veraltet/);
+  await assert.rejects(f.operatorDraft('return',{authorizationText:remoteHandoverText('intake')}),/unvollständig oder veraltet/);
+  const returned=await f.absent('return',{recipientName:'TEST · Empfangsperson',workComplete:true});
+  assert.equal(returned.intake,undefined);
+  assert.equal(returned.pending.return.content.authorizationVersion,REMOTE_HANDOVER_VERSION);
+  assert.equal(returned.pending.return.content.authorizationText,remoteHandoverText('return'));
+  assert.notEqual(returned.pending.return.content.authorizationText,remoteHandoverText('intake'));
+  assert.ok(Number.isFinite(Date.parse(returned.pending.return.content.operatorSignedAt)));
+  const intake=await f.absent('intake',{recipientName:'TEST · Abholperson'});
+  assert.equal(intake.pending.intake.content.authorizationText,remoteHandoverText('intake'));
+  assert.ok(Number.isFinite(Date.parse(intake.pending.intake.content.operatorSignedAt)));
 });
 
 test('operator signing keeps the prepared content immutable, source edits do not change the signed customer or vehicle',async t=>{

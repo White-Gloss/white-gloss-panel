@@ -1,6 +1,7 @@
 import {offerLinesHTML} from './pricing.js';
 import {signaturePad} from './signature.js';
 import {immediateStartNotice} from './catalog.mjs';
+import {cancellationHTML} from './terms.js';
 export const isOffer=location.pathname.startsWith('/angebot/');
 const escaped=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date=iso=>new Intl.DateTimeFormat('de-DE',{dateStyle:'long',timeStyle:'short',timeZone:'Europe/Berlin'}).format(new Date(iso))+' Uhr';
@@ -16,6 +17,7 @@ export async function showOffer(){
     <section><h2 class="sectiontitle">Für Sie vorbereitet</h2><p><strong>${escaped(o.customer)}</strong><br>${escaped(o.vehicle)}</p></section>
     <section class="protocolreview"><h2 class="sectiontitle">Vereinbarte Leistungen</h2>${o.offer.services&&!o.offer.lines?.length?'<p>'+escaped(o.offer.services)+'</p>':''}${offerLinesHTML(o.offer)}<div class="offer-total"><span>Gesamtfestpreis inklusive Umsatzsteuer</span><strong>${amount}</strong></div>${o.hints?.price?`<p class="hint">${escaped(o.hints.price)}</p>`:''}</section>
     ${appointmentHTML(o.appointment)}<p class="hint">Dieses Angebot gilt bis ${escaped(date(o.offer.expiresAt))}.</p>
+    ${cancellationHTML(o.hints?.cancellation)}
     ${o.hints?.withdrawal?`<details class="protocolreview" open><summary>Widerrufsbelehrung</summary><p class="withdrawal-text">${escaped(o.hints.withdrawal)}</p></details>`:''}
     ${o.ownerPreview?'<p class="hint">Betreibervorschau · Nur der Kunde kann dieses Angebot persönlich annehmen.</p>':o.status==='Angebot offen'?`<form id="customerOfferForm"><h2 class="sectiontitle">${o.appointment?'Eine Unterschrift für Angebot & Termin':'Ihre persönliche Unterschrift'}</h2><canvas id="offerSignature" class="signature" aria-label="Ihre persönliche Unterschrift"></canvas><button type="button" id="clearOffer">Unterschrift löschen</button><label class="check sectiongap"><input type="checkbox" id="offerObligation" required>Ich habe die angezeigten Leistungen und den Gesamtfestpreis geprüft und nehme das Angebot zahlungspflichtig an.</label>${o.appointment?'<label class="check"><input type="checkbox" id="offerAppointment" required>Ich bestätige den oben angezeigten Termin verbindlich mit derselben Unterschrift.</label>':''}${o.hints?.withdrawal?'<label class="check"><input type="checkbox" id="offerWithdrawal">Die Widerrufsbelehrung wurde mir angezeigt.</label>':''}<label class="check"><input type="checkbox" id="offerImmediate">${escaped(immediateStartNotice)}</label><div class="error" id="offerError" role="alert"></div><button class="primary" type="submit">${o.appointment?'Angebot & Termin':'Angebot'} zahlungspflichtig für ${amount} bestätigen</button></form>`:'<p>Dieses Angebot ist nicht mehr zur Annahme geöffnet. Status: '+escaped(o.status)+'</p>'}</main>`;
   if(o.ownerPreview||o.status!=='Angebot offen')return;

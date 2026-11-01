@@ -380,10 +380,17 @@ test("invoice payload uses the WG number, a 7-day term, exact gross prices and Q
   assert.equal(paid.due_date, "2026-10-13");
   assert.match(paid.footer, /in bar vollständig bezahlt/);
   assert.match(paid.footer, /Quittung/);
-  assert.throws(
-    () => qontoInvoicePayload({ ...order, status: "In Arbeit" }, newClientInput(), randomUUID(), iban, now),
-    /Arbeitsabschluss/,
+  const independent = qontoInvoicePayload({ ...order, status: "In Arbeit", completedAt: undefined }, newClientInput(), randomUUID(), iban, now);
+  assert.equal(independent.performance_end_date, "2026-10-13");
+  const discounted = qontoInvoicePayload(
+    { ...order, offer: { ...order.offer, subtotalCents: 34900, discountCents: 4900, totalCents: 30000 } },
+    newClientInput(), randomUUID(), iban, now,
   );
+  const discount = discounted.items.at(-1);
+  assert.equal(discount.title, "Rabatt");
+  assert.equal(discount.unit_price.value, "-41.176471");
+  assert.equal(qontoInvoicePayload({ ...order, offer: { ...order.offer, subtotalCents: 34900, discountCents: 4900, totalCents: 30000 } }, newClientInput(), randomUUID(), iban, now, 2).items.at(-1).unit_price.value, "-41.18");
+  assert.equal(discounted.items.reduce((sum, item) => sum + Math.round(Number(item.unit_price.value) * 1.19 * 100), 0), 30000);
   assert.throws(
     () => qontoInvoicePayload(order, newClientInput({ reviewed: false }), randomUUID(), iban, now),
     /bestätigen/,

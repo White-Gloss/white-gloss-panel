@@ -37,7 +37,8 @@ test('on-site booking stores customer, price, personal signature and immediate s
   assert.equal(o.status,'Termin verbindlich');assert.equal(o.offer.totalCents,48625);assert.equal(o.acceptance.mode,'vor Ort');assert.equal(o.acceptance.immediateStart,true);
   assert.equal(o.appointment.start,displayedAppointment.start);assert.equal(o.appointment.end,displayedAppointment.end);assert.equal(o.appointment.duration,360);assert.match(o.source.name,/^TEST · Vor Ort/);assert.equal(o.customerId,c.id);
   const asset=e.DB.sql.prepare("SELECT kind FROM assets WHERE id=?").get(o.acceptance.signature);assert.equal(asset.kind,'acceptance');
-  assert.equal(o.acceptance.snapshotHash,createHash('sha256').update(JSON.stringify({offer:o.offer.lines?{condition:'Starke Verschmutzung',lines:o.offer.lines,totalCents:48625,pickupCents:0,pricesReviewed:true,services:o.offer.services}:null,appointment:appointmentSnapshot({...o,wg:undefined}),hints:{price:priceNote,withdrawal:''}})).digest('hex'));
+  const {createdAt:_created,expiresAt:_expires,...displayedOffer}=o.offer;
+  assert.equal(o.acceptance.snapshotHash,createHash('sha256').update(JSON.stringify({offer:displayedOffer,appointment:appointmentSnapshot({...o,wg:undefined}),hints:{price:priceNote,withdrawal:'',cancellation:''}})).digest('hex'));
   assert.equal(o.acceptance.signature,o.appointment.confirmation.signature);assert.equal(o.acceptance.snapshot.appointment.start,o.appointment.start);
   assert.deepEqual(o.acceptance.snapshot.appointment,displayedAppointment);
   assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM appointments').get().n,1);
@@ -57,10 +58,22 @@ test('legacy on-site clients keep the offer-only signature snapshot and separate
     assert.equal(o.acceptance.snapshot.appointment,undefined);
     assert.equal(o.appointment.confirmation.acceptanceId,undefined);
     const {createdAt:_created,expiresAt:_expires,...offer}=o.offer;
-    assert.equal(o.acceptance.snapshotHash,createHash('sha256').update(JSON.stringify({offer,hints:{price:priceNote,withdrawal:''}})).digest('hex'));
+    assert.equal(o.acceptance.snapshotHash,createHash('sha256').update(JSON.stringify({offer,hints:{price:priceNote,withdrawal:'',cancellation:''}})).digest('hex'));
     if(acceptance.signature){assert.equal(o.appointment.confirmation.signature,o.acceptance.signature);assert.equal(o.appointment.confirmation.mode,'vor Ort');}
     else assert.equal(o.appointment.confirmation.release.reason,acceptance.releaseReason);
   }
+});
+
+test('displayed cancellation terms are saved as evidence and stale terms invalidate the on-site signature',async t=>{
+  const e=env(t),first='TEST · Erste Stornofassung',second='TEST · Geänderte Stornofassung';
+  await ok(e,'settings',{cancellationText:first});
+  const o=await ok(e,'onsite',{synthetic:true,source:{name:'Storno'},assessment:{lines},acceptance:{signature,paymentObligation:true,displayedCancellationText:first},appointment:{skip:true}});
+  assert.equal(o.acceptance.cancellationText,first);
+  assert.ok(o.acceptance.snapshotHash);
+  await ok(e,'settings',{cancellationText:second});
+  const stale=await req(e,'onsite',{synthetic:true,source:{name:'Veraltet'},assessment:{lines},acceptance:{signature,paymentObligation:true,displayedCancellationText:first},appointment:{skip:true}});
+  assert.equal(stale.status,409);assert.match((await stale.json()).error,/Stornobedingungen/);
+  assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM orders').get().n,1);
 });
 
 test('combined immediate bookings reject missing or changed displayed appointments before writing files or orders',async t=>{

@@ -9,6 +9,7 @@ import {PanelDatabase} from '../server/storage.mjs';
 import {createApplication} from '../server/application.mjs';
 import {digest} from '../server/auth.mjs';
 import {chatNotificationsSettled} from '../server/chat.mjs';
+import {REMOTE_HANDOVER_VERSION,remoteHandoverText} from '../src/handover.mjs';
 
 const origin='https://panel.example.invalid',owner='owner@example.invalid',customer='kundin@example.invalid';
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ypcAAAAASUVORK5CYII=','base64');
@@ -107,7 +108,7 @@ test('appointment wishes and the chat link work for the customer; a revoked chat
 test('pending protocol: the portal opens the signing link once and the customer signs it',async t=>{
   const f=await fixture(t),o=await order(f.env);
   let current=await getOrder(f.env,o.id);
-  const draft=await f.ok(await f.ownerApi('protocol/prepare',{id:o.id,version:current.version,kind:'intake',protocol:{plate:'FDS-WG 1',customerAbsent:true}}));
+  const draft=await f.ok(await f.ownerApi('protocol/prepare',{id:o.id,version:current.version,kind:'intake',protocol:{plate:'FDS-WG 1',customerAbsent:true,recipientName:'TEST · Übergabeperson',authorizationVersion:REMOTE_HANDOVER_VERSION,authorizationText:remoteHandoverText('intake')}}));
   const uploaded=await f.ok(await worker.fetch(new Request(origin+'/api/upload/'+o.id+'?kind=signature&draft='+draft.id+'&hash='+draft.hash,{method:'POST',headers:{origin,'oai-authenticated-user-email':owner,'Content-Type':'image/png'},body:png}),f.env));
   await f.ok(await f.ownerApi('action',{id:o.id,version:current.version,action:'protocolRequest',input:{kind:'intake',customerAbsent:true,draftId:draft.id,snapshotHash:draft.hash,operatorSignature:uploaded.id,signaturesConfirmed:true}}));
   const privateView=await f.ok(await f.get('/api/portal/me',f.customer));assert.deepEqual(privateView.orders[0].todo,[],'operator signing alone does not release the protocol');

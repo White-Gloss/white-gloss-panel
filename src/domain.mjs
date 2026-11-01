@@ -1,5 +1,6 @@
 import {normalizeAssessment} from './assessment.mjs';
 import {immediateStartNotice,priceNote} from './catalog.mjs';
+import {REMOTE_HANDOVER_VERSION,remoteHandoverText} from './handover.mjs';
 export const STATES = ['Preise prüfen','Angebot offen','Angenommen','Termin verbindlich','In Arbeit','Erledigt','Bezahlt','Abgelehnt','Storniert','Abgelaufen'];
 const BEFORE_ACCEPT=['Preise prüfen','Angebot offen','Abgelaufen'],BEFORE_WORK=[...BEFORE_ACCEPT,'Angenommen','Termin verbindlich'];
 export const CLOSED_STATES=['Abgelehnt','Storniert','Abgelaufen'];
@@ -41,7 +42,13 @@ export function protocolValid(p,kind,assetIds) {
   const own=id=>{need(typeof id==='string'&&assetIds.has(id),'Foto oder Unterschrift gehört nicht zu diesem Auftrag.');return id;};
   const out={};for(const key of ['business','wg','customer','vehicle','snapshotHash','customerSnapshotHash','replaces','signedAt','operatorSignedAt'])if(p[key]!==undefined&&p[key]!==null)out[key]=p[key];
   if(p.customerAbsent===true)out.customerAbsent=true;
-  for(const [key,max] of Object.entries({plate:80,location:600,condition:4000,notes:4000,customerName:180,operatorName:180,services:6000,openPoints:4000,checklistNote:1000}))out[key]=field(p[key],max,key);
+  for(const [key,max] of Object.entries({plate:80,location:600,condition:4000,notes:4000,customerName:180,operatorName:180,services:6000,openPoints:4000,checklistNote:1000,recipientName:180,recipientContact:180}))out[key]=field(p[key],max,key);
+  if(out.customerAbsent){
+    out.authorizationVersion=field(p.authorizationVersion,40,'Dokumentversion');
+    out.authorizationText=field(p.authorizationText,2000,'Übergabeerklärung');
+    need(out.recipientName,'Bitte die zur Fahrzeugübergabe berechtigte Person vollständig benennen.');
+    need(out.authorizationVersion===REMOTE_HANDOVER_VERSION&&out.authorizationText===remoteHandoverText(kind),'Die Übergabeerklärung ist unvollständig oder veraltet. Bitte das Dokument neu erstellen.',409);
+  }
   out.at=optionalTime(p.at);
   out.mileage=count(p.mileage,0,9999999,'Kilometerstand');out.keys=count(p.keys,0,20,'Schlüsselanzahl');out.fuel=count(p.fuel,0,100,'Tank- bzw. Ladestand');
   out.soilingInside=count(p.soilingInside,1,4,'Verschmutzungsgrad innen');out.soilingOutside=count(p.soilingOutside,1,4,'Verschmutzungsgrad außen');
@@ -65,7 +72,7 @@ export function billedTotalCents(o){const invoice=o.invoice;if(invoice&&!['cance
 function settle(o){const total=billedTotalCents(o),paid=paidCents(o),open=(o.payments??[]).some(p=>!p.cancelledAt);if(o.status==='Erledigt'&&open&&Number.isSafeInteger(total)&&paid>=total)o.status='Bezahlt';else if(o.status==='Bezahlt'&&!o.paidManually&&!(open&&Number.isSafeInteger(total)&&paid>=total))o.status='Erledigt';}
 const history=(o,key,entry)=>{o[key]=[...(o[key]??[]),entry];};
 // Consent texts the customer actually saw are stored with the acceptance as evidence.
-const consents=input=>({paymentObligation:input.paymentObligation===true,immediateStart:input.immediateStart===true,immediateStartText:input.immediateStart===true?immediateStartNotice:'',withdrawalNotice:input.withdrawalNotice===true,withdrawalText:text(input.withdrawalText,8000)});
+const consents=input=>({paymentObligation:input.paymentObligation===true,immediateStart:input.immediateStart===true,immediateStartText:input.immediateStart===true?immediateStartNotice:'',withdrawalNotice:input.withdrawalNotice===true,withdrawalText:text(input.withdrawalText,8000),cancellationText:text(input.cancellationText,8000)});
 const acceptanceSnapshot=(order,offer,acceptance)=>({...acceptance,confirmationId:crypto.randomUUID(),snapshot:{source:structuredClone(order.source),offer:structuredClone(offer),priceNote}});
 const emptyAssessment=()=>({condition:'',lines:[],totalCents:0,pickupCents:0,services:'',pricesReviewed:false});
 const SOURCE_FIELDS={name:180,phone:80,email:180,vehicle:180,plate:80,address:600,city:180,note:2000,desiredDate:80,timeWindow:100,company:180};
@@ -172,6 +179,11 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
     if(kind==='offer'){applyDocument(o,'offer',{...pending.content,createdAt:pending.createdAt,expiresAt:now,replaces:pending.replaces},{mode:role==='customer'?'online':'vor Ort',at:now,signature:text(input.signature,250000),...consents(input),snapshotHash:input.snapshotHash,replaces:pending.replaces},now);if(BEFORE_ACCEPT.includes(status))o.status='Angenommen';}
     else {const absent=pending.content.customerAbsent===true;need(!absent||(pending.content.operatorSignature&&pending.content.snapshotHash&&pending.content.operatorSignedAt),'Die Unterschrift des Betriebs fehlt. Bitte eine neue Fassung erstellen.',409);need(input.signature!==pending.content.operatorSignature,'Zwei getrennte Unterschriften sind erforderlich.');applyDocument(o,kind,{...pending.content,customerSignature:text(input.signature,100),operatorSignature:absent?pending.content.operatorSignature:null,signaturesConfirmed:true,signedAt:now,savedAt:now,snapshotHash:absent?pending.content.snapshotHash:input.snapshotHash,...(absent?{customerSnapshotHash:input.snapshotHash}:{}),replaces:pending.replaces??null,signedRemotely:role==='customer'},null,now);if(!pending.replaces){if(kind==='intake'&&BEFORE_WORK.includes(status)&&workAuthorized(o))o.status='In Arbeit';if(kind==='return'){if((BEFORE_WORK.includes(status)&&workAuthorized(o))||status==='In Arbeit')o.status='Erledigt';if(['Erledigt','Bezahlt'].includes(o.status)){o.completedAt??=now;settle(o);}}}}
     const {[kind]:_done,...rest}=o.pending;o.pending=rest;
+  }
+  else if(action==='workflowStep') {
+    const step=text(input.step,40),state=text(input.state,20);need(['source','price','intake','return','payment','notes'].includes(step),'Unbekannter Auftragsschritt.');need(['open','completed','skipped'].includes(state),'Unbekannter Schrittzustand.');
+    const reason=text(input.reason,500);need(state==='open'||reason.length>=3,'Bitte einen Grund für das Überspringen oder manuelle Erledigen angeben.');
+    o.workflow={...(o.workflow??{}),[step]:{state,reason,at:now,by:role}};history(o,'workflowHistory',{step,state,reason,at:now,by:role});
   }
   else if(action==='payment') {
     const amount=cents(input.amountCents); need(amount>0,'Zahlungsbetrag muss positiv sein.');
