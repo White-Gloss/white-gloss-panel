@@ -1,4 +1,5 @@
 // Abrechnung mit Qonto: Rechnung (Zahlungsziel 7 Tage) oder Quittung für bereits bezahlte Aufträge.
+import { packages, vehicleClasses, extras, extraIncluded } from "./catalog.mjs";
 const invoiceEsc = (value) =>
   String(value ?? "").replace(
     /[&<>"']/g,
@@ -88,8 +89,10 @@ function draftLineHTML(line = {}) {
 }
 export function invoiceDraftForm(order) {
   if (order.invoice && order.invoice.status !== "canceled") throw Error("Die Rechnung ist bereits ausgestellt und bleibt unverändert.");
-  const discountCents = order.invoiceDraft?.discountCents ?? order.offer?.discountCents ?? 0;
-  return `<p>${invoiceEsc(order.wg)} · ${invoiceEsc(order.source?.name)} · Angebot ${invoiceMoney(order.offer?.totalCents ?? 0)} brutto</p><p class="hint">Hier bearbeitest du ausschließlich den Rechnungsentwurf. Beschreibe Mehrarbeit, Rabatt und die dazu vereinbarte Preisänderung. Das gespeicherte Angebot und seine Unterschrift bleiben unverändert. Erst nach der anschließenden Rechnungsprüfung wird die Rechnung ausgestellt.</p><form id="invoiceDraftform"><div data-invoice-draft-lines>${invoiceLines(order).filter(line=>line.kind!=="discount").map(draftLineHTML).join("")}</div><div class="actions"><button type="button" data-invoice-add>Eigene Position hinzufügen</button><button type="button" data-invoice-add-pickup>Abholung & Rückgabe ergänzen</button></div><label>Rabatt in €<input name="discount" inputmode="decimal" value="${(discountCents/100).toFixed(2).replace(".",",")}" required></label><label>Grund der Änderung / Vereinbarung mit dem Kunden<textarea name="reason" maxlength="2000" required>${invoiceEsc(order.invoiceDraft?.reason ?? "")}</textarea></label><p data-invoice-draft-total aria-live="polite"></p><button type="submit" class="primary">Entwurf speichern</button><div id="modal-error" class="error"></div></form>`;
+  const discountCents = order.invoiceDraft?.discountCents ?? order.offer?.discountCents ?? 0,
+    classId = order.source?.classId ?? order.source?.catalogQuote?.classId ?? "kompakt",
+    packageId = order.offer?.lines?.find(line => line.kind === "package")?.catalogId ?? order.source?.packageId ?? order.source?.catalogQuote?.packageId ?? "";
+  return `<p>${invoiceEsc(order.wg)} · ${invoiceEsc(order.source?.name)} · Angebot ${invoiceMoney(order.offer?.totalCents ?? 0)} brutto</p><p class="hint">Hier bearbeitest du ausschließlich den Rechnungsentwurf. Beschreibe Mehrarbeit, Rabatt und die dazu vereinbarte Preisänderung. Das gespeicherte Angebot und seine Unterschrift bleiben unverändert. Erst nach der anschließenden Rechnungsprüfung wird die Rechnung ausgestellt.</p><form id="invoiceDraftform" data-class-id="${invoiceEsc(classId)}" data-package-id="${invoiceEsc(packageId)}"><div data-invoice-draft-lines>${invoiceLines(order).filter(line=>line.kind!=="discount").map(draftLineHTML).join("")}</div><div class="sectiontitle">Leistung ergänzen</div><div class="grid2"><label>Katalogleistung<select data-invoice-catalog><option value="">Leistung auswählen …</option><optgroup label="Pakete">${packages.map(item=>`<option value="package:${item.id}">${invoiceEsc(item.name)}</option>`).join("")}</optgroup><optgroup label="Zusatzleistungen">${extras.filter(item=>item.requestable).map(item=>`<option value="extra:${item.id}">${invoiceEsc(item.name)}</option>`).join("")}</optgroup></select></label><div class="actions"><button type="button" data-invoice-add-catalog>Auswahl hinzufügen</button></div></div><div class="actions"><button type="button" data-invoice-add>Eigene Position mit Preis hinzufügen</button><button type="button" data-invoice-add-pickup>Abholung & Rückgabe ergänzen</button></div><label>Rabatt in €<input name="discount" inputmode="decimal" value="${(discountCents/100).toFixed(2).replace(".",",")}" required></label><label>Grund der Änderung / Vereinbarung mit dem Kunden<textarea name="reason" maxlength="2000" required>${invoiceEsc(order.invoiceDraft?.reason ?? "")}</textarea></label><p data-invoice-draft-total aria-live="polite"></p><button type="submit" class="primary">Entwurf speichern</button><div id="modal-error" class="error"></div></form>`;
 }
 function parseDraftAmount(value) {
   const raw = String(value ?? "").trim();
@@ -132,6 +135,20 @@ export function mountInvoiceDraftForm(form) {
   };
   form.addEventListener("click", (event) => {
     const target = event.target.closest("button");
+    if (target?.hasAttribute("data-invoice-add-catalog")) {
+      const [kind, id] = form.querySelector("[data-invoice-catalog]").value.split(":");
+      if (!["package", "extra"].includes(kind) || !id) { form.querySelector("#modal-error").textContent = "Bitte zuerst eine Katalogleistung auswählen."; return; }
+      const item = (kind === "package" ? packages : extras).find(entry => entry.id === id);
+      if (!item || form.querySelectorAll("[data-invoice-draft-line]").length >= 100) return;
+      const rows = [...form.querySelectorAll("[data-invoice-draft-line]")], title = kind === "package" ? item.name : item.name,
+        existing = rows.find(row => row.querySelector("[data-draft-title]").value.trim() === title);
+      if (existing) { existing.querySelector("[data-draft-amount]").focus(); return; }
+      const factor = vehicleClasses.find(entry => entry.id === form.dataset.classId)?.factorPercent ?? 100,
+        included = kind === "extra" && extraIncluded(form.dataset.packageId, id);
+      form.querySelector("[data-invoice-draft-lines]").insertAdjacentHTML("beforeend", draftLineHTML({ title, description: included ? "Im Paket enthalten" : kind === "package" ? item.scopeSummary : item.hint, amountCents: included ? 0 : Math.round(item.priceCents * factor / 100) }));
+      form.querySelector("#modal-error").textContent = "";
+      update();
+    }
     if (target?.hasAttribute("data-invoice-add")) {
       if (form.querySelectorAll("[data-invoice-draft-line]").length >= 100) return;
       form.querySelector("[data-invoice-draft-lines]").insertAdjacentHTML("beforeend", draftLineHTML());

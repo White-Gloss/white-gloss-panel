@@ -14,7 +14,7 @@ import {
   mountInvoiceDraftForm,
   invoiceDraftInput,
   invoiceDraftSummaryHTML,
-} from "../public/invoice-ui.js";
+} from "../dist/client/invoice-ui.js";
 
 const order = () => ({
   id: "synthetic-order",
@@ -244,6 +244,25 @@ test("draft editor adds and edits extra work, validates cents and requires an ex
   assert.equal(invoiceDraftInput(form).lines.length, 2);
   assert.throws(() => invoiceDraftForm({ ...order(), invoice: { status: "unpaid" } }), /bereits ausgestellt/);
   assert.doesNotMatch(invoiceDraftSummaryHTML({ ...order(), invoice: { status: "unpaid" } }), /data-click="invoiceDraft"/);
+});
+
+test("draft editor adds a selectable catalog service with its price only once", (t) => {
+  const dom = new JSDOM('<!doctype html><body><div id="modal"></div></body>');
+  t.after(() => dom.window.close());
+  dom.window.document.querySelector("#modal").innerHTML = invoiceDraftForm(order());
+  const form = dom.window.document.querySelector("#invoiceDraftform");
+  mountInvoiceDraftForm(form);
+  form.querySelector("[data-invoice-catalog]").value = "extra:glas";
+  form.querySelector("[data-invoice-add-catalog]").click();
+  form.querySelector("[data-invoice-add-catalog]").click();
+  const rows = [...form.querySelectorAll("[data-invoice-draft-line]")];
+  assert.equal(rows.length, 3);
+  assert.equal(rows[2].querySelector("[data-draft-title]").value, "Scheibenversiegelung");
+  assert.equal(rows[2].querySelector("[data-draft-amount]").value, "99,00");
+  form.elements.reason.value = "Zusatzleistung mit dem Kunden vereinbart";
+  const input = invoiceDraftInput(form);
+  assert.equal(input.totalCents, 21800);
+  assert.equal(input.lines[2].amountCents, 9900);
 });
 
 test("final review uses stored draft total and must be reconfirmed after changes", (t) => {
