@@ -1,6 +1,6 @@
 import {vehiclePanels,damageKinds,soilingLevels,intakeChecks} from './catalog.mjs';
 import {prepareProtocolPhotos} from './protocol-photos.js';
-import {REMOTE_HANDOVER_VERSION,remoteHandoverText} from '../src/handover.mjs';
+import {REMOTE_HANDOVER_VERSION,remoteHandoverText} from './handover.mjs';
 // Shared vehicle protocol form for the panel and the Vor-Ort app. No field is required.
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const berlinFormat=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});

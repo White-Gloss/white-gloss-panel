@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import worker,{getOrder} from '../src/worker.mjs';
-import {PanelDatabase} from '../server/storage.mjs';
+import {resolve} from 'node:path';
+import {PanelDatabase,StaticAssets} from '../server/storage.mjs';
 import {createApplication} from '../server/application.mjs';
 import {digest} from '../server/auth.mjs';
 import {protocolDocument} from '../server/protocol-document.mjs';
@@ -167,8 +168,10 @@ test('protocol PDF renders paint thickness, damages, checklist and unsigned stat
 });
 
 test('IONOS runtime serves the Vor-Ort app, its manifest and customer document links',async t=>{
-  const e=env(t);e.PANEL_ORIGIN=origin;e.OWNER_EMAIL_SHA256=digest(ownerEmail);const app=await createApplication(e);
+  const e=env(t);e.PANEL_ORIGIN=origin;e.OWNER_EMAIL_SHA256=digest(ownerEmail);e.ASSETS=new StaticAssets(resolve('dist/client'));const app=await createApplication(e);
+  const raw='b'.repeat(64);await e.DB.prepare('INSERT INTO auth_sessions VALUES(?,?,?,?)').bind(digest(raw),ownerEmail,Date.now()+600000,Date.now()).run();const cookie='__Host-wg-session='+raw;
   const manifest=await app.fetch(new Request(origin+'/manifest.webmanifest'));assert.equal(manifest.status,200);
+  const handover=await app.fetch(new Request(origin+'/handover.mjs',{headers:{cookie}}));assert.equal(handover.status,200);assert.match(await handover.text(),/REMOTE_HANDOVER_VERSION/);
   const page=await app.fetch(new Request(origin+'/vor-ort'));assert.equal(page.status,303);assert.match(page.headers.get('location'),/returnTo=%2Fvor-ort/);
   const doc=await app.fetch(new Request(origin+'/dokument/'+'a'.repeat(64)));assert.equal(doc.status,303);assert.match(doc.headers.get('location'),/returnTo=%2Fdokument%2F/);
 });
