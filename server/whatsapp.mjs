@@ -6,6 +6,8 @@ import {AppError,need,text} from '../src/domain.mjs';
 import {phoneKey} from '../src/customers.mjs';
 import {assistantCredentials} from './assistant.mjs';
 import {notifyOwner} from './push.mjs';
+import {readLimitedPhoto} from './booking-photos.mjs';
+import {assertRecordOperation} from '../src/record-compat.mjs';
 
 const ROOT='/api/whatsapp',WEBHOOK=ROOT+'/webhook';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -24,7 +26,8 @@ export async function whatsappSchema(env){
     `CREATE TABLE IF NOT EXISTS whatsapp_messages(
       id TEXT PRIMARY KEY,provider_message_id TEXT NOT NULL UNIQUE,synthetic INTEGER NOT NULL CHECK(synthetic IN (0,1)),
       conversation_key TEXT NOT NULL,sender_phone TEXT NOT NULL,sender_key TEXT NOT NULL,profile_name TEXT NOT NULL,
-      message_type TEXT NOT NULL,body TEXT NOT NULL,sent_at TEXT NOT NULL,received_at TEXT NOT NULL,phone_number_id TEXT NOT NULL)`,
+      message_type TEXT NOT NULL,body TEXT NOT NULL,sent_at TEXT NOT NULL,received_at TEXT NOT NULL,phone_number_id TEXT NOT NULL,
+      media_id TEXT,media_mime TEXT,media_name TEXT,media_sha256 TEXT)`,
     'CREATE INDEX IF NOT EXISTS whatsapp_messages_conversation ON whatsapp_messages(synthetic,conversation_key,sent_at)',
     `CREATE TABLE IF NOT EXISTS whatsapp_suggestions(
       id TEXT PRIMARY KEY,request_id TEXT NOT NULL UNIQUE,synthetic INTEGER NOT NULL CHECK(synthetic IN (0,1)),
@@ -34,12 +37,17 @@ export async function whatsappSchema(env){
     `CREATE TABLE IF NOT EXISTS whatsapp_decisions(
       suggestion_id TEXT PRIMARY KEY REFERENCES whatsapp_suggestions(id),order_id TEXT NOT NULL UNIQUE REFERENCES orders(id),
       request_hash TEXT NOT NULL,created_at TEXT NOT NULL,actor TEXT NOT NULL)`,
-    ...['whatsapp_messages','whatsapp_suggestions','whatsapp_decisions'].flatMap(table=>[
+    `CREATE TABLE IF NOT EXISTS whatsapp_media_assignments(
+      message_id TEXT NOT NULL REFERENCES whatsapp_messages(id),order_id TEXT NOT NULL REFERENCES orders(id),asset_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,PRIMARY KEY(message_id,order_id),UNIQUE(order_id,asset_id))`,
+    ...['whatsapp_messages','whatsapp_suggestions','whatsapp_decisions','whatsapp_media_assignments'].flatMap(table=>[
       `CREATE TRIGGER IF NOT EXISTS no_${table}_update BEFORE UPDATE ON ${table} BEGIN SELECT RAISE(ABORT,'WhatsApp-Nachweise sind unveränderlich'); END`,
       `CREATE TRIGGER IF NOT EXISTS no_${table}_delete BEFORE DELETE ON ${table} BEGIN SELECT RAISE(ABORT,'WhatsApp-Nachweise werden nicht gelöscht'); END`
     ])
   ];
   await env.DB.batch(tables.map(sql=>env.DB.prepare(sql)));
+  const columns=(await env.DB.prepare('PRAGMA table_info(whatsapp_messages)').all()).results.map(column=>column.name);
+  for(const column of ['media_id','media_mime','media_name','media_sha256'])if(!columns.includes(column))await env.DB.prepare('ALTER TABLE whatsapp_messages ADD COLUMN '+column+' TEXT').run();
 }
 function safeEqual(left,right){const a=Buffer.from(String(left??'')),b=Buffer.from(String(right??''));return a.length===b.length&&timingSafeEqual(a,b);}
 async function bodyJSON(request,maximum=16000){
@@ -106,10 +114,10 @@ export async function ingestWhatsAppWebhook(env,raw,signature,{synthetic=false}=
       const contacts=Array.isArray(value.contacts)?value.contacts:[];
       for(const message of messages){
         const providerId=text(message?.id,180),from=text(message?.from,30),digits=from.replace(/\D/g,'');need(providerId&&/^\d{6,20}$/.test(digits),'WhatsApp-Nachrichtenadresse ist ungültig.',400);
-        const senderKey=phoneKey('+'+digits)||digits,contact=contacts.find(item=>String(item?.wa_id??'')===from),type=text(message?.type,40)||'unknown';
-        const body=type==='text'?text(message?.text?.body,20000):'',id=randomUUID(),sentAt=messageTime(message?.timestamp,at);
-        statements.push(env.DB.prepare(`INSERT OR IGNORE INTO whatsapp_messages(id,provider_message_id,synthetic,conversation_key,sender_phone,sender_key,profile_name,message_type,body,sent_at,received_at,phone_number_id)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,providerId,synthetic?1:0,senderKey,'+'+digits,senderKey,text(contact?.profile?.name,180),type,body,sentAt,at,row.phone_number_id));
+        const senderKey=phoneKey('+'+digits)||digits,contact=contacts.find(item=>String(item?.wa_id??'')===from),type=text(message?.type,40)||'unknown',media=message?.[type]&&typeof message[type]==='object'?message[type]:null;
+        const body=type==='text'?text(message?.text?.body,20000):text(media?.caption,20000),id=randomUUID(),sentAt=messageTime(message?.timestamp,at);
+        statements.push(env.DB.prepare(`INSERT OR IGNORE INTO whatsapp_messages(id,provider_message_id,synthetic,conversation_key,sender_phone,sender_key,profile_name,message_type,body,sent_at,received_at,phone_number_id,media_id,media_mime,media_name,media_sha256)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,providerId,synthetic?1:0,senderKey,'+'+digits,senderKey,text(contact?.profile?.name,180),type,body,sentAt,at,row.phone_number_id,text(media?.id,180)||null,text(media?.mime_type,100)||null,text(media?.filename,250)||null,text(media?.sha256,128)||null));
       }
     }
   }
@@ -132,7 +140,7 @@ export async function handleWhatsAppWebhook(env,request){
   }
   return response({error:'Methode nicht erlaubt.'},405);
 }
-function messageView(row){return {id:row.id,providerMessageId:row.provider_message_id,profileName:row.profile_name,messageType:row.message_type,body:row.body,sentAt:row.sent_at,receivedAt:row.received_at};}
+function messageView(row){return {id:row.id,providerMessageId:row.provider_message_id,profileName:row.profile_name,messageType:row.message_type,body:row.body,sentAt:row.sent_at,receivedAt:row.received_at,hasMedia:Boolean(row.media_id),mediaMime:row.media_mime??'',mediaName:row.media_name??'',assignedOrderId:row.assigned_order_id??null};}
 function suggestionView(row){return {id:row.id,conversationKey:row.conversation_key,sourceHash:row.source_hash,model:row.model,result:JSON.parse(row.result_json),createdAt:row.created_at,decisionOrderId:row.order_id??null};}
 async function inbox(env,synthetic,conversationKey=''){
   const settings=publicSettings(await env.DB.prepare('SELECT * FROM whatsapp_settings WHERE id=1').first());
@@ -140,11 +148,13 @@ async function inbox(env,synthetic,conversationKey=''){
     (SELECT profile_name FROM whatsapp_messages p WHERE p.synthetic=m.synthetic AND p.conversation_key=m.conversation_key ORDER BY p.received_at DESC LIMIT 1) profile_name,
     (SELECT body FROM whatsapp_messages b WHERE b.synthetic=m.synthetic AND b.conversation_key=m.conversation_key ORDER BY b.received_at DESC LIMIT 1) last_body
     FROM whatsapp_messages m WHERE synthetic=? GROUP BY conversation_key,sender_phone ORDER BY last_received_at DESC LIMIT 100`).bind(synthetic).all()).results;
-  const result={settings,conversations:conversations.map(row=>({conversationKey:row.conversation_key,senderPhone:row.sender_phone,profileName:row.profile_name,lastBody:row.last_body,lastReceivedAt:row.last_received_at,messageCount:row.message_count,matches:[]})),messages:[],suggestions:[]};
-  for(const conversation of result.conversations){const rows=(await env.DB.prepare("SELECT id,data FROM customers WHERE synthetic=? AND json_extract(data,'$.phoneKey')=? ORDER BY created_at LIMIT 5").bind(synthetic,conversation.conversationKey).all()).results;conversation.matches=rows.map(row=>{const data=JSON.parse(row.data);return {id:row.id,name:data.name,company:data.company,city:data.city,phone:data.phone};});}
+  const result={settings,conversations:conversations.map(row=>({conversationKey:row.conversation_key,senderPhone:row.sender_phone,profileName:row.profile_name,lastBody:row.last_body,lastReceivedAt:row.last_received_at,messageCount:row.message_count,matches:[],orderIds:[]})),messages:[],suggestions:[],orders:[]};
+  for(const conversation of result.conversations){const rows=(await env.DB.prepare("SELECT id,data FROM customers WHERE synthetic=? AND json_extract(data,'$.phoneKey')=? ORDER BY created_at LIMIT 5").bind(synthetic,conversation.conversationKey).all()).results;conversation.matches=rows.map(row=>{const data=JSON.parse(row.data);return {id:row.id,name:data.name,company:data.company,city:data.city,phone:data.phone};});if(rows.length){const marks=rows.map(()=>'?').join(',');conversation.orderIds=(await env.DB.prepare('SELECT order_id FROM customer_orders WHERE customer_id IN ('+marks+') ORDER BY order_id LIMIT 20').bind(...rows.map(row=>row.id)).all()).results.map(row=>row.order_id);}}
+  result.orders=(await env.DB.prepare("SELECT id,wg,status,data,updated_at FROM orders WHERE synthetic=? AND json_extract(data,'$.trash.deletedAt') IS NULL ORDER BY updated_at DESC LIMIT 100").bind(synthetic).all()).results.map(row=>{const order=JSON.parse(row.data);return {id:row.id,wg:row.wg,status:row.status,name:order.source?.name??'',vehicle:order.source?.vehicle??''};});
   if(conversationKey){
     need(result.conversations.some(item=>item.conversationKey===conversationKey),'WhatsApp-Unterhaltung nicht gefunden.',404);
-    result.messages=(await env.DB.prepare('SELECT * FROM whatsapp_messages WHERE synthetic=? AND conversation_key=? ORDER BY sent_at,received_at LIMIT 500').bind(synthetic,conversationKey).all()).results.map(messageView);
+    result.messages=(await env.DB.prepare(`SELECT m.*,(SELECT a.order_id FROM whatsapp_media_assignments a WHERE a.message_id=m.id ORDER BY a.created_at LIMIT 1) assigned_order_id
+      FROM whatsapp_messages m WHERE m.synthetic=? AND m.conversation_key=? ORDER BY m.sent_at,m.received_at LIMIT 500`).bind(synthetic,conversationKey).all()).results.map(messageView);
     result.suggestions=(await env.DB.prepare('SELECT s.*,d.order_id FROM whatsapp_suggestions s LEFT JOIN whatsapp_decisions d ON d.suggestion_id=s.id WHERE s.synthetic=? AND s.conversation_key=? ORDER BY s.created_at DESC LIMIT 20').bind(synthetic,conversationKey).all()).results.map(suggestionView);
   }
   return result;
@@ -211,6 +221,42 @@ async function applySuggestion(env,input,synthetic){
     if(existing){need(existing.request_hash===requestHash,'Dieser Vorschlag wurde bereits anderweitig übernommen.',409);return {ok:true,duplicate:true,order:await getOrder(env,existing.order_id)};}throw error;
   }
 }
+const MEDIA_MIME=new Set(['image/jpeg','image/png','image/webp']);
+async function downloadMedia(env,message,config){
+  if(env.WHATSAPP_ADAPTERS?.downloadMedia)return env.WHATSAPP_ADAPTERS.downloadMedia(config,message.media_id);
+  need(!message.synthetic,'Im Testbereich wird kein echtes WhatsApp-Medium abgerufen.',409);
+  const fetched=await fetch(`https://graph.facebook.com/${config.graphVersion}/${message.media_id}`,{headers:{Authorization:'Bearer '+config.accessToken},redirect:'manual',signal:AbortSignal.timeout(15000)});
+  need(fetched.ok,'WhatsApp-Medienadresse konnte nicht geladen werden: HTTP '+fetched.status,502);const metadata=await fetched.json();let url;
+  try{url=new URL(text(metadata?.url,4000));}catch{throw new AppError('WhatsApp-Medienadresse ist ungültig.',502);}
+  need(url.protocol==='https:'&&url.hostname==='lookaside.fbsbx.com','WhatsApp-Medienadresse liegt außerhalb des freigegebenen Anbieters.',502);
+  const image=await fetch(url,{headers:{Authorization:'Bearer '+config.accessToken},redirect:'manual',signal:AbortSignal.timeout(30000)});
+  const mime=image.headers.get('content-type')?.split(';')[0]??'';need(MEDIA_MIME.has(mime),'WhatsApp-Foto hat ein unbekanntes Format.',502);
+  return {bytes:await readLimitedPhoto(image,15*1024*1024),mime};
+}
+async function assignMedia(env,input,synthetic){
+  need(input.confirmed===true,'Bitte die Fotozuordnung ausdrücklich bestätigen.');need(UUID.test(input.messageId??'')&&UUID.test(input.orderId??''),'Foto oder Auftrag ist ungültig.');
+  const message=await env.DB.prepare('SELECT * FROM whatsapp_messages WHERE id=? AND synthetic=?').bind(input.messageId,synthetic?1:0).first();need(message,'WhatsApp-Foto nicht gefunden.',404);
+  need(message.message_type==='image'&&message.media_id&&MEDIA_MIME.has(message.media_mime),'Nur JPEG-, PNG- oder WebP-Fotos können zugeordnet werden.',409);
+  const order=await env.DB.prepare('SELECT id,status FROM orders WHERE id=? AND synthetic=?').bind(input.orderId,synthetic?1:0).first();need(order,'Auftrag nicht gefunden.',404);
+  const previous=await env.DB.prepare('SELECT * FROM whatsapp_media_assignments WHERE message_id=?').bind(message.id).first();
+  if(previous){need(previous.order_id===order.id,'Dieses Foto ist bereits einem anderen Auftrag zugeordnet.',409);return {ok:true,duplicate:true,orderId:previous.order_id,assetId:previous.asset_id};}
+  assertRecordOperation(await getOrder(env,order.id),'bookingphotos');
+  const {row,accessToken}=await credentials(env),config={phoneNumberId:row.phone_number_id,graphVersion:row.graph_version,accessToken};
+  const downloaded=await downloadMedia(env,message,config),mime=text(downloaded?.mime,100),bytes=downloaded?.bytes;
+  need(MEDIA_MIME.has(mime)&&bytes instanceof Uint8Array&&bytes.byteLength>50&&bytes.byteLength<=15*1024*1024,'WhatsApp-Foto konnte nicht sicher gelesen werden.',502);
+  need(mime==='image/jpeg'?bytes[0]===255&&bytes[1]===216:mime==='image/png'?bytes[0]===137&&bytes[1]===80:new TextDecoder().decode(bytes.slice(0,4))==='RIFF'&&new TextDecoder().decode(bytes.slice(8,12))==='WEBP','Bildinhalt passt nicht zum Dateityp.',502);
+  const sha256=hash(bytes);if(message.media_sha256)need([sha256,Buffer.from(sha256,'hex').toString('base64')].includes(message.media_sha256),'Prüfsumme des WhatsApp-Fotos stimmt nicht überein.',502);
+  const id=randomUUID(),at=new Date().toISOString(),name=('WhatsApp · '+(text(message.media_name,200)||'Fahrzeugfoto')).slice(0,250);await env.BUCKET.put(id,bytes,{httpMetadata:{contentType:mime}});
+  try{
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO assets VALUES(?,?,?,?,?,?,?)').bind(id,order.id,'booking',mime,sha256,bytes.byteLength,at),
+      env.DB.prepare('INSERT INTO booking_photo_sources VALUES(?,?,?,?)').bind(order.id,hash('whatsapp:'+message.media_id),id,name),
+      env.DB.prepare('INSERT INTO whatsapp_media_assignments VALUES(?,?,?,?)').bind(message.id,order.id,id,at),
+      env.DB.prepare("INSERT INTO audit(order_id,version,at,actor,action,status) VALUES(?,NULL,?,'owner','WhatsApp-Foto manuell zugeordnet',?)").bind(order.id,at,order.status)
+    ]);
+  }catch(error){await env.BUCKET.delete(id);const existing=await env.DB.prepare('SELECT * FROM whatsapp_media_assignments WHERE message_id=?').bind(message.id).first();if(existing){need(existing.order_id===order.id,'Dieses Foto ist bereits einem anderen Auftrag zugeordnet.',409);return {ok:true,duplicate:true,orderId:existing.order_id,assetId:existing.asset_id};}throw error;}
+  return {ok:true,orderId:order.id,assetId:id};
+}
 export async function handleWhatsApp(env,request,isOwner){
   const url=new URL(request.url),path=url.pathname;if(path!==ROOT&&!path.startsWith(ROOT+'/'))return null;need(isOwner,'Nur für den Betreiber vorgesehen.',403);
   const synthetic=url.searchParams.get('test')==='true';
@@ -219,5 +265,6 @@ export async function handleWhatsApp(env,request,isOwner){
   if(request.method==='POST'&&path===ROOT+'/check'){await bodyJSON(request);need(!synthetic,'Im Testbereich wird keine echte Verbindung abgerufen.',409);return response(await check(env));}
   if(request.method==='POST'&&path===ROOT+'/analyze')return response(await analyze(env,await bodyJSON(request,20000),synthetic));
   if(request.method==='POST'&&path===ROOT+'/apply')return response(await applySuggestion(env,await bodyJSON(request,30000),synthetic));
+  if(request.method==='POST'&&path===ROOT+'/media/assign')return response(await assignMedia(env,await bodyJSON(request),synthetic));
   return response({error:'Funktion nicht gefunden.'},404);
 }
