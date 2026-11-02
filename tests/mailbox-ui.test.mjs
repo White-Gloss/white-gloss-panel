@@ -25,7 +25,8 @@ test('operator mailbox opens plain text safely, exposes receipt link and keeps c
   const settle=async()=>{for(let i=0;i<500;i++){await new Promise(resolve=>setTimeout(resolve,3));if(pending===0){await new Promise(resolve=>setTimeout(resolve,15));if(pending===0)return;}}throw Error('UI blieb beschäftigt.');};
   await import(new URL('../dist/client/app.js?mailbox-load='+(++loads),import.meta.url).href);await settle();
   const $=selector=>w.document.querySelector(selector),click=async selector=>{const element=$(selector);assert.ok(element,'Element fehlt: '+selector);element.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));await settle();};
-  await click('.sidebar [data-view="mailbox"]');assert.match($('#mailbox-root').textContent,/Beleg & Rückfrage/);assert.ok($('#mailbox-compose'));
+  await click('.sidebar [data-view="mailbox"]');assert.match($('#mailbox-root').textContent,/Beleg & Rückfrage/);assert.equal($('#mailbox-compose'),null);
+  await click('[data-mail-compose]');assert.ok($('#mailbox-compose'));await click('[data-mail-compose-close]');
   await click('[data-mail-open]');assert.match($('#mailbox-root').textContent,/bleibt reiner Text/);assert.equal($('#mailbox-root img'),null);assert.match($('#mailbox-root').textContent,/Beleg\.pdf/);assert.ok($('[data-mail-reply]'));
   const accounting=await (await call('/api/accounting')).json();assert.equal(accounting.documents[0].source,'EMAIL');assert.deepEqual(errors,[]);
 });

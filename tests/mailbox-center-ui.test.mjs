@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {randomBytes,randomUUID} from 'node:crypto';
+import {JSDOM} from 'jsdom';
+import {PanelDatabase} from '../server/storage.mjs';
+import {createApplication} from '../server/application.mjs';
+import {digest} from '../server/auth.mjs';
+import {ingestMessage} from '../server/mailbox.mjs';
+
+const origin='https://panel.example.invalid',owner='owner@example.invalid';
+test('communication center supports search, filters, drafts, notes and editable AI replies',async t=>{
+  const files=new Map(),analyses=[];const env={PANEL_ORIGIN:origin,OWNER_EMAIL_SHA256:digest(owner),CONFIG_KEY:Buffer.alloc(32,12).toString('base64'),DB:new PanelDatabase(':memory:'),BUCKET:{async put(id,body,options){files.set(id,{body:new Uint8Array(body),httpMetadata:options?.httpMetadata??{}});},async get(id){return files.get(id)??null;},async delete(id){files.delete(id);}},ASSETS:{fetch:async()=>new Response('asset')},ASSISTANT_ADAPTERS:{async check(){},async analyze(config,payload){analyses.push(payload);return {id:'ui-reply',status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify({correctedText:'Guten Tag, vielen Dank für Ihre Anfrage. Wir melden uns mit einem Terminvorschlag.',changes:[],note:'Entwurf'})}]}]};}}};
+  t.after(()=>env.DB.close());const app=await createApplication(env),raw=randomBytes(32).toString('hex');await env.DB.prepare('INSERT INTO auth_sessions VALUES(?,?,?,?)').bind(digest(raw),owner,Date.now()+3600000,Date.now()).run();
+  const mime=Buffer.from(`From: Erika Beispiel <erika@example.invalid>\r\nTo: ${owner}\r\nSubject: Fahrzeugpflege am Freitag\r\nMessage-ID: <${randomUUID()}@example.invalid>\r\nDate: Sat, 17 Oct 2026 10:00:00 +0200\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nGuten Tag, ich bitte um einen Termin.`);await ingestMessage(env,mime,{folder:'INBOX',uid:11,uidValidity:'ui-center'});
+  const cookie='__Host-wg-session='+raw,call=(path,body)=>app.fetch(new Request(origin+path,{method:body===undefined?'GET':'POST',headers:{origin,cookie,...(body===undefined?{}:{'Content-Type':'application/json'})},body:body===undefined?undefined:JSON.stringify(body)}));
+  await call('/api/assistant/settings',{apiKey:'synthetic-ui-key',model:'synthetic-ui-model',dataApproved:true});assert.equal((await call('/api/assistant/check',{})).status,200);
+  const html=readFileSync(new URL('../dist/client/index.html',import.meta.url),'utf8').replace(/<script[^>]*><\/script>/g,''),dom=new JSDOM(html,{url:origin,pretendToBeVisual:true}),w=dom.window;
+  w.Element.prototype.scrollIntoView=()=>{};w.scrollTo=()=>{};w.HTMLDialogElement.prototype.showModal??=function(){this.setAttribute('open','');};w.HTMLDialogElement.prototype.close??=function(){this.removeAttribute('open');};
+  let pending=0;const errors=[],fetchImpl=async(url,options={})=>{pending++;try{const headers=new Headers(options.headers);headers.set('origin',origin);headers.set('cookie',cookie);return await app.fetch(new Request(new URL(url,origin),{...options,headers}));}finally{pending--;}};
+  for(const [key,value] of Object.entries({window:w,document:w.document,location:w.location,history:w.history,localStorage:w.localStorage,FormData:w.FormData,HTMLElement:w.HTMLElement,Event:w.Event,fetch:fetchImpl,crypto:globalThis.crypto}))Object.defineProperty(globalThis,key,{value,configurable:true,writable:true});
+  Object.defineProperty(globalThis,'navigator',{value:{},configurable:true,writable:true});w.addEventListener('error',event=>errors.push(event.error??event.message));
+  const settle=async()=>{for(let i=0;i<500;i++){await new Promise(resolve=>setTimeout(resolve,3));if(pending===0){await new Promise(resolve=>setTimeout(resolve,15));if(pending===0)return;}}throw Error('UI blieb beschäftigt.');};
+  await import(new URL('../dist/client/app.js?mailbox-center-ui='+randomUUID(),import.meta.url).href);await settle();
+  const $=selector=>w.document.querySelector(selector),click=async selector=>{const element=$(selector);assert.ok(element,'Element fehlt: '+selector);element.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));await settle();},submit=async selector=>{const form=$(selector);assert.ok(form,'Formular fehlt: '+selector);form.dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await settle();};
+  await click('.sidebar [data-view="mailbox"]');assert.match($('#mailbox-root').textContent,/Fahrzeugpflege am Freitag/);
+  const search=$('[data-mail-search]');search.value='kein-treffer';search.dispatchEvent(new w.Event('input',{bubbles:true}));assert.match($('#mailbox-root').textContent,/Keine E-Mails gefunden/);
+  const restored=$('[data-mail-search]');restored.value='Fahrzeugpflege';restored.dispatchEvent(new w.Event('input',{bubbles:true}));assert.ok($('[data-mail-open]'));
+  await click('[data-mail-open]');const filter=$('[data-mail-filter]');filter.value='unread';filter.dispatchEvent(new w.Event('change',{bubbles:true}));assert.match($('#mailbox-root').textContent,/Keine E-Mails gefunden/);filter.value='all';$('[data-mail-filter]').value='all';$('[data-mail-filter]').dispatchEvent(new w.Event('change',{bubbles:true}));
+  await click('[data-mail-compose]');let form=$('#mailbox-compose');form.elements.to.value='erika@example.invalid';form.elements.subject.value='Ihr Termin';form.elements.text.value='Erster UI-Entwurf';await click('[data-mail-save-draft]');assert.match($('#mailbox-root').textContent,/Erster UI-Entwurf/);
+  await click('[data-mail-draft]');form=$('#mailbox-compose');assert.equal(form.elements.subject.value,'Ihr Termin');form.elements.text.value='Überarbeiteter UI-Entwurf';await click('[data-mail-save-draft]');assert.match($('#mailbox-root').textContent,/Überarbeiteter UI-Entwurf/);
+  await click('[data-mail-notes]');form=$('#mail-note-form');form.elements.body.value='Kunde wünscht Rückruf vor Terminbestätigung.';await submit('#mail-note-form');assert.match($('#mailbox-root').textContent,/Kunde wünscht Rückruf/);
+  await click('[data-mail-folder="INBOX"]');await click('[data-mail-open]');await click('[data-mail-ai="professional"]');form=$('#mailbox-compose');assert.match(form.elements.text.value,/vielen Dank für Ihre Anfrage/);assert.equal(form.elements.to.value,'erika@example.invalid');assert.equal(analyses.length,1);
+  const view=await (await call('/api/mailbox')).json();assert.equal(view.deliveries.length,0);assert.equal(view.drafts.length,1);assert.equal(view.notes.length,1);assert.deepEqual(errors,[]);
+});
