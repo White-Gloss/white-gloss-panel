@@ -97,6 +97,7 @@ test('panel: create, edit every step, sign on site, protocol with paint thicknes
   // Admin status change.
   await ui.click('[data-tab="notes"]');ui.fill(ui.$('#statusform'),{status:'Bezahlt',reason:'Rest bar erhalten'});await ui.submit('#statusform');
   current=await getOrder(ui.env,o.id);assert.equal(current.status,'Bezahlt');
+  assert.equal(ui.w.document.querySelectorAll('.guided-workflow li[data-state="done"]').length,6);assert.match(ui.$('.guided-heading').textContent,/Alle Schritte abgeschlossen/);
   // Customer master lists the customer with the vehicle.
   await ui.click('[data-click="back"]');await ui.click('[data-view="customers"]');await ui.settle();assert.match(ui.text(),/Erika Test/);assert.match(ui.text(),/HOR-WG 1/);
   assert.deepEqual(ui.errors,[]);
@@ -306,7 +307,7 @@ test('panel: offer and appointment share one tab and one customer signature',asy
   order=await call('action',{id:order.id,version:order.version,action:'appointment',input:{start:'2030-01-03T10:00',duration:120,delivery:'Kunde bringt',location:'Horb'}});
   const ui=await boot(t,{page:'index.html',script:'app.js',env,hash:'#auftrag='+order.id});
   await ui.click('[data-tab="price"]');
-  assert.match(ui.$('[data-tab="price"]').textContent,/Angebot & Termin/);
+  assert.match(ui.$('#order-tab-price').textContent,/Angebot & Termin/);
   assert.equal(ui.$('[data-tab="appointment"]'),null);
   assert.ok(ui.$('#priceform'));assert.ok(ui.$('#appointmentform'));
   await ui.click('[data-click="onsiteAccept"]');
@@ -605,6 +606,8 @@ test('panel quick booking opens price and appointment while agenda and keyboard 
   await ui.click('.schedule-commandbar [data-click="bookNow"]');assert.equal(ui.$('#createform').dataset.quickBooking,'true');
   ui.fill(ui.$('#createform'),{name:'Sofort Test',vehicle:'BMW M4'});await ui.submit('#createform');
   assert.equal(ui.$('[role="tab"][aria-selected="true"]').dataset.tab,'price');assert.ok(ui.$('#priceform'));assert.ok(ui.$('#appointmentform'));
+  assert.equal(ui.w.document.querySelectorAll('.guided-workflow li').length,6);assert.equal(ui.$('.guided-workflow li[data-state="done"] .guided-copy strong').textContent,'Anfrage');assert.equal(ui.$('.guided-workflow [aria-current="step"] .guided-copy strong').textContent,'Angebot');
+  await ui.click('.guided-workflow li[data-state="upcoming"] [data-tab="return"]');assert.equal(ui.$('[role="tab"][aria-selected="true"]').dataset.tab,'return');await ui.click('.guided-workflow [aria-current="step"]');assert.equal(ui.$('[role="tab"][aria-selected="true"]').dataset.tab,'price');
   ui.$('#order-tab-price').dispatchEvent(new ui.w.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));await ui.settle();
   assert.equal(ui.$('[role="tab"][aria-selected="true"]').dataset.tab,'intake');assert.equal(ui.w.document.activeElement.id,'order-tab-intake');assert.deepEqual(ui.errors,[]);
 });
