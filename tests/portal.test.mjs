@@ -234,3 +234,18 @@ for(const status of [409,502])test('separate customer appointment confirmation s
   f.env.operations.validateAppointment=async()=>{calls++;assert.equal(f.files.size,0);};
   await f.ok(await f.post('/api/portal/o/'+o.id+'/termin-bestaetigen',f.customer,input));assert.equal(calls,2);assert.equal((await getOrder(f.env,o.id)).status,'Termin verbindlich');assert.equal(f.files.size,1);
 });
+
+test('customer signs contactless pickup and key deposit before the operator protocol',async t=>{
+  const f=await fixture(t),o=await order(f.env,{extra:{appointment:{start:'2030-10-14T07:00:00.000Z',end:'2030-10-14T10:00:00.000Z',duration:180,delivery:'Abholung',location:'Musterweg 1'}}}),route='/api/portal/o/'+o.id+'/uebergabe';
+  let view=(await f.ok(await f.get('/api/portal/me',f.customer))).orders[0];assert.ok(view.todo.some(x=>x.kind==='handover-intake'));assert.equal(view.handover.intake.signed,false);
+  const base={kind:'intake',mode:'contactless',keyMethod:'deposit',keyLocation:'Briefkasten neben der Garage',recipientName:'',recipientContact:'',handoverNote:'Fahrzeug steht in der Einfahrt',customerName:'Erika Muster',confirmed:true,snapshotHash:view.handover.intake.snapshotHash,signature};
+  assert.equal((await f.post(route,f.customer,{...base,keyLocation:''})).status,400);
+  assert.equal((await f.post(route,f.stranger,base)).status,403);
+  assert.equal((await f.post(route,f.owner,base)).status,403);
+  await f.ok(await f.post(route,f.customer,base));
+  const saved=await getOrder(f.env,o.id);assert.equal(saved.handover.intake.mode,'contactless');assert.equal(saved.handover.intake.keyLocation,base.keyLocation);assert.ok(saved.handover.intake.signature);
+  view=(await f.ok(await f.get('/api/portal/me',f.customer))).orders[0];assert.equal(view.handover.intake.signed,true);assert.ok(!view.todo.some(x=>x.kind==='handover-intake'));
+  assert.equal((await f.post(route,f.customer,{...base,snapshotHash:'veraltet'})).status,409);
+  await f.env.DB.prepare("UPDATE orders SET version=version+1,data=json_set(data,'$.intake.customerSignature','protokoll-signatur') WHERE id=?").bind(o.id).run();
+  assert.equal((await f.post(route,f.customer,base)).status,409,'signed protocol locks the prior handover plan');
+});

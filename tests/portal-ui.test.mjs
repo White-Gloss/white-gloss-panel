@@ -85,7 +85,7 @@ test('customer sees the original inquiry and sends a traceable correction reques
 test('customer overview offers one contact path and valid direct navigation',async t=>{
   const f=await setup(t),ui=await boot(t,{app:f.app,path:'/kunde',cookie:f.customerCookie});
   assert.match(ui.$('.portal-next-clear h2').textContent,/Termin ist verbindlich bestätigt/);
-  const links=[...ui.w.document.querySelectorAll('.portal-jump a')];assert.equal(links.length,4);
+  const links=[...ui.w.document.querySelectorAll('.portal-jump a')];assert.equal(links.length,5);
   for(const link of links)assert.ok(ui.w.document.querySelector(link.getAttribute('href')),'navigation target exists: '+link.getAttribute('href'));
   const ids=[...ui.w.document.querySelectorAll('[id]')].map(el=>el.id);assert.equal(new Set(ids).size,ids.length,'no duplicate anchors or form IDs');
   assert.equal(ui.w.document.querySelectorAll('[data-act="chat"]').length,1,'the real chat button stays unique');
@@ -211,4 +211,15 @@ test('customer portal renders issued invoice amounts, own PDF downloads and the 
   const pdf=ui.$('.portal-invoice a[download]'),response=await f.app.fetch(new Request(new URL(pdf.getAttribute('href'),origin),{headers:{cookie:f.customerCookie}}));assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'application/pdf');assert.deepEqual(Buffer.from(await response.arrayBuffer()),bytes);
   const doc=ui.$('.portal-docs a');assert.ok(doc.hasAttribute('download'));assert.match(doc.textContent,/ohne Kundenunterschrift/);const confirmation=await f.app.fetch(new Request(new URL(doc.getAttribute('href'),origin),{headers:{cookie:f.customerCookie}}));assert.equal(confirmation.status,200);assert.equal(Buffer.from(await confirmation.arrayBuffer()).subarray(0,5).toString(),'%PDF-');
   assert.equal(ui.$('.portal-review a').href,'https://g.page/r/white-gloss-test/review');assert.deepEqual(ui.errors,[]);
+});
+
+test('customer plans and signs a contactless handover with a precise key location',async t=>{
+  const f=await setup(t),ui=await boot(t,{app:f.app,path:'/kunde',cookie:f.customerCookie});
+  const form=ui.$('[data-form="handover"][data-kind="intake"]');assert.ok(form);
+  form.elements.mode.value='contactless';form.elements.mode.dispatchEvent(new ui.w.Event('change',{bubbles:true}));assert.equal(form.querySelector('[data-contactless]').hidden,false);
+  form.elements.keyMethod.value='deposit';form.elements.keyLocation.value='Briefkasten neben der Garage';form.elements.handoverNote.value='Fahrzeug steht in der Einfahrt';form.elements.confirmed.checked=true;
+  const canvas=form.querySelector('canvas');for(const type of ['pointerdown','pointermove','pointerup'])canvas.dispatchEvent(new ui.w.Event(type,{bubbles:true}));
+  form.requestSubmit();await ui.settle();
+  assert.match(ui.$('#toast').textContent,/Übergabeangaben sind unterschrieben/);assert.match(ui.$('.portal-handover').textContent,/Briefkasten neben der Garage/);assert.match(ui.$('.portal-handover').textContent,/Von Ihnen unterschrieben/);
+  assert.deepEqual(ui.errors,[]);
 });

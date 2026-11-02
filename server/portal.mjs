@@ -91,6 +91,19 @@ function offerView(o){
 const RESCHEDULE=['Preise prüfen','Angebot offen','Angenommen','Termin verbindlich'];
 // Nur noch nicht verbindliche Termine werden vom Kunden bestätigt; ältere verbindliche Termine bleiben es.
 const CONFIRMABLE=['Preise prüfen','Angebot offen','Angenommen'];
+const HANDOVER_METHODS={person:'Übergabe an eine benannte Person',deposit:'Schlüssel an einem vereinbarten Ort hinterlegen',vehicle:'Schlüssel im verschlossenen Fahrzeug belassen'};
+function handoverPlan(input){
+  const mode=input?.mode==='contactless'?'contactless':'present',plan={mode,keyMethod:'',keyLocation:'',recipientName:'',recipientContact:text(input?.recipientContact,180),handoverNote:text(input?.handoverNote,1000)};
+  if(mode==='contactless'){
+    plan.keyMethod=String(input?.keyMethod??'');need(Object.hasOwn(HANDOVER_METHODS,plan.keyMethod),'Bitte die Art der Schlüsselübergabe auswählen.');
+    plan.keyLocation=text(input?.keyLocation,600);need(plan.keyLocation.length>=3,'Bitte den Ort der Schlüsselübergabe oder Schlüsselablage genau angeben.');
+    plan.recipientName=text(input?.recipientName,180);if(plan.keyMethod==='person')need(plan.recipientName.length>=3,'Bitte die Person für die Schlüsselübergabe benennen.');
+  }
+  return plan;
+}
+const handoverSnapshot=(o,kind)=>({wg:o.wg,kind,appointment:appointmentSnapshot(o)});
+const handoverHash=(o,kind)=>digest(JSON.stringify(handoverSnapshot(o,kind)));
+function handoverView(o,kind){const plan=o.handover?.[kind];return {kind,...handoverPlan(plan),signed:Boolean(plan?.signature),signedAt:plan?.at??null,snapshotHash:handoverHash(o,kind),locked:Boolean(o[kind]?.customerSignature||o.pending?.[kind]?.content?.operatorSignature)};}
 async function portalOrder(env,o,config,preview){
   const restricted=recordOperationIssue(o,'customer-document');
   // Gesperrte Akten: nur die Kopfzeile, keine Inhalte (wie bei Angebots-, Rechnungs- und Chatlinks).
@@ -99,11 +112,13 @@ async function portalOrder(env,o,config,preview){
   const documents=[];const pdf=kind=>'/api/portal/o/'+o.id+'/pdf/'+kind;
   if(o.acceptance)documents.push({kind:'acceptance',label:o.acceptance.signature?DOCUMENT_LABEL.acceptance:'Auftragsbestätigung ohne Kundenunterschrift',at:o.acceptance.at??null,signed:Boolean(o.acceptance.signature),url:pdf('acceptance')});
   for(const kind of ['intake','return'])if(o[kind])documents.push({kind,label:DOCUMENT_LABEL[kind],at:o[kind].signedAt??o[kind].at??o[kind].savedAt??null,signed:Boolean(o[kind].customerSignature),url:pdf(kind)});
-  const todo=[],openOffer=o.status==='Angebot offen'&&!o.acceptance&&await validLink(env,'offer_tokens',o.offerToken,o.id);
+  const todo=[],openOffer=o.status==='Angebot offen'&&!o.acceptance&&await validLink(env,'offer_tokens',o.offerToken,o.id),handover={intake:handoverView(o,'intake'),return:handoverView(o,'return')};
   {
     if(openOffer)todo.push({kind:'offer-open',label:o.appointment?'Angebot & Termin prüfen und unterschreiben':'Angebot prüfen und annehmen',url:'/angebot/'+o.offerToken});
     else if(o.status==='Angebot offen'&&!o.acceptance)todo.push({kind:'offer-expired',label:'Ihr Angebotslink ist abgelaufen. Bitte schreiben Sie uns – wir senden Ihnen einen neuen.',url:null});
     if(!openOffer&&o.appointment&&!o.appointment.confirmation&&CONFIRMABLE.includes(o.status))todo.push({kind:'confirm-appointment',label:'Termin bestätigen und unterschreiben',anchor:'termin-'+o.id});
+    if(o.appointment?.delivery==='Abholung'&&!handover.intake.signed&&!handover.intake.locked&&!CLOSED.includes(o.status))todo.push({kind:'handover-intake',label:'Übergabe und Schlüssel für die Abholung festlegen',anchor:'uebergabe-'+o.id});
+    if(o.status==='In Arbeit'&&!handover.return.signed&&!handover.return.locked)todo.push({kind:'handover-return',label:'Rückgabe und Schlüsselübergabe festlegen',anchor:'uebergabe-'+o.id});
     for(const kind of ['offer','intake','return']){const pending=o.pending?.[kind];if(pending&&(pending.content?.customerAbsent!==true||pending.releasedAt))todo.push({kind:'sign-'+kind,document:kind,label:SIGN_LABEL[kind],action:'/api/portal/o/'+o.id+'/sign/'+kind});}
   }
   let invoice=null;
@@ -116,7 +131,7 @@ async function portalOrder(env,o,config,preview){
   return {
     id:o.id,wg:o.wg,status:o.status,statusText:o.status==='Angenommen'&&o.appointment&&!o.appointment.confirmation?'Ihr Termin ist vorgeschlagen. Bitte bestätigen Sie ihn mit Ihrer Unterschrift.':STATUS_TEXT[o.status]??o.status,step:STEP_OF[o.status]??null,steps:STEPS,closed:CLOSED.includes(o.status),restricted:false,canReschedule:Boolean(a)&&RESCHEDULE.includes(o.status),
     createdAt:o.createdAt??null,vehicle:o.source?.vehicle??'',plate:o.source?.plate??'',package:packages.find(p=>p.id===packageOf(o))?.name??o.source?.package??'',vehicleClass:classOf(o)?.label??o.source?.vehicleClass??'',
-    desiredDate:o.source?.desiredDate??'',delivery:o.source?.delivery??'',appointment:a,offer:offerView(o),todo,documents,invoice,
+    desiredDate:o.source?.desiredDate??'',delivery:o.source?.delivery??'',appointment:a,offer:offerView(o),todo,documents,invoice,handover,
     inquiry:{name:o.source?.name??'',phone:o.source?.phone??'',vehicle:o.source?.vehicle??'',plate:o.source?.plate??'',vehicleClass:classOf(o)?.label??o.source?.vehicleClass??'',package:packages.find(p=>p.id===packageOf(o))?.name??o.source?.package??'',desiredDate:o.source?.desiredDate??'',timeWindow:o.source?.timeWindow??'',delivery:o.source?.delivery??'',address:[o.source?.address,o.source?.city].filter(Boolean).join(', '),note:o.source?.note??''},
     ...await (async()=>{const requests=await requestsOf(env,o.id);return {extras:availableExtras(o,requestedExtras(requests)),requests};})(),
     review:done&&/^https:\/\//.test(config.reviewUrl??'')?config.reviewUrl:null
@@ -168,7 +183,7 @@ export async function handlePortal(env,request,identity,isOwner){
   need(!isOwner,'Betreibervorschau: Aktionen führt nur der Kunde selbst aus.',403);
   assertRecordOperation(o,'customer-document');
   // Eine Unterschrift als PNG braucht mehr Platz als die übrigen Formulare.
-  const input=await readJSON(request,op==='termin-bestaetigen'?450000:8000);
+  const input=await readJSON(request,['termin-bestaetigen','uebergabe'].includes(op)?450000:8000);
   if(op==='chat'){
     const chat=await portalChat(env,o.id,now);
     return json(chat);
@@ -181,6 +196,22 @@ export async function handlePortal(env,request,identity,isOwner){
     const {updated,statements}=await documentLinkUpdate(env,o,kind,undefined,'customer');
     const saved=await saveOrder(env,updated,o.version,'Kunde hat Dokument im Kundenportal zur Unterschrift geöffnet','customer',statements);
     return json({url:'/dokument/'+saved.pending[kind].token});
+  }
+  if(op==='uebergabe'){
+    const kind=input.kind,plan=handoverPlan(input);need(['intake','return'].includes(kind),'Unbekannte Übergabe.',404);
+    need(!CLOSED.includes(o.status)&&!o[kind]?.customerSignature&&!o.pending?.[kind]?.content?.operatorSignature,'Diese Übergabe ist bereits dokumentiert und kann hier nicht mehr geändert werden.',409);
+    need(input.confirmed===true,'Bitte bestätigen Sie die angezeigten Übergabeangaben.');
+    const snapshotHash=handoverHash(o,kind);need(input.snapshotHash===snapshotHash,'Termin oder Übergabeangaben wurden geändert. Bitte die Seite neu laden.',409);
+    if(o.handover?.[kind]?.signature&&JSON.stringify(handoverPlan(o.handover[kind]))===JSON.stringify(plan))return json({ok:true,message:'Diese Übergabe ist bereits unterschrieben.'});
+    const operationId=randomUUID(),guard={sql:"EXISTS(SELECT 1 FROM orders WHERE id=? AND version=? AND json_extract(data,'$.operationId')=?)",params:[o.id,o.version+1,operationId]};
+    const signature=await storeDataSignature(env,o.id,input.signature,'signature',guard);
+    try{
+      const updated=structuredClone(o),previous=updated.handover?.[kind];if(previous)updated.handoverHistory=[...(updated.handoverHistory??[]),previous];
+      updated.handover={...(updated.handover??{}),[kind]:{...plan,customerName:text(input.customerName,180),signature:signature.id,snapshotHash,at:new Date(now).toISOString()}};updated.operationId=operationId;
+      await saveOrder(env,updated,o.version,'Kunde hat '+(kind==='intake'?'Abholung':'Rückgabe')+' und Schlüsselübergabe unterschrieben','customer',[signature.statement]);
+    }catch(error){const bound=await env.DB.prepare('SELECT id FROM assets WHERE id=?').bind(signature.id).first();if(!bound)await env.BUCKET.delete(signature.id);throw error;}
+    await portalNotice(env,o.id,(kind==='intake'?'Abholung':'Rückgabe')+' unterschrieben: '+(plan.mode==='contactless'?HANDOVER_METHODS[plan.keyMethod]+' · '+plan.keyLocation:'Persönliche Übergabe'),now).catch(()=>null);
+    return json({ok:true,message:'Vielen Dank! Ihre Übergabeangaben sind unterschrieben gespeichert.'});
   }
   if(op==='extras'){
     const offered=new Map(availableExtras(o,requestedExtras(await requestsOf(env,o.id))).map(e=>[e.id,e]));

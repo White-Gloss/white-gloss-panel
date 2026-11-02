@@ -134,6 +134,11 @@
 .portal-confirm canvas.signature{width:100%;max-width:100%;touch-action:none;background:#fff;border:1px solid var(--line);border-radius:10px}
 .portal-check{display:flex;gap:10px;align-items:flex-start;font-size:14px;margin:10px 0}
 .portal-check input{width:20px;height:20px;flex:none;margin:1px 0 0}
+.portal-handover{padding:18px 0;border-top:1px solid var(--line)}.portal-handover:first-of-type{border-top:0;padding-top:4px}.portal-handover h3{margin:0 0 10px;font-size:15px;color:var(--lacquer)}
+.portal-handover select,.portal-handover input:not([type=checkbox]){width:100%;min-height:44px;padding:10px;border:1px solid var(--line);border-radius:6px;background:#fff;font:inherit}
+.portal-handover label{display:grid;gap:6px;margin:10px 0}.portal-handover .portal-check{display:flex}.portal-handover [hidden]{display:none!important}
+.portal-handover .signaturebox{margin:10px 0}.portal-handover canvas.signature{width:100%;max-width:100%;touch-action:none;background:#fff;border:1px solid var(--line);border-radius:6px}
+.portal-form-grid{display:grid;gap:12px}@media(min-width:640px){.portal-form-grid{grid-template-columns:1fr 1fr}}
 
 /* Der Auftrag steht im Mittelpunkt: echte Daten, eine klare Aufgabe und kurze Wege.
    Die Flächen folgen dem bestehenden White-Gloss-Designsystem ohne Glanz- oder Glaseffekte. */
