@@ -7,7 +7,9 @@ const euro = new Intl.NumberFormat('de-DE', {style: 'currency', currency: 'EUR'}
 
 const LEVELS = ['overdue', 'today', 'waiting'];
 const CLOSED = ['Abgelehnt', 'Storniert', 'Abgelaufen'];
-const ACTIVE_APPOINTMENT = ['Angenommen', 'Termin verbindlich', 'In Arbeit'];
+const ACTIVE_APPOINTMENT = ['Preise prüfen', 'Angebot offen', 'Angenommen', 'Termin verbindlich', 'In Arbeit'];
+const BEFORE_ACCEPTANCE = ['Preise prüfen', 'Angebot offen'];
+const CANCELLED_INVOICE = ['canceled', 'cancelled', 'void', 'voided'];
 const SIGNATURES = {offer: ['price', 'Angebot'], intake: ['intake', 'Annahmeprotokoll'], return: ['return', 'Rückgabeprotokoll']};
 const REQUESTS = {extras: ['price', 'Zusatzleistungen'], details: ['source', 'Angaben korrigieren']};
 const STATUS_PRIORITY = {'In Arbeit': 0, 'Termin verbindlich': 1, 'Preise prüfen': 2, 'Erledigt': 3, 'Angebot offen': 4, 'Angenommen': 5};
@@ -17,7 +19,11 @@ const validTime = value => {
   const time = Date.parse(value);
   return Number.isFinite(time) ? time : null;
 };
-const validDay = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(value + 'T12:00:00Z').toISOString().slice(0, 10) === value;
+const validDay = value => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const time = validTime(value + 'T12:00:00Z');
+  return time !== null && new Date(time).toISOString().slice(0, 10) === value;
+};
 const dayOf = value => {
   const time = validTime(value);
   return time === null ? null : berlinDay.format(new Date(time));
@@ -45,10 +51,10 @@ function orderItems(order, now, today) {
   if (closed) return out;
   const appointment = order.appointment, start = validTime(appointment?.start), startDay = start === null ? null : dayOf(appointment.start);
   if (start !== null && ACTIVE_APPOINTMENT.includes(status)) {
-    const proposed = status === 'Angenommen' && !appointment.confirmation;
+    const beforeAcceptance = BEFORE_ACCEPTANCE.includes(status), proposed = (beforeAcceptance || status === 'Angenommen') && !appointment.confirmation;
     const when = berlinTime.format(new Date(start)), vehicle = order.source?.vehicle;
     if (startDay === today) {
-      const [tab, label] = proposed ? ['price', 'Terminvorschlag heute · unbestätigt'] : status === 'In Arbeit' ? ['return', 'Termin heute · in Arbeit'] : ['intake', 'Termin heute'];
+      const [tab, label] = proposed ? ['price', 'Terminvorschlag heute · unbestätigt'] : beforeAcceptance ? ['price', 'Termin heute · Angebot nicht angenommen'] : status === 'In Arbeit' ? ['return', 'Termin heute · in Arbeit'] : ['intake', 'Termin heute'];
       out.push(item(order, 'appointment-today', 'today', tab, label, [when, vehicle].filter(Boolean).join(' · '), appointment.start));
     } else if (proposed) {
       const past = startDay < today;
@@ -58,15 +64,18 @@ function orderItems(order, now, today) {
     }
   }
   if (status === 'Preise prüfen') out.push(item(order, 'price-check', 'today', 'price', 'Preise prüfen', [order.source?.vehicle, order.source?.plate].filter(Boolean).join(' · ') || 'Fahrzeug offen', order.createdAt));
-  if (status === 'Erledigt' && !invoice) out.push(item(order, 'invoice-missing', 'today', 'payment', 'Abrechnen', order.completedAt && validTime(order.completedAt) !== null ? 'Arbeit erledigt am ' + germanDay(dayOf(order.completedAt)) : 'Arbeit erledigt', order.completedAt ?? order.updatedAt));
+  const cancelled = CANCELLED_INVOICE.includes(invoice?.status);
+  if (status === 'Erledigt' && (!invoice || cancelled)) out.push(item(order, 'invoice-missing', 'today', 'payment', cancelled ? 'Neue Rechnung ausstellen' : 'Abrechnen', order.completedAt && validTime(order.completedAt) !== null ? 'Arbeit erledigt am ' + germanDay(dayOf(order.completedAt)) : 'Arbeit erledigt', order.completedAt ?? order.updatedAt));
   const expires = validTime(order.offer?.expiresAt);
   if (status === 'Angebot offen' && expires !== null && expires > now.getTime() && expires - now.getTime() <= OFFER_WARNING_MS) {
     out.push(item(order, 'offer-expiring', 'today', 'price', 'Angebot läuft ab', 'gültig bis ' + germanDateTime(order.offer.expiresAt), order.offer.expiresAt));
+  } else if (status === 'Angebot offen' && order.offer && !order.pending?.offer) {
+    out.push(item(order, 'offer-waiting', 'waiting', 'price', 'Angebot wartet auf Annahme', expires !== null ? 'gültig bis ' + germanDateTime(order.offer.expiresAt) : 'Wartet auf den Kunden', order.offer.createdAt ?? order.updatedAt));
   }
   for (const key of Object.keys(order.pending ?? {})) {
     if (!SIGNATURES[key]) continue;
     const [tab, label] = SIGNATURES[key];
-    out.push(item(order, 'signature', 'waiting', tab, 'Unterschrift offen · ' + label, 'Wartet auf den Kunden', order.pending[key]?.releasedAt ?? order.updatedAt, key));
+    out.push(item(order, 'signature', 'waiting', tab, 'Unterschrift offen · ' + label, 'Wartet auf den Kunden', order.pending[key]?.createdAt ?? order.updatedAt, key));
   }
   return out;
 }
@@ -106,11 +115,11 @@ export function monthPayments(orders, now = new Date()) {
   return {month, label: monthName.format(new Date(month + '-15T12:00:00Z')), cents};
 }
 
-/** Orders with overdue work first, then work for today, then waiting, then by status. */
+/** Orders with overdue work first, then work for today, then all others by status. Waiting for a customer is no own work. */
 export function sortByUrgency(orders, items) {
-  const rank = new Map();
-  for (const entry of items) if (entry.orderId) rank.set(entry.orderId, Math.min(rank.get(entry.orderId) ?? LEVELS.length, LEVELS.indexOf(entry.level)));
-  return [...orders].sort((a, b) => (rank.get(a.id) ?? LEVELS.length) - (rank.get(b.id) ?? LEVELS.length)
+  const rank = new Map(), own = ['overdue', 'today'];
+  for (const entry of items) if (entry.orderId && own.includes(entry.level)) rank.set(entry.orderId, Math.min(rank.get(entry.orderId) ?? own.length, own.indexOf(entry.level)));
+  return [...orders].sort((a, b) => (rank.get(a.id) ?? own.length) - (rank.get(b.id) ?? own.length)
     || (STATUS_PRIORITY[a.status] ?? 9) - (STATUS_PRIORITY[b.status] ?? 9)
     || String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')));
 }

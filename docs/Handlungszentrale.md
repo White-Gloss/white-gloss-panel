@@ -23,14 +23,16 @@ sich über „Weitere … anzeigen“.
 | Rechnung überfällig | Qonto-Rechnung offen, Fälligkeit vor heute, Auftrag nicht „Bezahlt“ | Überfällig | Zahlung & Rechnung |
 | Wiedervorlage | Notiz mit Wiedervorlagedatum heute oder früher | Überfällig / Heute | Kundenakte & Status |
 | Termin vorbei · Annahme fehlt | „Termin verbindlich“, Termin vor heute | Überfällig | Annahme |
-| Terminvorschlag verstrichen | Vorschlag ohne Bestätigung, Termin vor heute | Überfällig | Angebot & Termin |
-| Termin heute | Termin heute; Vorschlag, verbindlich oder in Arbeit | Heute | Angebot & Termin / Annahme / Rückgabe |
+| Terminvorschlag verstrichen | Vorschlag ohne Bestätigung, Termin vor heute (auch vor der Angebotsannahme) | Überfällig | Angebot & Termin |
+| Termin heute | Termin heute; Vorschlag, vor Angebotsannahme, verbindlich oder in Arbeit | Heute | Angebot & Termin / Annahme / Rückgabe |
 | Preise prüfen | Status „Preise prüfen“ | Heute | Angebot & Termin |
 | Abrechnen | Status „Erledigt“ ohne Rechnung | Heute | Zahlung & Rechnung |
+| Neue Rechnung ausstellen | Status „Erledigt“, bisherige Rechnung storniert | Heute | Zahlung & Rechnung |
 | Angebot läuft ab | „Angebot offen“, Ablauf in höchstens 48 Stunden | Heute | Angebot & Termin |
 | Kundenwunsch | Offene Wünsche aus dem Kundenportal | Heute | Auftrag |
 | Neue Kundennachrichten | Ungelesene Nachrichten im Kundenchat | Heute | Nachrichten |
 | Unterschrift offen | Angebot, Annahme- oder Rückgabeprotokoll wartet auf den Kunden | Wartet | betroffener Bereich |
+| Angebot wartet auf Annahme | „Angebot offen“ ohne Unterschriftsanfrage, Ablauf in mehr als 48 Stunden | Wartet | Angebot & Termin |
 | Terminbestätigung offen | Terminvorschlag in der Zukunft ohne Bestätigung | Wartet | Angebot & Termin |
 
 Abgelehnte, stornierte und abgelaufene Aufträge erzeugen außer Wiedervorlagen keine
@@ -40,7 +42,9 @@ Einträge. Testbereich und Live-Bereich bleiben getrennt. Gelöschte Aufträge e
 
 - Die Kennzahl **„Zahlungen · Monat“** zählt die im Panel erfassten, nicht stornierten
   Zahlungen des aktuellen Monats (Europe/Berlin). Vorher war es die Summe aller Zeiten.
-- Der **Arbeitsvorrat** ist nach Dringlichkeit sortiert, nicht mehr nach der letzten Änderung.
+- Der **Arbeitsvorrat** ist nach Dringlichkeit sortiert, nicht mehr nach der letzten Änderung:
+  zuerst Aufträge mit Überfälligem, dann mit Heutigem, danach nach Status. Warten auf den
+  Kunden zählt nicht als eigene Arbeit.
 - Die Handlungszentrale ersetzt drei Einzelblöcke auf der Übersicht: den Hinweis zu offenen
   Unterschriften, den Hinweis zu Kundenwünschen und die kompakte Agenda. Die vollständige
   7-Tage-Agenda bleibt im Kalender.
@@ -51,6 +55,7 @@ Einträge. Testbereich und Live-Bereich bleiben getrennt. Gelöschte Aufträge e
 - Kundenwünsche und Chatnachrichten kommen aus den vorhandenen Endpunkten
   `GET /api/portal-admin/requests` und `GET /api/chats/summary`. Schlägt einer fehl, zeigt
   die Liste „konnte nicht geladen werden“ mit „Erneut laden“.
+- Unmögliche Datumsangaben (z. B. `2026-13-01`) werden ignoriert und brechen die Übersicht nicht.
 - Wiedervorlagen lassen sich bisher nicht als erledigt markieren. Eine überfällige
   Wiedervorlage bleibt deshalb sichtbar, wie in der Kundenbetreuung.
 - WhatsApp, E-Mail und abgelehnte Website-Anfragen sind noch nicht enthalten. Sie folgen mit

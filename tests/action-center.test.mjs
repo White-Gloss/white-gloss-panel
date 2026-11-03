@@ -69,7 +69,8 @@ test('closed, paid, invoiced, future and distant entries do not create work', ()
     order('6', {status: 'Storniert', appointment: {start: '2026-11-03T12:00:00.000Z', end: '2026-11-03T13:00:00.000Z'}}),
     order('7', {status: 'Preise prüfen', notes: [{note: 'Ungültig', followUp: 'bald'}]}),
   ], now);
-  assert.deepEqual(kinds(model), ['price-check']);
+  assert.deepEqual(kinds(model), ['price-check', 'offer-waiting']);
+  assert.equal(find(model, 'offer-waiting', '5').level, 'waiting');
 });
 
 test('items are sorted overdue first, then today, then waiting, and oldest first inside a level', () => {
@@ -135,4 +136,47 @@ test('work queue is ordered by urgency instead of the last change', () => {
   const sorted = sortByUrgency(orders, buildActionCenter(orders, now).items);
   assert.deepEqual(sorted.map(item => item.id), ['2', '3', '4', '5', '1']);
   assert.notEqual(sorted, orders);
+});
+
+test('date-shaped but impossible dates never break the overview', () => {
+  const model = buildActionCenter([
+    order('1', {notes: [{note: 'Kaputt', followUp: '2026-13-01'}, {note: 'Auch kaputt', followUp: '2026-02-30'}]}),
+    order('2', {status: 'Erledigt', invoice: {provider: 'qonto', status: 'unpaid', dueDate: '2026-00-10', totalCents: 100}}),
+  ], now);
+  assert.deepEqual(model.items, []);
+});
+
+test('appointment proposals before acceptance appear and open Angebot & Termin', () => {
+  const model = buildActionCenter([
+    order('1', {status: 'Preise prüfen', appointment: {start: '2026-11-03T12:00:00.000Z', end: '2026-11-03T13:00:00.000Z'}}),
+    order('2', {status: 'Angebot offen', offer: {totalCents: 1000, expiresAt: '2026-11-20T09:00:00.000Z'}, appointment: {start: '2026-11-01T12:00:00.000Z', end: '2026-11-01T13:00:00.000Z'}}),
+  ], now);
+  const today = find(model, 'appointment-today', '1'), past = find(model, 'appointment-unconfirmed', '2');
+  assert.deepEqual([today.level, today.tab, today.label], ['today', 'price', 'Terminvorschlag heute · unbestätigt']);
+  assert.deepEqual([past.level, past.tab], ['overdue', 'price']);
+});
+
+test('a cancelled invoice of a finished order asks for a new invoice', () => {
+  const model = buildActionCenter([order('1', {status: 'Erledigt', invoice: {provider: 'qonto', status: 'canceled', number: 'WG-1', totalCents: 100}})], now);
+  const missing = find(model, 'invoice-missing', '1');
+  assert.deepEqual([missing.level, missing.tab, missing.label], ['today', 'payment', 'Neue Rechnung ausstellen']);
+});
+
+test('open offers without a signature request wait for the customer exactly once', () => {
+  const model = buildActionCenter([
+    order('1', {status: 'Angebot offen', offer: {totalCents: 1000, createdAt: '2026-11-01T08:00:00.000Z', expiresAt: '2026-11-15T08:00:00.000Z'}}),
+    order('2', {status: 'Angebot offen', offer: {totalCents: 1000, expiresAt: '2026-11-04T08:00:00.000Z'}}),
+    order('3', {status: 'Angebot offen', offer: {totalCents: 1000, expiresAt: '2026-11-15T08:00:00.000Z'}, pending: {offer: {createdAt: '2026-11-02T08:00:00.000Z'}}}),
+  ], now);
+  assert.deepEqual(model.items.filter(item => item.orderId === '1').map(item => [item.kind, item.level, item.tab]), [['offer-waiting', 'waiting', 'price']]);
+  assert.deepEqual(model.items.filter(item => item.orderId === '2').map(item => item.kind), ['offer-expiring']);
+  assert.deepEqual(model.items.filter(item => item.orderId === '3').map(item => item.kind), ['signature']);
+});
+
+test('signature requests are ordered by the age of the request, not by the last order change', () => {
+  const model = buildActionCenter([
+    order('1', {status: 'In Arbeit', updatedAt: '2026-11-03T08:00:00.000Z', pending: {return: {createdAt: '2026-10-20T08:00:00.000Z', linked: true}}}),
+    order('2', {status: 'In Arbeit', updatedAt: '2026-10-01T08:00:00.000Z', pending: {return: {createdAt: '2026-11-02T08:00:00.000Z', linked: true}}}),
+  ], now);
+  assert.deepEqual(model.items.map(item => item.orderId), ['1', '2']);
 });
