@@ -1,0 +1,14 @@
+name: white-gloss-panel
+version: 0.1.0
+description: Read-only White-Gloss CRM context for an owner-only Hermes profile
+provides_tools:
+  - white_gloss_context
+requires_env:
+  - name: WHITE_GLOSS_PANEL_READ_TOKEN
+    description: Dedicated read-only bridge token; never use the owner password
+    secret: true
+config_schema:
+  origin:
+    type: str
+    default: https://panel.white-gloss.de
+    description: Exact HTTPS origin of the deployed White-Gloss panel
