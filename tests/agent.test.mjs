@@ -251,3 +251,22 @@ test('a database schema failure does not stop the panel and health reports only 
   assert.equal(response.headers.get('X-Agent-Schema'),'no such column: created_at');
   assert.equal(response.headers.get('X-Agent-Schema').includes('secret'),false);
 });
+
+test('an empty mismatched agent table is rebuilt and a populated one is kept',async t=>{
+  const empty=new PanelDatabase(':memory:');
+  await empty.prepare('CREATE TABLE agent_requests(request_id TEXT PRIMARY KEY)').run();
+  const emptyEnv={PANEL_ORIGIN:origin,OWNER_EMAIL_SHA256:digest(owner),CONFIG_KEY:Buffer.alloc(32,6).toString('base64'),DB:empty,BUCKET:{},ASSETS:{fetch:async()=>new Response('asset')}};
+  t.after(()=>empty.close());
+  const emptyApp=await createApplication(emptyEnv),emptyHealth=await emptyApp.fetch(new Request(origin+'/healthz'));
+  assert.equal(emptyHealth.headers.get('X-Agent-Schema'),null);
+  assert.equal((await empty.prepare("SELECT name FROM pragma_table_info('agent_requests') WHERE name='created_at'").first()).name,'created_at');
+  const kept=new PanelDatabase(':memory:');
+  await kept.prepare('CREATE TABLE agent_requests(request_id TEXT PRIMARY KEY)').run();
+  await kept.prepare('INSERT INTO agent_requests VALUES(?)').bind('keep').run();
+  const keptEnv={PANEL_ORIGIN:origin,OWNER_EMAIL_SHA256:digest(owner),CONFIG_KEY:Buffer.alloc(32,6).toString('base64'),DB:kept,BUCKET:{},ASSETS:{fetch:async()=>new Response('asset')}};
+  t.after(()=>kept.close());
+  const keptApp=await createApplication(keptEnv),keptHealth=await keptApp.fetch(new Request(origin+'/healthz'));
+  assert.equal(keptHealth.status,200);assert.equal(await keptHealth.text(),'ok');
+  assert.equal(keptHealth.headers.get('X-Agent-Schema'),'bestehende Tabelle ohne created_at');
+  assert.equal((await kept.prepare('SELECT request_id FROM agent_requests').first()).request_id,'keep');
+});

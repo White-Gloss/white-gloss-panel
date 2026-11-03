@@ -8,12 +8,16 @@ const enabled=env=>env.PANEL_AGENT_ENABLED==='true'&&env.HERMES_AGENT_READ_ONLY_
 const configured=env=>Boolean(agentOrigin(env)&&typeof env.HERMES_AGENT_API_KEY==='string'&&env.HERMES_AGENT_API_KEY.trim());
 export async function agentSchema(env){
   try{
-    const existing=await env.DB.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='agent_requests'").first();
+    let existing=await env.DB.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='agent_requests'").first();
+    if(existing&&!String(existing.sql??'').includes('created_at')){
+      const count=await env.DB.prepare('SELECT COUNT(*) AS n FROM agent_requests').first();
+      if(Number(count?.n)!==0){env.agentSchemaError='bestehende Tabelle ohne created_at';return;}
+      await env.DB.prepare('DROP TABLE agent_requests').run();
+      existing=null;
+    }
     if(!existing)await env.DB.prepare('CREATE TABLE agent_requests(request_id TEXT PRIMARY KEY,request_hash TEXT NOT NULL,state TEXT NOT NULL,result TEXT,created_at INTEGER NOT NULL)').run();
-    const column=await env.DB.prepare("SELECT name FROM pragma_table_info('agent_requests') WHERE name='created_at'").first();
     const index=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='agent_requests_created'").first();
-    if(column&&!index)await env.DB.prepare('CREATE INDEX agent_requests_created ON agent_requests(created_at)').run();
-    if(!column)env.agentSchemaError='created_at fehlt';
+    if(!index)await env.DB.prepare('CREATE INDEX agent_requests_created ON agent_requests(created_at)').run();
   }catch(error){env.agentSchemaError=String(error.message??'SQL').replace(/[\r\n\x00-\x1f]/g,' ').slice(0,160);}
 }
 export async function agentMaintenance(env,now=Date.now()){
