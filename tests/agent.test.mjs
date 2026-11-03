@@ -240,3 +240,14 @@ test('owner-only status is fail closed and exposes no secrets',async t=>{
   assert.equal((await f.call('/api/agent',undefined,'customer')).status,403);
   assert.equal((await f.call('/api/agent',undefined,'anonymous')).status,401);
 });
+
+test('a database schema failure does not stop the panel and health reports only the database message',async t=>{
+  const db=new PanelDatabase(':memory:'),prepare=db.prepare.bind(db);
+  db.prepare=query=>{if(query.startsWith('CREATE TABLE agent_requests'))throw Error('no such column: created_at');return prepare(query);};
+  const env={PANEL_ORIGIN:origin,OWNER_EMAIL_SHA256:digest(owner),CONFIG_KEY:Buffer.alloc(32,6).toString('base64'),DB:db,BUCKET:{},ASSETS:{fetch:async()=>new Response('asset')},HERMES_AGENT_API_KEY:'secret'};
+  t.after(()=>db.close());
+  const app=await createApplication(env),response=await app.fetch(new Request(origin+'/healthz'));
+  assert.equal(response.status,200);assert.equal(await response.text(),'ok');
+  assert.equal(response.headers.get('X-Agent-Schema'),'no such column: created_at');
+  assert.equal(response.headers.get('X-Agent-Schema').includes('secret'),false);
+});
