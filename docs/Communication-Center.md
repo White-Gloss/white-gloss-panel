@@ -1,7 +1,7 @@
 # Communication Center
 
 Stand: 03.11.2026. Ersetzt den bisherigen Bereich „E-Mail“ im Hauptpanel (Menü „Communication Center“).
-Implementiert und mit synthetischen Daten getestet. Ein Live-Release ist damit **nicht** belegt (siehe unten).
+Roadmap-Bezug: V3 „Kommunikation bündeln“ (E-Mail-Teil). Release- und Live-Nachweis siehe unten.
 
 ## Aufbau
 
@@ -80,5 +80,7 @@ Implementiert und mit synthetischen Daten getestet. Ein Live-Release ist damit *
 
 - Tests: `tests/mailbox-features.test.mjs`, `tests/mailbox-center-ui.test.mjs`, bestehende Mailbox-Tests.
 - Browser-Layoutprüfung `browser-tests/communication.test.mjs` läuft nur auf dem GitHub-Linux-Runner.
-- Veröffentlichung: Der Hostinger-Releaseweg ist laut [Hostinger-Umzug](Hostinger-Umzug.md) noch nicht
-  freigeschaltet. Dieser Stand ist daher **nicht live**, bis ein geprüfter Release nachgewiesen ist.
+- Veröffentlichung: über `main` und den Job **Hostinger panel release** (siehe [Hostinger-Umzug](Hostinger-Umzug.md)).
+  Beleg ist nur dessen Logzeile „Hostinger-Panel veröffentlicht und über HTTPS geprüft: <Commit>“.
+- Rücknahme: Revert-Commit auf `main`. Die Schemaerweiterungen sind rein additiv; der vorherige Stand
+  arbeitet mit den zusätzlichen Spalten und der Tabelle `mail_uploads` weiter, ohne Datenverlust.

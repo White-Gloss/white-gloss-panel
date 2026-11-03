@@ -16,6 +16,7 @@ import {bookkeepingSchema} from './bookkeeping-schema.mjs';
 import {handleBookkeeping} from './bookkeeping.mjs';
 import {mailboxSchema,handleMailbox,mailboxBackground} from './mailbox.mjs';
 import {assistantSchema,handleAssistant} from './assistant.mjs';
+import {agentSchema,agentMaintenance,handleAgent,handleAgentBridge} from './agent.mjs';
 import {whatsappSchema,handleWhatsApp,handleWhatsAppWebhook} from './whatsapp.mjs';
 import {pushSchema,handlePush,notifyOwner,revokePushSession,prunePush} from './push.mjs';
 import {releaseCommit} from './release.mjs';
@@ -24,7 +25,7 @@ function errorResponse(message,status=500){return new Response(JSON.stringify({e
 export async function createApplication(env){
   const origin=new URL(env.PANEL_ORIGIN);if(origin.protocol!=='https:'||origin.origin!==env.PANEL_ORIGIN||origin.username||origin.password)throw Error('PANEL_ORIGIN muss ein eindeutiger HTTPS-Ursprung sein.');
   if(!/^[a-f0-9]{64}$/.test(env.OWNER_EMAIL_SHA256??''))throw Error('Betreiberidentität fehlt.');
-  await init(env);await authSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await chatSchema(env);await portalSchema(env);await businessPortalSchema(env);await accountingSchema(env);await bankAccountingSchema(env);await advisorSchema(env);await bookkeepingSchema(env);await mailboxSchema(env);await assistantSchema(env);await whatsappSchema(env);await pushSchema(env);
+  await init(env);await authSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await chatSchema(env);await portalSchema(env);await businessPortalSchema(env);await accountingSchema(env);await bankAccountingSchema(env);await advisorSchema(env);await bookkeepingSchema(env);await mailboxSchema(env);await assistantSchema(env);await agentSchema(env);await whatsappSchema(env);await pushSchema(env);
   env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=Object.create(providerOperations);env.operations.ownerActivity=notifyOwner;
   const handle=async request=>{
     try{
@@ -38,6 +39,7 @@ export async function createApplication(env){
       if(request.method==='POST'&&url.pathname==='/auth/password/login')return await passwordLogin(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/logout'){const result=await logout(env,request);if(result.status===200)await revokePushSession(env,digest((request.headers.get('cookie')??'').split(';').map(x=>x.trim()).find(x=>x.startsWith('__Host-wg-session='))?.slice(18)??''));return result;}
       if(url.pathname==='/api/whatsapp/webhook')return await handleWhatsAppWebhook(env,request);
+      if(url.pathname==='/api/agent-bridge'||url.pathname.startsWith('/api/agent-bridge/'))return await handleAgentBridge(env,request);
       const books=await handleBookkeeping(env,request);if(books)return books;
       const advisor=await handleAdvisor(env,request);if(advisor)return advisor;
       const identity=await sessionIdentity(env,request);
@@ -66,6 +68,7 @@ export async function createApplication(env){
       if(url.pathname.startsWith('/api/portal/')){const portal=await handlePortal(env,request,identity,isOwner);if(portal)return portal;}
       if(url.pathname.startsWith('/api/portal-admin/')){const admin=await handlePortalAdmin(env,request,isOwner);if(admin)return admin;}
       if(url.pathname==='/api/mailbox'||url.pathname.startsWith('/api/mailbox/')){const mailbox=await handleMailbox(env,request,isOwner);if(mailbox)return mailbox;}
+      if(url.pathname==='/api/agent'||url.pathname.startsWith('/api/agent/'))return await handleAgent(env,request,isOwner);
       if(url.pathname==='/api/assistant'||url.pathname.startsWith('/api/assistant/')){const assistant=await handleAssistant(env,request,isOwner);if(assistant)return assistant;}
       if(url.pathname==='/api/whatsapp'||url.pathname.startsWith('/api/whatsapp/')){const whatsapp=await handleWhatsApp(env,request,isOwner);if(whatsapp)return whatsapp;}
       if(url.pathname==='/api/accounting/bank'||url.pathname.startsWith('/api/accounting/bank/')){const bank=await handleBankAccounting(env,request,isOwner);if(bank)return bank;}
@@ -89,6 +92,7 @@ export async function applicationEnvironment(variables=process.env){const env={.
 export async function maintenance(env,now=Date.now()){
   await providerSchema(env);const lease=digest(String(now)+crypto.randomUUID());const claimed=await env.DB.prepare("INSERT INTO runtime_locks(name,owner,expires_at) VALUES('maintenance',?,?) ON CONFLICT(name) DO UPDATE SET owner=excluded.owner,expires_at=excluded.expires_at WHERE runtime_locks.expires_at<?").bind(lease,now+30*60000,now).run();if(!claimed.meta.changes)return {skipped:true,ok:true,deliveryError:null};
   try{
+    await agentMaintenance(env,now);
     await setting(env,'lastScheduledAttempt',new Date(now).toISOString());await pruneAuth(env,now);await prunePush(env);
     await env.DB.prepare('DELETE FROM calendar_oauth_states WHERE expires_at<?').bind(now).run();
     let errors=[];try{errors=(await providerOperations.background(env)).errors;}catch(error){errors.push('Anbieterabgleich: '+error.message);}

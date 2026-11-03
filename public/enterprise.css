@@ -481,3 +481,20 @@ dialog{box-shadow:0 20px 60px #0e12182b}
   .schedule-date{min-height:36px}.schedule-date>span{width:30px;height:30px}.schedule-agenda-row{grid-template-columns:1fr}.schedule-agenda-row>time{padding:14px 16px 7px;font-weight:600}.schedule-agenda-row .schedule-detail{border-left:0}.schedule-detail{min-height:72px}
 }
 
+/* Handlungszentrale: Dringlichkeit über Randfarbe, Text und Zahl, nicht nur über Farbe. */
+.action-center .action-summary{display:flex;flex-wrap:wrap;gap:var(--space-xs);padding:var(--space-sm) 20px;border-bottom:1px solid var(--wg-rule);background:#fafaf8}
+.action-center .action-summary span{display:inline-flex;align-items:baseline;gap:6px;padding:4px 10px;border:1px solid var(--wg-rule);border-radius:999px;font-size:12px;color:var(--wg-copy);background:var(--wg-paper)}
+.action-center .action-summary strong{font-size:15px;color:var(--wg-ink)}
+.action-center .action-summary [data-level="overdue"]{border-color:#e3c4bf;background:var(--wg-error-bg)}
+.action-center .action-summary [data-level="today"]{border-color:#e8d6b6;background:var(--wg-warning-bg)}
+.action-item{text-align:left;font-family:inherit;cursor:pointer}
+.action-item.level-overdue{border-left-color:var(--wg-error);border-left-width:4px}
+.action-item.level-overdue .agenda-kind{color:var(--wg-error)}
+.action-item.level-today{border-left-color:#b48a52;border-left-width:4px}
+.action-item.level-today .agenda-kind{color:var(--wg-warning)}
+.action-item.level-waiting{border-left-color:var(--wg-rule-strong);border-left-style:dashed}
+.action-more>summary{padding:12px 20px;cursor:pointer;color:var(--wg-copy);font-size:13px;font-weight:600;border-top:1px solid var(--wg-rule)}
+.action-more[open]>summary{border-bottom:1px solid var(--wg-rule)}
+.operations-note.attention{color:var(--wg-error);background:var(--wg-error-bg)}
+.operations-note.attention .smallbtn{margin-left:8px}
+@media(max-width:760px){.action-center .action-summary{padding:var(--space-sm) 15px}.action-more>summary{padding:12px 15px}.action-item{min-height:64px}}

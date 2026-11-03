@@ -11,7 +11,7 @@ manuelle Zuordnungsentwürfe; eine vollständige Buchhaltung ist noch im Aufbau.
 Das eigene Panel läuft seit 22.10.2026 auf Hostinger (Details und offene Punkte: [Hostinger-Umzug](docs/Hostinger-Umzug.md)). Der alte IONOS-Server ist nur noch Rückfall. Dieses Repository enthält
 die eigenständige Laufzeit mit Anmeldung, SQLite, privatem Fotospeicher,
 Google-OAuth, Qonto-Rechnungsablauf mit Mahnwesen und Kundenbereich sowie Zeitplänen und den bisherigen privaten Sites-Worker.
-Jede Änderung benötigt einen eigenen geprüften Release und einen Live-Nachweis. Ein automatischer Releaseweg für Hostinger ist noch nicht eingerichtet (siehe Hostinger-Umzug).
+Jede Änderung benötigt einen eigenen geprüften Release und einen Live-Nachweis. Der automatische Hostinger-Releaseweg ist seit dem 03.11.2026 belegt aktiv: Ein Merge auf `main` wird nach den Prüfungen veröffentlicht (siehe Hostinger-Umzug). Geplante Verbesserungen und ihre Reihenfolge stehen in der [Roadmap](docs/Roadmap.md).
 
 - [Eigenes Panel](https://panel.white-gloss.de/)
 - [Bisherige private Sites-Kopie](https://white-gloss-mein-panel.info261616.chatgpt.site/)
@@ -24,6 +24,7 @@ Jede Änderung benötigt einen eigenen geprüften Release und einen Live-Nachwei
 - [Angebot, Termin, Mischrechner und mobile Bedienung](docs/Angebot-Termin-und-Mischrechner.md)
 - [Kundenportal mit B2B-Firmenbereich](docs/Kundenportal.md)
 - [Buchhaltung: genauer Implementierungsstand](docs/Buchhaltung-Implementierungsstand.md)
+- [Handlungszentrale auf der Übersicht](docs/Handlungszentrale.md)
 
 ## Aufbau
 
@@ -56,9 +57,10 @@ Die Tests nutzen synthetische Daten und isoliertes SQLite. Die UI-Tests laden di
 Seiten in jsdom und rufen die Serverlogik direkt im Prozess auf; es wird kein Server gestartet. Der GitHub-Workflow
 führt dieselben Prüfungen auf einem Linux-Runner aus. Für den Hauptbranch folgt
 nach erfolgreichen Code- und Browserprüfungen die automatische Veröffentlichung
-über den separaten IONOS-Paneldienst. Dieser Releasejob benötigt die einmalig
-eingerichteten IONOS-Zugänge; die Prüfjobs benötigen keine Anbieterzugänge.
-Einrichtung und Live-Nachweise: [IONOS und Google](docs/IONOS-und-Google.md#direkte-veröffentlichung-nach-codeänderungen).
+über den Job `Hostinger panel release` auf dem Hostinger-VPS. Dieser Releasejob
+benötigt die einmalig eingerichteten Hostinger-Zugänge; die Prüfjobs benötigen keine
+Anbieterzugänge. Der frühere IONOS-Releasejob bleibt abgeschaltet.
+Einrichtung und Live-Nachweise: [Hostinger-Umzug](docs/Hostinger-Umzug.md#hostinger-releaseweg).
 
 **Auf dem Rechner des Betreibers darf diese White-Gloss-App unter keinen Umständen
 lokal gehostet werden.** Keine Dev-, Preview-, QA-, Docker-, Tunnel- oder statischen

@@ -31,11 +31,19 @@ ein Commit, Releasepaket oder grüner Testlauf gilt weiterhin nicht als Deployme
 
 Stand 22.10.2026: Website und Panel laufen auf dem Hostinger-VPS, der alte
 IONOS-Server bleibt nur als Rückfall. Der automatische IONOS-Release ist
-abgeschaltet, weil er den alten Server träfe. Einen Hostinger-Releaseweg gibt es
-erst, wenn er auf dem Server getestet und in `docs/Hostinger-Umzug.md` als
-funktionierend nachgewiesen ist. Bis dahin keine Veröffentlichung behaupten und
-keinen Serverstand ohne ausdrückliche Betreiberfreigabe ändern. Die Freigabe vom
-18.10.2026 umfasste den IONOS-Paneldienst und gilt nicht automatisch für Hostinger.
+abgeschaltet, weil er den alten Server träfe. Die Freigabe vom 18.10.2026
+umfasste den IONOS-Paneldienst und gilt nicht automatisch für Hostinger.
+
+Stand 03.11.2026: Der Hostinger-Releaseweg ist aktiv und in
+`docs/Hostinger-Umzug.md` mit GitHub-Lauf und Commit belegt. Der Job
+`Hostinger panel release` veröffentlicht jeden Push auf `main` nach den
+Code- und Browserprüfungen automatisch. Ein Merge auf `main` ist deshalb eine
+Veröffentlichung. Betreiberauftrag vom 03.11.2026: Beauftragte Aufgaben aus
+`docs/Roadmap.md` nach erfolgreicher Prüfung selbst freigeben, über diesen Weg
+veröffentlichen und das Ergebnis des Release-Jobs prüfen. Der Betreiber arbeitet
+allein; die Rollen sind Betreiber, Kunde und Steuerberater. Andere
+Serveränderungen, echte Kundenaktionen und Anbieteraktionen bleiben an eine
+ausdrückliche Freigabe gebunden.
 
 Zugangsschlüssel, OAuth-Geheimnisse, Kundendaten, Datenbankdateien, Fotos,
 Unterschriften, Backups und Umgebungsdateien nicht committen oder in Ausgaben
@@ -46,7 +54,9 @@ innerhalb einer ausdrücklich dafür erteilten Betreiberfreigabe auslösen.
 Anbieterzugänge ausschließlich mit dem tatsächlich vorhandenen Umfang nutzen.
 
 Implementiert, getestet, veröffentlicht und live geprüft getrennt berichten.
-Ein grüner Workflow ist kein Beleg für einen erfolgreichen IONOS-Release.
+Ein grüner Prüfjob ist kein Beleg für einen Release. Beleg ist nur ein
+erfolgreicher Job `Hostinger panel release` mit der Logzeile
+„Hostinger-Panel veröffentlicht und über HTTPS geprüft: <Commit>“.
 
 ## Cloud Agent
 
