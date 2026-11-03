@@ -71,3 +71,12 @@ test('pinning a note keeps unsaved text in the quick note form',async t=>{
   await ui.click('.cc-rail [data-mail-notes]');const form=ui.$('#mail-note-form');form.elements.body.value='Noch nicht gespeichert';form.elements.body.dispatchEvent(new ui.w.Event('input',{bubbles:true}));
   await ui.click('[data-cc-note-pin]');assert.ok(ui.$('.cc-note.pinned'));assert.equal(ui.$('#mail-note-form').elements.body.value,'Noch nicht gespeichert');assert.deepEqual(ui.errors,[]);
 });
+
+// Browser überdecken Formular-Eigenschaften (id, action, submit …) mit gleichnamigen Feldern; jsdom tut das nicht.
+// Ein Feld namens „id“ hat das Speichern von Notizen im echten Browser verhindert.
+test('no communication center form has a control that shadows a built-in form property',async t=>{
+  const ui=await mount(t,{seed:async(env,call)=>{await call('/api/mailbox/folder',{name:'Eigene'});}}),reserved=new Set(['id','action','method','submit','reset','elements','length','target','enctype','encoding','acceptCharset','noValidate','checkValidity','reportValidity','requestSubmit','matches','getAttribute','querySelector','dataset','className','tagName','nodeName','parentNode','children']);
+  const names=new Set();const collect=()=>{for(const control of ui.$$('#mailbox-root form [name]'))names.add(control.getAttribute('name'));};
+  collect();await ui.click('.cc-rail [data-mail-notes]');collect();await ui.click('.cc-rail [data-mail-compose]');await ui.click('[data-compose-show="cc"]');await ui.click('[data-compose-show="bcc"]');collect();await ui.click('[data-mail-compose-close]');await ui.click('[data-mail-settings]');collect();
+  assert.ok(names.size>=15,'all forms were inspected');assert.deepEqual([...names].filter(name=>reserved.has(name)),[]);assert.deepEqual(ui.errors,[]);
+});

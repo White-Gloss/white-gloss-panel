@@ -266,7 +266,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
     const linkedMail=noteDraft.messageId?(detail?.message?.id===noteDraft.messageId?detail.message.subject:notes.find(note=>note.messageId===noteDraft.messageId)?.subject??'Verknüpfte E-Mail'):'';
     const filterButtons=[['all','Alle'],['pinned','Angeheftet'],['orders','Mit Auftrag'],['mails','Mit E-Mail']];
     return `<div class="cc-section cc-notes"><div class="cc-section-head"><div><h2>Notizen</h2><small>Interne Arbeitsnotizen · nicht für Kunden sichtbar</small></div></div>
-      <form id="mail-note-form" class="cc-note-editor"><input type="hidden" name="id" value="${esc(noteDraft.id??'')}"><input type="hidden" name="messageId" value="${esc(noteDraft.messageId)}"><input type="hidden" name="customerId" value="${esc(noteDraft.customerId)}">
+      <form id="mail-note-form" class="cc-note-editor"><input type="hidden" name="noteId" value="${esc(noteDraft.id??'')}"><input type="hidden" name="messageId" value="${esc(noteDraft.messageId)}"><input type="hidden" name="customerId" value="${esc(noteDraft.customerId)}">
         <label class="visually-hidden" for="cc-note-body">Notiz</label><textarea id="cc-note-body" name="body" rows="3" maxlength="10000" required placeholder="Notiz schnell erfassen … (Strg/⌘ + Enter speichert)">${esc(noteDraft.body)}</textarea>
         <div class="cc-note-options"><label>Auftrag<select name="orderId"><option value="">Kein Auftrag</option>${orderOptions.map(order=>`<option value="${esc(order.id)}" ${noteDraft.orderId===order.id?'selected':''}>${esc(order.wg)} · ${esc(order.source?.name||'')}</option>`).join('')}</select></label>
         <label class="check"><input type="checkbox" name="pinned" ${noteDraft.pinned?'checked':''}>Anheften</label>
@@ -536,16 +536,17 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
     if(target.matches('[data-compose-file]')){const files=[...(target.files??[])];target.value='';if(files.length&&compose)uploadFiles(files);return;}
   });
   root.addEventListener('submit',event=>{
-    event.preventDefault();event.stopPropagation();const form=event.target;
-    if(form.id==='mailbox-account')return run(async()=>{const fields=new FormData(form),result=await api('/settings',{email:fields.get('email'),displayName:fields.get('displayName'),imapHost:fields.get('imapHost'),imapPort:Number(fields.get('imapPort')),imapSecure:form.elements.imapSecure.checked,smtpHost:fields.get('smtpHost'),smtpPort:Number(fields.get('smtpPort')),smtpSecure:form.elements.smtpSecure.checked,username:fields.get('username'),password:fields.get('password'),syncApproved:form.elements.syncApproved.checked});await refreshMeta();drawSettings();message(result.message);});
-    if(form.id==='mailbox-compose'){if(!compose)return;const value=readCompose();
+    // getAttribute statt form.id: ein Formularfeld namens „id“ würde form.id im Browser überdecken.
+    event.preventDefault();event.stopPropagation();const form=event.target,formId=form.getAttribute('id');
+    if(formId==='mailbox-account')return run(async()=>{const fields=new FormData(form),result=await api('/settings',{email:fields.get('email'),displayName:fields.get('displayName'),imapHost:fields.get('imapHost'),imapPort:Number(fields.get('imapPort')),imapSecure:form.elements.imapSecure.checked,smtpHost:fields.get('smtpHost'),smtpPort:Number(fields.get('smtpPort')),smtpSecure:form.elements.smtpSecure.checked,username:fields.get('username'),password:fields.get('password'),syncApproved:form.elements.syncApproved.checked});await refreshMeta();drawSettings();message(result.message);});
+    if(formId==='mailbox-compose'){if(!compose)return;const value=readCompose();
       if(!value.to.trim()){message('Bitte mindestens einen Empfänger angeben.',true);form.elements.to.focus();return;}
       if(!value.subject.trim()){message('Bitte einen Betreff angeben.',true);form.elements.subject.focus();return;}
       if(!value.text.trim()){message('Bitte einen Nachrichtentext schreiben.',true);form.querySelector('[data-compose-editor]')?.focus();return;}
       if(compose.attachments.some(item=>item.pending)){message('Bitte warten, bis alle Anhänge hochgeladen sind.',true);return;}
       compose.stage='confirm';drawComposeFoot();return;}
     if(form.matches('[data-mail-new-folder]'))return run(async()=>{const name=form.elements.name.value.trim();await api('/folder',{name});ui.folder=name;ui.section='mail';ui.openId=null;await load();drawRail();drawMain();message('Eigener Ordner angelegt.');});
-    if(form.id==='mail-note-form')return run(async()=>{const value=readNoteForm();await api('/note',{id:form.elements.id.value||null,body:value.body,messageId:form.elements.messageId.value||null,orderId:value.orderId||null,customerId:form.elements.customerId.value||null,pinned:value.pinned});noteDraft={id:null,body:'',orderId:'',customerId:'',messageId:'',pinned:false};await refreshMeta();drawMain();message('Notiz gespeichert.');});
+    if(formId==='mail-note-form')return run(async()=>{const value=readNoteForm();await api('/note',{id:form.elements.noteId.value||null,body:value.body,messageId:form.elements.messageId.value||null,orderId:value.orderId||null,customerId:form.elements.customerId.value||null,pinned:value.pinned});noteDraft={id:null,body:'',orderId:'',customerId:'',messageId:'',pinned:false};await refreshMeta();drawMain();message('Notiz gespeichert.');});
   });
 
   // Tastenkürzel nur außerhalb von Eingabefeldern und nur solange der Bereich sichtbar ist.
