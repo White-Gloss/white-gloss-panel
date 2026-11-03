@@ -26,8 +26,8 @@ die Rollen bleiben Betreiber, Kunde und Steuerberater.
 
 | Nr. | Aufgabe | Priorität | Stand |
 | --- | --- | --- | --- |
-| V0 | Dokumentation an den belegten Hostinger-Releaseweg angleichen | Kritisch | in Arbeit |
-| V1 | Handlungszentrale auf der Übersicht: alle fälligen Schritte in einer Liste, Monatszahlen statt Gesamtsumme, Arbeitsvorrat nach Dringlichkeit | Hoch | geplant |
+| V0 | Dokumentation an den belegten Hostinger-Releaseweg angleichen | Kritisch | veröffentlicht (PR #38) |
+| V1 | Handlungszentrale auf der Übersicht: alle fälligen Schritte in einer Liste, Monatszahlen statt Gesamtsumme, Arbeitsvorrat nach Dringlichkeit ([Details](Handlungszentrale.md)) | Hoch | in Arbeit |
 | V8 | „Nächster Schritt“ an einer Stelle führen, ungenutzte `premium.*`/`agency.css` entfernen | Mittel | offen |
 | V2 | Auftragsdetail mit einer statt zwei Navigationen (Ablaufschritte und Reiter zusammenführen) | Hoch | offen |
 | V3 | Kommunikation bündeln: gemeinsamer Posteingang, „Nachrichten“ in der mobilen Leiste | Hoch | offen |

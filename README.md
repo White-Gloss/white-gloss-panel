@@ -23,6 +23,7 @@ Jede Änderung benötigt einen eigenen geprüften Release und einen Live-Nachwei
 - [Angebot, Termin, Mischrechner und mobile Bedienung](docs/Angebot-Termin-und-Mischrechner.md)
 - [Kundenportal mit B2B-Firmenbereich](docs/Kundenportal.md)
 - [Buchhaltung: genauer Implementierungsstand](docs/Buchhaltung-Implementierungsstand.md)
+- [Handlungszentrale auf der Übersicht](docs/Handlungszentrale.md)
 
 ## Aufbau
 

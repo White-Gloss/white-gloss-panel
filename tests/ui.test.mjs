@@ -511,13 +511,35 @@ test('panel: operational agenda links existing appointments, follow-ups and unpa
   current.notes=[{at:new Date().toISOString(),kind:'Wiedervorlage',note:'Lackzustand telefonisch besprechen',followUp:today}];
   current.invoice={provider:'qonto',status:'unpaid',number:'RE-TEST',dueDate:yesterday,totalCents:34900};
   await saveOrder(ui.env,current,current.version,'Synthetischer Agenda-Test');await ui.click('[data-click="back"]');await ui.click('.sidebar [data-view="overview"]');await ui.click('[data-click="refresh"]');
-  assert.match(ui.$('.operations-panel.compact').textContent,/Jetzt & als Nächstes/);assert.match(ui.$('.operations-panel.compact').textContent,/Lackzustand telefonisch besprechen/);
+  const center=ui.$('.overview-shell .action-center');assert.ok(center,'Handlungszentrale auf der Übersicht');
+  assert.match(center.textContent,/Heute zu erledigen/);assert.match(center.textContent,/Lackzustand telefonisch besprechen/);assert.match(center.textContent,/Rechnung überfällig/);assert.match(center.textContent,/RE-TEST · 349,00\s*€/);assert.match(center.textContent,/Termin heute/);
+  assert.equal(ui.$('.action-center .action-summary [data-level="overdue"] strong').textContent,'1');assert.equal(ui.$('.action-center .action-summary [data-level="today"] strong').textContent,'2');
+  assert.equal(ui.w.document.querySelectorAll('.overview-shell .operations-panel:not(.action-center)').length,0,'die 7-Tage-Agenda bleibt im Kalender');
+  await ui.click('.action-center .action-item[data-action-kind="invoice-overdue"]');assert.equal(ui.$('#order-tab-payment').getAttribute('aria-selected'),'true','Klick öffnet direkt Zahlung & Rechnung');assert.match(ui.$('.detail-header').textContent,/Agenda Kunde/);
+  await ui.click('.sidebar [data-view="overview"]');await ui.click('.action-center .action-item[data-action-kind="followup"]');assert.equal(ui.$('#order-tab-notes').getAttribute('aria-selected'),'true');
   await ui.go('#calendar');assert.match(ui.text(),/Deine nächsten 7 Tage/);assert.match(ui.text(),/349,00\s*€/);assert.match(ui.text(),/Rechnungssummen, kein Kontostand/);assert.match(ui.text(),/Keine Kapazitätsaussage/);
   assert.ok(ui.$('.agenda-item.appointment[data-order]'));assert.ok(ui.$('.agenda-item.followup[data-order]'));assert.ok(ui.$('.schedule-calendar'));assert.ok(ui.$('.schedule-event[data-order]'));assert.ok(ui.$('.schedule-day .schedule-detail[data-order]'));
   assert.equal(ui.w.document.querySelectorAll('.schedule-grid .schedule-cell').length,42);assert.equal(ui.$(`.schedule-date[data-day="${today}"]`).getAttribute('aria-pressed'),'true');
   await ui.click(`.schedule-date[data-day="${tomorrow}"]`);assert.ok(ui.$('.schedule-day .schedule-empty'));assert.equal(ui.$(`.schedule-date[data-day="${tomorrow}"]`).getAttribute('aria-pressed'),'true');
   ui.$(`.schedule-date[data-day="${tomorrow}"]`).dispatchEvent(new ui.w.KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));await ui.settle();assert.ok(ui.$('.schedule-day .schedule-detail[data-order]'));
   await ui.click('.agenda-item.invoice');assert.match(ui.text(),/Agenda Kunde/);assert.match(ui.text(),/Kunde & Anfrage/);assert.deepEqual(ui.errors,[]);
+});
+
+test('panel: overview work list starts empty, counts monthly payments and sorts the work queue by urgency',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});await ui.click('[data-click="test"]');
+  assert.match(ui.$('.action-center').textContent,/Alles erledigt/);assert.equal(ui.w.document.querySelectorAll('.action-center .action-item').length,0);
+  for(const name of ['Dringend Kunde','Ruhig Kunde']){await ui.click('[data-click="create"]');ui.fill(ui.$('#createform'),{name,vehicle:'Audi A4'});await ui.submit('#createform');await ui.click('[data-click="back"]');}
+  const rows=(await ui.env.DB.prepare('SELECT id,data FROM orders').all()).results.map(row=>({id:row.id,name:JSON.parse(row.data).source.name}));
+  const calm=await getOrder(ui.env,rows.find(row=>row.name.endsWith('Ruhig Kunde')).id);calm.status='Angebot offen';calm.payments=[{id:'p1',amountCents:12000,at:new Date().toISOString(),method:'Bar'},{id:'p2',amountCents:5000,at:new Date().toISOString(),method:'Bar',cancelledAt:new Date().toISOString()}];
+  calm.pending={offer:{content:{}}};await saveOrder(ui.env,calm,calm.version,'Synthetischer Übersichtstest');
+  await ui.click('.sidebar [data-view="overview"]');await ui.click('[data-click="refresh"]');
+  const month=new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',month:'long'}).format(new Date());
+  const payments=[...ui.w.document.querySelectorAll('.overview-shell > .stats .stat')].find(card=>card.textContent.includes('Zahlungen · '+month));assert.ok(payments,'Monatskennzahl statt Gesamtsumme');assert.match(payments.textContent,/120,00\s*€/);
+  assert.equal(ui.w.document.querySelectorAll('.overview-shell > .notice').length,0,'Unterschriften stehen in der Handlungszentrale, nicht als eigener Hinweis');
+  assert.match(ui.$('.action-center .action-item[data-action-kind="signature"]').textContent,/Unterschrift offen · Angebot/);
+  assert.match(ui.$('.overview-orders tbody tr').textContent,/Dringend Kunde/,'Preise prüfen steht vor einem wartenden Angebot');
+  await ui.click('.action-center .action-item[data-action-kind="price-check"]');assert.equal(ui.$('#order-tab-price').getAttribute('aria-selected'),'true');assert.match(ui.$('.detail-header').textContent,/Dringend Kunde/);
+  assert.deepEqual(ui.errors,[]);
 });
 
 test('panel: calendar keyboard navigation crosses a month boundary and keeps the selected day focused',async t=>{
@@ -534,6 +556,7 @@ test('panel: overview has one clear work queue and hash navigation updates the v
   const ui=await boot(t,{page:'index.html',script:'app.js'});
   assert.equal(ui.w.document.querySelectorAll('.overview-shell').length,1);
   assert.equal(ui.w.document.querySelectorAll('.operations-panel').length,1);
+  assert.equal(ui.w.document.querySelectorAll('.action-center').length,1);
   assert.equal(ui.w.document.querySelectorAll('.overview-orders').length,1);
   assert.equal(ui.w.document.querySelectorAll('.premium-hero,.premium-modules,.integration-grid').length,0);
   assert.equal(ui.w.document.querySelectorAll('script[src="/premium.js"],link[href="/premium.css"],link[href="/agency.css"]').length,0);
@@ -567,7 +590,7 @@ test('panel: navigation groups daily work, customers, finance subpages and admin
   assert.deepEqual(ids.slice(12,19),['finance','finance-income','finance-expenses','finance-invoices','finance-receipts','finance-bank','finance-advisor']);
   assert.equal(ids.at(-1),'settings');assert.equal(ids[0],'calendar');
   const mobileIds=[...ui.w.document.querySelectorAll('.mobile-dock [data-view]')].map(button=>button.dataset.view);assert.equal(mobileIds[0],'calendar');assert.equal(ui.w.document.querySelectorAll('.mobile-dock > button').length,6);
-  const agenda=ui.$('.overview-shell .operations-panel'),stats=ui.$('.overview-shell > .stats');
+  const agenda=ui.$('.overview-shell .action-center'),stats=ui.$('.overview-shell > .stats');
   assert.ok(agenda.compareDocumentPosition(stats)&ui.w.Node.DOCUMENT_POSITION_FOLLOWING,'Tagesplanung steht vor den Kennzahlen');
   for(const [view,title] of [['finance','Finanzübersicht'],['finance-income','Einnahmen'],['finance-expenses','Ausgaben'],['finance-invoices','Rechnungen'],['finance-receipts','Belege'],['finance-bank','Bank'],['finance-advisor','Steuerberater']]){
     await ui.go('#'+view);assert.equal(ui.$('.content > .heading h1').textContent,title,view);assert.equal(ui.$(`.sidebar [data-view="${view}"]`).getAttribute('aria-current'),'page',view);

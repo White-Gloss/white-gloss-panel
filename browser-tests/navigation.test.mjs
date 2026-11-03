@@ -56,7 +56,7 @@ test('accordion navigation works by keyboard, persists after reload and reveals 
 
 for(const width of [1440,1024,805,390,320])test(`compact operator workspace remains usable without page overflow at ${width}px`,async t=>{
   const f=await browserFixture(t,{viewport:{width,height:900}}),{page}=f;await page.goto(origin);await page.locator('.overview-shell').waitFor();
-  assert.equal(await page.locator('.overview-orders').count(),1);assert.equal(await page.locator('.operations-panel').count(),1);assert.equal(await page.locator('.premium-hero,.premium-modules,.integration-grid').count(),0);
+  assert.equal(await page.locator('.overview-orders').count(),1);assert.equal(await page.locator('.operations-panel').count(),1);assert.equal(await page.locator('.action-center').count(),1);assert.equal(await page.locator('.premium-hero,.premium-modules,.integration-grid').count(),0);
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal page overflow');
   const skipLink=await page.locator('.visually-hidden').boundingBox();assert.ok(skipLink.width<=1&&skipLink.height<=1,'keyboard skip link stays visually hidden until focused');
   const topbar=await page.locator('.topbar').boundingBox();assert.ok(topbar.height<=(width<=760?65:69),'compact application header');
