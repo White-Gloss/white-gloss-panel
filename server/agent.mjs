@@ -10,10 +10,11 @@ export async function agentSchema(env){
   try{
     let existing=await env.DB.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='agent_requests'").first();
     if(existing&&!String(existing.sql??'').includes('created_at')){
+      const columns=new Set(((await env.DB.prepare("SELECT name FROM pragma_table_info('agent_requests')").all()).results??[]).map(row=>row.name));
       const count=await env.DB.prepare('SELECT COUNT(*) AS n FROM agent_requests').first();
-      if(Number(count?.n)!==0){env.agentSchemaError='bestehende Tabelle ohne created_at';return;}
-      await env.DB.prepare('DROP TABLE agent_requests').run();
-      existing=null;
+      if(Number(count?.n)===0){await env.DB.prepare('DROP TABLE agent_requests').run();existing=null;}
+      else if(columns.has('request_id')&&columns.has('request_hash')&&columns.has('state'))await env.DB.prepare('ALTER TABLE agent_requests ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0').run();
+      else{env.agentSchemaError='bestehende Tabelle ohne created_at';return;}
     }
     if(!existing)await env.DB.prepare('CREATE TABLE agent_requests(request_id TEXT PRIMARY KEY,request_hash TEXT NOT NULL,state TEXT NOT NULL,result TEXT,created_at INTEGER NOT NULL)').run();
     const index=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='agent_requests_created'").first();

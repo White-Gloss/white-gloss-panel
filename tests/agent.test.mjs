@@ -251,7 +251,6 @@ test('a database schema failure does not stop the panel and health reports only 
   assert.equal(response.headers.get('X-Agent-Schema'),'no such column: created_at');
   assert.equal(response.headers.get('X-Agent-Schema').includes('secret'),false);
 });
-
 test('an empty mismatched agent table is rebuilt and a populated one is kept',async t=>{
   const empty=new PanelDatabase(':memory:');
   await empty.prepare('CREATE TABLE agent_requests(request_id TEXT PRIMARY KEY)').run();
@@ -269,4 +268,16 @@ test('an empty mismatched agent table is rebuilt and a populated one is kept',as
   assert.equal(keptHealth.status,200);assert.equal(await keptHealth.text(),'ok');
   assert.equal(keptHealth.headers.get('X-Agent-Schema'),'bestehende Tabelle ohne created_at');
   assert.equal((await kept.prepare('SELECT request_id FROM agent_requests').first()).request_id,'keep');
+});
+
+test('a populated compatible agent table gains the missing time column without losing rows',async t=>{
+  const db=new PanelDatabase(':memory:');
+  await db.prepare('CREATE TABLE agent_requests(request_id TEXT PRIMARY KEY,request_hash TEXT NOT NULL,state TEXT NOT NULL,result TEXT)').run();
+  await db.prepare('INSERT INTO agent_requests VALUES(?,?,?,?)').bind('keep','hash','completed',null).run();
+  const env={PANEL_ORIGIN:origin,OWNER_EMAIL_SHA256:digest(owner),CONFIG_KEY:Buffer.alloc(32,6).toString('base64'),DB:db,BUCKET:{},ASSETS:{fetch:async()=>new Response('asset')}};
+  t.after(()=>db.close());
+  const app=await createApplication(env),response=await app.fetch(new Request(origin+'/healthz'));
+  assert.equal(response.status,200);assert.equal(response.headers.get('X-Agent-Schema'),null);
+  assert.equal((await db.prepare('SELECT request_id,created_at FROM agent_requests').first()).request_id,'keep');
+  assert.equal((await db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='agent_requests_created'").first()).name,'agent_requests_created');
 });
