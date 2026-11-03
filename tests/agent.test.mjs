@@ -8,6 +8,7 @@ import {JSDOM} from 'jsdom';
 import {mountAgent} from '../public/agent.js';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {join} from 'node:path';
+import {tmpdir} from 'node:os';
 const externalFetch=mock.method(globalThis,'fetch',async()=>{throw Error('External traffic forbidden in agent tests');});
 test.after(()=>assert.equal(externalFetch.mock.callCount(),0,'all traffic must use injected adapters'));
 const origin='https://panel.example.invalid',owner='owner@example.invalid';
@@ -219,7 +220,7 @@ test('application maintenance invokes agent retention without network or deletin
 });
 
 test('two database connections share the identical-request guard',async t=>{
-  const dir=await mkdtemp(join('/opt/data/cache/scratch','wg-agent-'));
+  const dir=await mkdtemp(join(tmpdir(),'wg-agent-'));
   t.after(()=>rm(dir,{recursive:true,force:true}));
   let calls=0;
   const envFor=()=>({PANEL_ORIGIN:origin,OWNER_EMAIL_SHA256:digest(owner),CONFIG_KEY:Buffer.alloc(32,6).toString('base64'),DB:new PanelDatabase(join(dir,'panel.sqlite')),BUCKET:{},ASSETS:{fetch:async()=>new Response('asset')},...ready,HERMES_AGENT_ADAPTERS:{chat:async()=>{calls++;return completion();}}});
