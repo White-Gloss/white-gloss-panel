@@ -10,6 +10,8 @@ const viewports=[{width:1600,height:900},{width:1280,height:800},{width:900,heig
 const plain=subject=>Buffer.from(`From: Erika Muster <${customer}>\r\nTo: ${owner}\r\nCc: partner@example.invalid\r\nSubject: ${subject}\r\nMessage-ID: <${randomUUID()}@example.invalid>\r\nDate: Sat, 17 Oct 2026 10:00:00 +0200\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nGuten Tag, wann passt der Termin für die Politur?`);
 const html=Buffer.from(`From: Newsletter <news@example.invalid>\r\nTo: ${owner}\r\nSubject: Sommeraktion Newsletter\r\nMessage-ID: <${randomUUID()}@example.invalid>\r\nDate: Fri, 16 Oct 2026 08:00:00 +0200\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<html><head><style>.hero{padding:24px;background:#eef3f7;font-size:22px}</style></head><body><div class="hero">Sommeraktion</div><img src="https://tracker.example.invalid/pixel.gif" width="1" height="1"><p>Ein langer Absatz mit Inhalt.</p><a href="https://shop.example.invalid/">Zum Shop</a><script>document.body.dataset.executed='yes'</script></body></html>\r\n`);
 async function noOverflow(page,label){assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),label+' has no horizontal overflow');}
+// Liefert bei Layoutfehlern die Lage von Knopf, Lesebereich und Treffer im Testprotokoll.
+async function geometry(page,selector){return page.evaluate(selector=>{const box=element=>{if(!element)return null;const r=element.getBoundingClientRect();return {x:Math.round(r.left),y:Math.round(r.top),w:Math.round(r.width),h:Math.round(r.height),sl:element.scrollLeft,st:element.scrollTop,sw:element.scrollWidth,cw:element.clientWidth};};const target=document.querySelector(selector),rect=target?.getBoundingClientRect(),hit=rect?document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2):null;return {target:box(target),reader:box(document.querySelector('.cc-reader')),mail:box(document.querySelector('.cc-mail')),shell:box(document.querySelector('.cc-shell')),page:{x:scrollX,y:scrollY,sw:document.documentElement.scrollWidth,iw:innerWidth,ih:innerHeight},hit:hit?(hit.tagName+'.'+String(hit.className)).slice(0,80):null};},selector);}
 async function openRail(page,width){if(width<1400&&!(await page.locator('.cc').evaluate(element=>element.classList.contains('cc-rail-open'))))await page.locator('[data-cc-rail]').click();}
 
 for(const viewport of viewports)test(`communication center layout and mail workflow at ${viewport.width}x${viewport.height}`,async t=>{
@@ -17,6 +19,9 @@ for(const viewport of viewports)test(`communication center layout and mail workf
   await f.seedOrder({status:'In Arbeit'});
   await ingestMessage(f.env,plain('Frage zur Politur'),{folder:'INBOX',uid:1,uidValidity:'browser'});
   await ingestMessage(f.env,html,{folder:'INBOX',uid:2,uidValidity:'browser'});
+  // Realistische Voraussetzung: Postfach ist eingerichtet, die eigene Adresse ist bekannt.
+  await page.goto(origin);await page.locator('#content h1').first().waitFor();
+  await page.evaluate(async owner=>{const response=await fetch('/api/mailbox/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:owner,displayName:'White Gloss',imapHost:'imap.example.invalid',imapPort:993,imapSecure:true,smtpHost:'smtp.example.invalid',smtpPort:465,smtpSecure:true,username:owner,password:'synthetic-browser-secret'})});if(!response.ok)throw Error(await response.text());},owner);
   await page.goto(origin+'/#mailbox');await page.locator('.cc-head h1').waitFor();await page.locator('.cc-kpi').first().waitFor();
   assert.equal((await page.locator('.cc-head h1').textContent()).trim(),'Übersicht');await noOverflow(page,'start view');await f.screenshot('communication-home-'+tag,{fullPage:false});
 
@@ -33,7 +38,10 @@ for(const viewport of viewports)test(`communication center layout and mail workf
   if(viewport.width<1000){await page.locator('.cc-back').click();await page.locator('.cc-list').waitFor({state:'visible'});}
 
   await page.locator('.cc-row',{hasText:'Frage zur Politur'}).click();await page.locator('.cc-crm').waitFor();assert.match(await page.locator('.cc-crm').textContent(),/In Arbeit/);
-  await page.locator('[data-mail-reply-all]').click();const compose=page.locator('#mailbox-compose');await compose.waitFor();
+  const layout=await geometry(page,'[data-mail-reply-all]');t.diagnostic('reply-all geometry '+tag+' '+JSON.stringify(layout));
+  assert.ok(layout.reader.sw<=layout.reader.cw+1,'reader content fits its column without horizontal overflow');
+  assert.equal(layout.mail.sl,0,'mail panes are not shifted sideways');
+  await page.locator('[data-mail-reply-all]').click({timeout:10000});const compose=page.locator('#mailbox-compose');await compose.waitFor();
   assert.equal(await compose.locator('[name="cc"]').inputValue(),'partner@example.invalid');
   const box=await compose.boundingBox();assert.ok(box.x>=0&&box.y>=0&&box.x+box.width<=viewport.width+1&&box.y+box.height<=viewport.height+1,'editor fits the viewport');
   await compose.locator('[data-compose-editor]').click();await page.keyboard.type('Gerne am Freitag.');await f.screenshot('communication-compose-'+tag,{fullPage:false});

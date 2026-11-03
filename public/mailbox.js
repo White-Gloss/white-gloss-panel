@@ -55,7 +55,7 @@ function remembered(synthetic){
 export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],markSaved=()=>{}}={}){
   if(!root)return;
   const ui=remembered(synthetic);
-  let data=null,list=[],total=0,detail=null,detailState='idle',detailError='',listState='loading',listError='',busy=false,compose=null,selection=new Set(),selectMode=false,railOpen=false,settingsOpen=false,searchTimer=null,loadToken=0,observer=null,confirmDelete=null;
+  let data=null,list=[],stale=new Set(),total=0,detail=null,detailState='idle',detailError='',listState='loading',listError='',busy=false,compose=null,selection=new Set(),selectMode=false,railOpen=false,settingsOpen=false,searchTimer=null,loadToken=0,observer=null,confirmDelete=null;
 
   async function api(path='',payload,params={}){
     const search=new URLSearchParams(params);if(synthetic)search.set('test','true');const query=search.toString();
@@ -76,12 +76,19 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   function listParams(append=false){
     if(ui.section==='home')return {folder:'Unread',limit:'6'};
     if(ui.section!=='mail'||ui.folder==='Drafts')return {folder:'INBOX',limit:'1'};
-    const params={folder:ui.folder,limit:'50',offset:append?String(list.length):'0'};if(ui.query)params.q=ui.query;if(ui.filter!=='all')params.filter=ui.filter;if(ui.sort!=='newest')params.sort=ui.sort;return params;
+    const params={folder:ui.folder,limit:'50',offset:append?String(Math.max(0,list.length-stale.size)):'0'};if(ui.query)params.q=ui.query;if(ui.filter!=='all')params.filter=ui.filter;if(ui.sort!=='newest')params.sort=ui.sort;return params;
   }
   async function load({append=false}={}){
     const token=++loadToken;if(!append){listState='loading';listError='';}
-    try{const result=await api('',undefined,listParams(append));if(token!==loadToken)return false;data=result;list=append?[...list,...result.messages]:result.messages;total=result.total;listState='ready';return true;}
+    try{const result=await api('',undefined,listParams(append));if(token!==loadToken)return false;data=result;if(append){const known=new Set(list.map(mail=>mail.id));list=[...list,...result.messages.filter(mail=>!known.has(mail.id))];total=result.total+stale.size;}else{stale=new Set();list=result.messages;total=result.total;}listState='ready';return true;}
     catch(error){if(token!==loadToken)return false;listState='error';listError=error.message;if(!data)throw error;return true;}
+  }
+  // Lokale Statuswechsel können eine sichtbare Nachricht aus dem Serverfilter nehmen (z. B. gelesen in „Ungelesen“).
+  // Sie bleibt bis zum Neuladen sichtbar, zählt aber nicht mehr für den Seiten-Offset.
+  function trackFilter(id,patch){
+    const leavesUnread=patch.read===true&&(ui.folder==='Unread'||ui.filter==='unread'),backUnread=patch.read===false&&(ui.folder==='Unread'||ui.filter==='unread');
+    const leavesFlag=patch.flagged===false&&(ui.folder==='Flagged'||ui.filter==='flagged'),backFlag=patch.flagged===true&&(ui.folder==='Flagged'||ui.filter==='flagged');
+    if(leavesUnread||leavesFlag)stale.add(id);if(backUnread||backFlag)stale.delete(id);
   }
   async function refreshMeta(){const result=await api('',undefined,{folder:'INBOX',limit:'1'}).catch(()=>null);if(result){const keep={messages:data?.messages,total:data?.total};data={...result,...keep};drawRail();drawStatus();}}
 
@@ -277,8 +284,11 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
       if(tag==='BLOCKQUOTE'){const start=output.length;walk(child);const inner=output.slice(start);output=output.slice(0,start)+inner.split('\n').map(line=>line?'> '+line:line).join('\n');}else walk(child);if(block&&!output.endsWith('\n'))output+='\n';}};
     walk(node);return output.replace(/ /g,' ').replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
   }
-  function quoteNode(editor){return editor.querySelector('[data-cc-quote]')??[...editor.children].find(child=>child.tagName==='BLOCKQUOTE')??null;}
-  function ownText(editor){const clone=editor.cloneNode(true);clone.querySelector('[data-cc-quote]')?.remove();return plainText(clone);}
+  // Zitatblock ist markiert. Gespeicherte Antwort-/Weiterleitungsentwürfe verlieren die Markierung bei der
+  // Bereinigung; dort ist es der letzte Block der obersten Ebene mit Zitat.
+  function quoteNode(editor){return editor.querySelector('[data-cc-quote]');}
+  function findQuote(editor){return [...editor.children].reverse().find(child=>child.tagName==='BLOCKQUOTE'||child.querySelector('blockquote'))??null;}
+  function ownText(editor){const clone=editor.cloneNode(true);quoteNode(clone)?.remove();return plainText(clone);}
   function replaceOwnText(editor,value){const quote=quoteNode(editor),fragment=document.createElement('div');fragment.innerHTML=textToHtml(value);if(quote&&quote.parentNode===editor){while(editor.firstChild&&editor.firstChild!==quote)editor.firstChild.remove();for(const node of [...fragment.childNodes])editor.insertBefore(node,quote);editor.insertBefore(document.createElement('p'),quote).append(document.createElement('br'));}else editor.innerHTML=fragment.innerHTML;markComposeDirty();}
   function quoteHTML(mail,{forward=false}={}){
     const sender=mail.fromName?`${esc(mail.fromName)} &lt;${esc(mail.fromAddress)}&gt;`:esc(mail.fromAddress),body=textToHtml((mail.textBody||mail.preview||'').slice(0,20000));
@@ -318,6 +328,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
       <footer class="cc-compose-foot" data-region="compose-foot"></footer>
     </form></div>`;
     const editor=element.querySelector('[data-compose-editor]');
+    if(compose.mode!=='new'&&!quoteNode(editor))findQuote(editor)?.setAttribute('data-cc-quote','');
     mountTextAssistant(editor,{synthetic,read:()=>ownText(editor),write:value=>replaceOwnText(editor,value)});
     drawComposeAttachments();drawComposeFoot(canSend);markSaved(element);if(compose.dirty)element.querySelector('#mailbox-compose').dataset.dirty='true';
   }
@@ -338,19 +349,25 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   }
   function closeCompose(force=false){if(!compose)return;if(!force&&compose.dirty){compose.stage='closing';drawComposeFoot();return;}compose=null;drawCompose();}
   async function saveDraft(){
+    if(compose.attachments.some(item=>item.pending))throw Error('Bitte warten, bis alle Anhänge hochgeladen sind.');
     const value=readCompose();const result=await api('/draft',{id:compose.id,...value,mode:compose.mode,replyTo:compose.replyTo});compose=null;drawCompose();ui.section='mail';ui.folder='Drafts';ui.openId=null;await load();drawRail();drawMain();message('Entwurf gespeichert.');return result;
   }
   async function uploadFiles(files){
+    const session=compose;if(!session)return;
     for(const file of files){
+      if(compose!==session)return;
       const type=String(file.type||'').toLowerCase(),used=compose.attachments.reduce((sum,item)=>sum+Number(item.size??0),0);
       if(!UPLOAD_TYPES[type]){message(`„${file.name}“: nur PDF, JPG, PNG oder WebP möglich.`,true);continue;}
       if(file.size>(data?.limits?.attachmentBytes??12*1024*1024)){message(`„${file.name}“ ist größer als 12 MB.`,true);continue;}
       if(used+file.size>(data?.limits?.totalBytes??15*1024*1024)){message('Anhänge dürfen zusammen höchstens 15 MB groß sein.',true);continue;}
       if(compose.attachments.length>=(data?.limits?.files??10)){message('Höchstens 10 Anhänge pro E-Mail.',true);break;}
       const temp={id:'pending-'+Math.random().toString(36).slice(2),filename:file.name,mime:type,size:file.size,pending:true};compose.attachments.push(temp);drawComposeAttachments();
-      try{const search=new URLSearchParams({name:file.name});if(synthetic)search.set('test','true');const response=await fetch('/api/mailbox/upload?'+search,{method:'POST',headers:{'Content-Type':type},body:file,credentials:'same-origin'});const result=await response.json().catch(()=>({error:'Upload-Antwort nicht lesbar.'}));if(!response.ok)throw Error(result.error??'Upload fehlgeschlagen.');Object.assign(temp,result.attachment,{pending:false});markComposeDirty();}
-      catch(error){compose.attachments=compose.attachments.filter(item=>item!==temp);message(error.message,true);}
-      drawComposeAttachments();
+      try{const search=new URLSearchParams({name:file.name});if(synthetic)search.set('test','true');const response=await fetch('/api/mailbox/upload?'+search,{method:'POST',headers:{'Content-Type':type},body:file,credentials:'same-origin'});const result=await response.json().catch(()=>({error:'Upload-Antwort nicht lesbar.'}));if(!response.ok)throw Error(result.error??'Upload fehlgeschlagen.');
+        // Editor inzwischen geschlossen: hochgeladene Datei sofort wieder verwerfen.
+        if(compose!==session){api('/upload/delete',{id:result.attachment.id}).catch(()=>{});return;}
+        Object.assign(temp,result.attachment,{pending:false});markComposeDirty();}
+      catch(error){session.attachments=session.attachments.filter(item=>item!==temp);if(compose===session)message(error.message,true);}
+      if(compose!==session)return;drawComposeAttachments();
     }
   }
   function format(command){
@@ -384,7 +401,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
     ui.openId=id;detail=null;detailState='loading';drawReader();markActive();const token=id;
     if(window.matchMedia?.('(max-width: 999px)').matches)$('.cc-mail')?.scrollIntoView({block:'start'});
     try{let result=await api('/message/'+id);if(ui.openId!==token)return;
-      if(markRead&&!result.message.read){await api('/state',{messageId:id,read:true});result={...result,message:{...result.message,read:true}};const row=list.find(mail=>mail.id===id);if(row)row.read=true;refreshMeta();}
+      if(markRead&&!result.message.read){await api('/state',{messageId:id,read:true});if(list.some(mail=>mail.id===id))trackFilter(id,{read:true});result={...result,message:{...result.message,read:true}};const row=list.find(mail=>mail.id===id);if(row)row.read=true;refreshMeta();}
       detail=result;detailState='ready';}
     catch(error){if(ui.openId!==token)return;detailState='error';detailError=error.message;}
     drawReader();drawItems();
@@ -392,8 +409,8 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   function markActive(){for(const row of root.querySelectorAll('.cc-row[data-mail-open]'))row.classList.toggle('active',row.dataset.mailOpen===ui.openId);$('.cc-mail')?.classList.toggle('has-detail',Boolean(ui.openId));}
   async function changeState(ids,patch,note){
     await api('/state',{messageIds:ids,...patch});
-    for(const mail of list)if(ids.includes(mail.id)){if(patch.read!==undefined)mail.read=patch.read;if(patch.flagged!==undefined)mail.flagged=patch.flagged;}
-    const leaves=patch.folder!==undefined;if(leaves){list=list.filter(mail=>!ids.includes(mail.id));total=Math.max(0,total-ids.length);if(ids.includes(ui.openId)){ui.openId=null;detail=null;}}
+    for(const mail of list)if(ids.includes(mail.id)){if(patch.read!==undefined)mail.read=patch.read;if(patch.flagged!==undefined)mail.flagged=patch.flagged;trackFilter(mail.id,patch);}
+    const leaves=patch.folder!==undefined;if(leaves){const removed=list.filter(mail=>ids.includes(mail.id));list=list.filter(mail=>!ids.includes(mail.id));total=Math.max(0,total-removed.length);for(const mail of removed)stale.delete(mail.id);if(ids.includes(ui.openId)){ui.openId=null;detail=null;}}
     else if(detail&&ids.includes(detail.message.id))detail={...detail,message:{...detail.message,...(patch.read!==undefined?{read:patch.read}:{}),...(patch.flagged!==undefined?{flagged:patch.flagged}:{})}};
     selection=new Set([...selection].filter(id=>!ids.includes(id)));await refreshMeta();drawItems();drawBulk();drawReader();if(note)message(note);
   }
