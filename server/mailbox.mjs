@@ -3,7 +3,8 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {protect,unprotect} from '../src/worker.mjs';
 import {AppError,need,text} from '../src/domain.mjs';
-import {mailCenterSchema,centerData,changeState,createFolder,saveNote,deleteNote,saveDraft,deleteDraft,crmLinks,threadMessages,suggestReply} from './mailbox-center.mjs';
+import {mailCenterSchema,centerData,changeState,createFolder,deleteFolder,saveNote,deleteNote,saveDraft,deleteDraft,crmLinks,threadMessages,suggestReply,listQuery,listMessages,folderCounts,crmHints,resolveAttachments,storeUpload,deleteUpload,pruneUploads,ATTACHMENT_LIMITS} from './mailbox-center.mjs';
+import {sanitizeInboundHtml,mailDocument,mailDocumentPolicy,sanitizeComposeHtml,htmlToText,outboundHtml} from './mail-html.mjs';
 
 const {simpleParser,ImapFlow,nodemailer}=await import(new URL('../dist/runtime/mailbox.mjs',import.meta.url).href);
 const ROOT='/api/mailbox';
@@ -48,7 +49,9 @@ export async function mailboxSchema(env){
       `CREATE TRIGGER IF NOT EXISTS no_${table}_delete BEFORE DELETE ON ${table} BEGIN SELECT RAISE(ABORT,'E-Mail-Nachweise werden nicht gelöscht'); END`
     ])
   ].map(sql=>env.DB.prepare(sql)));
-  const columns=(await env.DB.prepare('PRAGMA table_info(mail_messages)').all()).results.map(column=>column.name);if(!columns.includes('html_body'))await env.DB.prepare("ALTER TABLE mail_messages ADD COLUMN html_body TEXT NOT NULL DEFAULT ''").run();
+  const columns=(await env.DB.prepare('PRAGMA table_info(mail_messages)').all()).results.map(column=>column.name);
+  // Zusätzliche Kopfdaten werden nur für neue Nachrichten befüllt; alte Nachweise bleiben unverändert.
+  for(const [name,definition] of [['html_body',"TEXT NOT NULL DEFAULT ''"],['cc_json',"TEXT NOT NULL DEFAULT '[]'"],['bcc_json',"TEXT NOT NULL DEFAULT '[]'"],['reply_to_json',"TEXT NOT NULL DEFAULT '[]'"],['message_id_header','TEXT'],['references_header','TEXT']])if(!columns.includes(name))await env.DB.prepare(`ALTER TABLE mail_messages ADD COLUMN ${name} ${definition}`).run();
   await mailCenterSchema(env);
 }
 
@@ -68,14 +71,6 @@ function validAttachment(bytes,mime){
   return bytes.toString('ascii',0,4)==='RIFF'&&bytes.toString('ascii',8,12)==='WEBP';
 }
 async function existingMessage(env,key){return env.DB.prepare('SELECT id FROM mail_messages WHERE dedupe_key=?').bind(key).first();}
-function safeHtml(value,attachments){
-  if(typeof value!=='string'||!value)return '';let html=value.slice(0,2000000);
-  html=html.replace(/<\s*(script|style|iframe|object|embed|form|svg|math|link|meta|base)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi,'').replace(/<\s*(script|iframe|object|embed|form|svg|math|link|meta|base)\b[^>]*\/?\s*>/gi,'');
-  html=html.replace(/\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,'').replace(/\s+(?:href|src|action|formaction|poster|background)\s*=\s*(["']?)\s*(?:javascript|vbscript|file|https?):[^>]*?(?=\s|\1>)/gi,'');
-  for(const item of attachments)if(item.contentId&&item.archived&&item.mime.startsWith('image/')&&item.size<=2*1024*1024){const data='data:'+item.mime+';base64,'+item.content.toString('base64');html=html.split('cid:'+item.contentId).join(data).split('cid:'+item.contentId.replace(/^<|>$/g,'')).join(data);}
-  return html;
-}
-
 export async function ingestMessage(env,raw,locator,{synthetic=false}={}){
   const bytes=Buffer.from(raw);need(bytes.length>20&&bytes.length<=MAX_MAIL,'E-Mail ist leer oder größer als 25 MB.',413);
   const uid=Number(locator.uid),folder=text(locator.folder||'INBOX',180),uidValidity=text(locator.uidValidity||'0',80);
@@ -85,16 +80,18 @@ export async function ingestMessage(env,raw,locator,{synthetic=false}={}){
   catch{throw new AppError('E-Mail konnte nicht als MIME-Nachricht gelesen werden.',502);}
   need((parsed.attachments??[]).length<=30,'E-Mail enthält mehr als 30 Anhänge.',413);
   const id=randomUUID(),at=new Date().toISOString(),parsedDate=parsed.date&&Number.isFinite(parsed.date.getTime())?parsed.date.toISOString():at;
-  const sender=addresses(parsed.from)[0]??{name:'',address:''},recipients=addresses(parsed.to);
+  const sender=addresses(parsed.from)[0]??{name:'',address:''},recipients=addresses(parsed.to),copies=addresses(parsed.cc),replyAddresses=addresses(parsed.replyTo);
+  const messageIdHeader=/^<[^<>\s]{3,900}>$/.test(text(parsed.messageId,1000))?text(parsed.messageId,1000):null,referencesHeader=(Array.isArray(parsed.references)?parsed.references:parsed.references?[parsed.references]:[]).map(value=>text(value,900)).filter(value=>/^<[^<>\s]{3,900}>$/.test(value)).slice(-20).join(' ')||null;
   const attachments=(parsed.attachments??[]).map((part,index)=>{
     const content=Buffer.from(part.content??[]),mime=text(part.contentType,120).toLowerCase(),archived=validAttachment(content,mime),attachmentId=randomUUID();
     return {id:attachmentId,filename:safeName(part.filename,'Anhang-'+(index+1)+(MIMES[mime]?'.'+MIMES[mime]:'')),mime,size:content.length,sha256:hash(content),archived,content,contentId:text(part.contentId,300),documentId:archived?attachmentId:null};
   });
   const stored=[];try{
     for(const attachment of attachments)if(attachment.archived){await env.BUCKET.put(attachment.id,attachment.content,{httpMetadata:{contentType:attachment.mime}});stored.push(attachment.id);}
+    const inline=attachments.filter(item=>item.contentId&&/^image\/(png|jpeg|gif|webp)$/.test(item.mime)&&item.size<=2*1024*1024);
     const statements=[env.DB.prepare(`INSERT INTO mail_messages(
-      id,dedupe_key,synthetic,direction,folder,uid,uid_validity,message_id_hash,from_name,from_address,to_json,subject,text_body,html_body,received_at,imported_at)
-      VALUES(?,?,?,'INBOUND',?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,key,synthetic?1:0,folder,uid,uidValidity,parsed.messageId?hash(parsed.messageId):null,sender.name,sender.address,JSON.stringify(recipients),text(parsed.subject||'(Ohne Betreff)',500),text(parsed.text,200000),safeHtml(parsed.html,attachments),parsedDate,at)];
+      id,dedupe_key,synthetic,direction,folder,uid,uid_validity,message_id_hash,from_name,from_address,to_json,subject,text_body,html_body,received_at,imported_at,cc_json,reply_to_json,message_id_header,references_header)
+      VALUES(?,?,?,'INBOUND',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,key,synthetic?1:0,folder,uid,uidValidity,parsed.messageId?hash(parsed.messageId):null,sender.name,sender.address,JSON.stringify(recipients),text(parsed.subject||'(Ohne Betreff)',500),text(parsed.text,200000),sanitizeInboundHtml(parsed.html,inline),parsedDate,at,JSON.stringify(copies),JSON.stringify(replyAddresses),messageIdHeader,referencesHeader)];
     for(const reference of [parsed.inReplyTo,...(Array.isArray(parsed.references)?parsed.references:[])])if(reference)statements.push(env.DB.prepare('INSERT OR IGNORE INTO mail_thread_links VALUES(?,?)').bind(id,hash(reference)));
     for(const attachment of attachments){
       if(attachment.archived){
@@ -176,71 +173,105 @@ async function saveAccount(env,input){
 }
 
 function deliveryView(row){return {requestId:row.request_id,messageId:row.message_id,status:row.status,acceptedCount:row.accepted_count,rejectedCount:row.rejected_count,providerMessageId:row.provider_message_id,error:row.error,createdAt:row.created_at,updatedAt:row.updated_at};}
+const parse=(value,fallback=[])=>{try{return JSON.parse(value??'')??fallback;}catch{return fallback;}};
+// Empfängerfelder akzeptieren „Name <adresse>“, Komma, Semikolon oder Zeilenumbruch.
+function recipientList(value,label){
+  const items=String(value??'').split(/[,;\n]+/).map(item=>item.trim()).filter(Boolean).map(item=>{const match=/<([^<>]+)>\s*$/.exec(item);return (match?match[1]:item).trim().toLowerCase();});
+  need(items.every(item=>item.length<=320&&EMAIL.test(item)),label+': mindestens eine Adresse ist ungültig.');return [...new Set(items)];
+}
 async function sendMail(env,input){
   need(input.confirmed===true,'Versand muss ausdrücklich bestätigt werden.');need(UUID.test(input.requestId??''),'Versand-ID fehlt oder ist ungültig.');
-  const recipients=String(input.to??'').split(',').map(value=>value.trim().toLowerCase()).filter(Boolean);need(recipients.length>=1&&recipients.length<=10&&recipients.every(value=>EMAIL.test(value)&&value.length<=320),'Bis zu zehn gültige Empfängeradressen erforderlich.');
-  const subject=text(input.subject,500),body=text(input.text,50000);need(subject,'Betreff fehlt.');need(body,'Nachrichtentext fehlt.');
+  const recipients=recipientList(input.to,'Empfänger'),copies=recipientList(input.cc,'Cc'),blind=recipientList(input.bcc,'Bcc');
+  need(recipients.length>=1,'Mindestens eine gültige Empfängeradresse erforderlich.');need(recipients.length+copies.length+blind.length<=20,'Höchstens 20 Empfänger insgesamt (An, Cc und Bcc).');
+  const subject=text(input.subject,500),html=sanitizeComposeHtml(typeof input.html==='string'?input.html:''),body=text(input.text,50000)||text(htmlToText(html),50000);need(subject,'Betreff fehlt.');need(body,'Nachrichtentext fehlt.');
   const replyTo=input.replyTo?text(input.replyTo,36):null;need(!replyTo||UUID.test(replyTo),'Antwortbezug ist ungültig.');const original=replyTo?await env.DB.prepare('SELECT * FROM mail_messages WHERE id=? AND synthetic=0').bind(replyTo).first():null;if(replyTo)need(original,'Antwortbezug nicht gefunden.',404);
   const {row,password}=await accountCredentials(env);need(row.smtp_verified_at,'SMTP-Verbindung zuerst erfolgreich prüfen.',409);
   const previous=await env.DB.prepare('SELECT * FROM mail_deliveries WHERE request_id=?').bind(input.requestId).first();
   if(previous){need(previous.status==='SENT'||previous.status==='PARTIAL','Dieser Versand ist noch ungeklärt. Kein automatischer Neuversuch; bitte zuerst das Postfach prüfen.',409);return {ok:true,status:previous.status,duplicate:true};}
+  const resolved=await resolveAttachments(env,input.attachments??[],0),files=[];
+  for(const item of resolved){const file=await env.BUCKET.get(item.id);need(file&&hash(file.body)===item.sha256,'Anhang „'+item.filename+'“ ist nicht verfügbar oder beschädigt.',503);files.push({...item,content:Buffer.from(file.body),storedId:item.source==='upload'?item.id:randomUUID()});}
+  need(files.reduce((sum,item)=>sum+item.content.length,0)<=ATTACHMENT_LIMITS.totalBytes,'Anhänge sind zusammen größer als 15 MB.',413);
   const id=randomUUID(),at=new Date().toISOString(),key='OUTBOUND:'+input.requestId,providerId='<'+input.requestId+'@white-gloss.local>';
+  const inReplyTo=original?.message_id_header||null,references=inReplyTo?[original.references_header,inReplyTo].filter(Boolean).join(' ').split(/\s+/).slice(-20).join(' '):null;
+  const copied=[];for(const file of files)if(file.source==='mail'){await env.BUCKET.put(file.storedId,file.content,{httpMetadata:{contentType:file.mime}});copied.push(file.storedId);}
   const statements=[
-    env.DB.prepare(`INSERT INTO mail_messages(id,dedupe_key,synthetic,direction,folder,uid,uid_validity,message_id_hash,from_name,from_address,to_json,subject,text_body,html_body,received_at,imported_at)
-      VALUES(?,?,0,'OUTBOUND','Sent',NULL,NULL,?,?,?,?,?,?,'',?,?)`).bind(id,key,hash(providerId),row.display_name,row.email,JSON.stringify(recipients.map(address=>({name:'',address}))),subject,body,at,at),
-    env.DB.prepare("INSERT INTO mail_deliveries(request_id,message_id,status,created_at,updated_at) VALUES(?,?,'PENDING',?,?)").bind(input.requestId,id,at,at)
-  ];if(original?.message_id_hash)statements.push(env.DB.prepare('INSERT INTO mail_thread_links VALUES(?,?)').bind(id,original.message_id_hash));await env.DB.batch(statements);
-  const message={from:row.display_name?`"${row.display_name.replace(/["\\\r\n]/g,'')}" <${row.email}>`:row.email,to:recipients.join(', '),subject,text:body,messageId:providerId};
+    env.DB.prepare(`INSERT INTO mail_messages(id,dedupe_key,synthetic,direction,folder,uid,uid_validity,message_id_hash,from_name,from_address,to_json,subject,text_body,html_body,received_at,imported_at,cc_json,bcc_json,message_id_header,references_header)
+      VALUES(?,?,0,'OUTBOUND','Sent',NULL,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,key,hash(providerId),row.display_name,row.email,JSON.stringify(recipients.map(address=>({name:'',address}))),subject,body,html,at,at,JSON.stringify(copies.map(address=>({name:'',address}))),JSON.stringify(blind.map(address=>({name:'',address}))),providerId,references),
+    env.DB.prepare("INSERT INTO mail_deliveries(request_id,message_id,status,created_at,updated_at) VALUES(?,?,'PENDING',?,?)").bind(input.requestId,id,at,at),
+    ...files.map(file=>env.DB.prepare('INSERT INTO mail_attachments VALUES(?,?,?,?,?,?,1,NULL)').bind(file.storedId,id,file.filename,file.mime,file.content.length,file.sha256)),
+    ...files.filter(file=>file.source==='upload').map(file=>env.DB.prepare('DELETE FROM mail_uploads WHERE id=?').bind(file.id))
+  ];if(original?.message_id_hash)statements.push(env.DB.prepare('INSERT INTO mail_thread_links VALUES(?,?)').bind(id,original.message_id_hash));
+  try{await env.DB.batch(statements);}catch(error){for(const storedId of copied)await env.BUCKET.delete(storedId).catch(()=>{});throw error;}
+  const message={from:row.display_name?`"${row.display_name.replace(/["\\\r\n]/g,'')}" <${row.email}>`:row.email,to:recipients.join(', '),...(copies.length?{cc:copies.join(', ')}:{}),...(blind.length?{bcc:blind.join(', ')}:{}),subject,text:body,...(html?{html:outboundHtml(html)}:{}),messageId:providerId,...(inReplyTo?{inReplyTo,references}:{}),...(files.length?{attachments:files.map(file=>({filename:file.filename,content:file.content,contentType:file.mime}))}:{})};
   const transporter=env.MAILBOX_ADAPTERS?.sendMail?null:nodemailer.createTransport(smtpConfig(row,password));
   try{
     const result=transporter?await transporter.sendMail(message):await env.MAILBOX_ADAPTERS.sendMail(smtpConfig(row,password),message);
     const accepted=Array.isArray(result.accepted)?result.accepted:[],rejected=Array.isArray(result.rejected)?result.rejected:[],status=accepted.length&&rejected.length?'PARTIAL':accepted.length?'SENT':'FAILED',updatedAt=new Date().toISOString();
     await env.DB.prepare('UPDATE mail_deliveries SET status=?,accepted_count=?,rejected_count=?,provider_message_id=?,provider_response=?,error=?,updated_at=? WHERE request_id=?').bind(status,accepted.length,rejected.length,text(result.messageId,500)||null,text(result.response,500)||null,status==='FAILED'?'SMTP hat keinen Empfänger angenommen. Kein automatischer Neuversuch.':null,updatedAt,input.requestId).run();
     if((status==='SENT'||status==='PARTIAL')&&input.draftId)await deleteDraft(env,text(input.draftId,36),0);
-    return {ok:status!=='FAILED',status,acceptedCount:accepted.length,rejectedCount:rejected.length};
+    return {ok:status!=='FAILED',status,acceptedCount:accepted.length,rejectedCount:rejected.length,messageId:id};
   }catch(error){
     const detail='SMTP-Ergebnis ungeklärt. Kein automatischer Neuversuch; bitte zuerst das Postfach prüfen.';
     await env.DB.prepare("UPDATE mail_deliveries SET status='UNKNOWN',error=?,updated_at=? WHERE request_id=?").bind(detail,new Date().toISOString(),input.requestId).run();throw new AppError(detail,502);
   }finally{transporter?.close();}
 }
 
-function messageView(row){return {id:row.id,direction:row.direction,folder:row.work_folder||row.folder,originalFolder:row.folder,fromName:row.from_name,fromAddress:row.from_address,to:JSON.parse(row.to_json),subject:row.subject,preview:row.text_body.replace(/\s+/g,' ').trim().slice(0,220),receivedAt:row.received_at,importedAt:row.imported_at,read:Boolean(row.read_at),flagged:row.flagged===1,attachmentCount:row.attachment_count,receiptCount:row.receipt_count};}
-async function mailboxView(env,synthetic){
-  const account=publicAccount(await env.DB.prepare('SELECT * FROM mailbox_accounts WHERE id=1').first());
-  const messages=(await env.DB.prepare(`SELECT m.*,s.read_at,s.flagged,s.work_folder,(SELECT COUNT(*) FROM mail_attachments a WHERE a.message_id=m.id) attachment_count,(SELECT COUNT(*) FROM mail_attachments a WHERE a.message_id=m.id AND a.document_id IS NOT NULL) receipt_count FROM mail_messages m LEFT JOIN mail_message_state s ON s.message_id=m.id WHERE m.synthetic=? ORDER BY m.received_at DESC LIMIT 500`).bind(synthetic).all()).results.map(messageView);
+function previewText(row){const raw=row.text_preview||htmlToText(row.html_preview??'');return String(raw).replace(/\s+/g,' ').trim().slice(0,220);}
+function messageView(row,hint){
+  return {id:row.id,direction:row.direction,folder:row.work_folder||row.folder,originalFolder:row.folder,fromName:row.from_name,fromAddress:row.from_address,to:parse(row.to_json),cc:parse(row.cc_json),subject:row.subject,preview:previewText(row),receivedAt:row.received_at,importedAt:row.imported_at,read:row.direction==='OUTBOUND'||Boolean(row.read_at),flagged:row.flagged===1,attachmentCount:row.attachment_count,receiptCount:row.receipt_count,isReply:Number(row.reference_count??0)>0,crm:hint??null};
+}
+const partner=row=>row.direction==='INBOUND'?row.from_address:String(parse(row.to_json)[0]?.address??'').toLowerCase();
+async function mailboxView(env,synthetic,params){
+  const account=publicAccount(await env.DB.prepare('SELECT * FROM mailbox_accounts WHERE id=1').first()),query=listQuery(params);
+  const page=await listMessages(env,synthetic,query),hints=await crmHints(env,synthetic,page.messages.map(partner));
   const deliveries=(await env.DB.prepare('SELECT d.* FROM mail_deliveries d JOIN mail_messages m ON m.id=d.message_id WHERE m.synthetic=? ORDER BY d.created_at DESC LIMIT 50').bind(synthetic).all()).results.map(deliveryView);
-  return {account,messages,deliveries,...await centerData(env,synthetic)};
+  return {account,messages:page.messages.map(row=>messageView(row,hints.get(partner(row)))),total:page.total,offset:page.offset,limit:page.limit,query:{folder:query.view,q:query.q,filter:query.filter,sort:query.sort},counts:await folderCounts(env,synthetic),deliveries,limits:{attachmentBytes:ATTACHMENT_LIMITS.fileBytes,totalBytes:ATTACHMENT_LIMITS.totalBytes,files:ATTACHMENT_LIMITS.files},...await centerData(env,synthetic)};
+}
+async function detailRow(env,id,synthetic){
+  const row=await env.DB.prepare(`SELECT m.*,substr(m.text_body,1,600) text_preview,'' html_preview,s.read_at,s.flagged,s.work_folder,(SELECT COUNT(*) FROM mail_thread_links l WHERE l.message_id=m.id) reference_count FROM mail_messages m LEFT JOIN mail_message_state s ON s.message_id=m.id WHERE m.id=? AND m.synthetic=?`).bind(id,synthetic).first();
+  need(row,'E-Mail nicht gefunden.',404);return row;
 }
 async function messageDetail(env,id,synthetic){
-  const row=await env.DB.prepare('SELECT m.*,s.read_at,s.flagged,s.work_folder FROM mail_messages m LEFT JOIN mail_message_state s ON s.message_id=m.id WHERE m.id=? AND m.synthetic=?').bind(id,synthetic).first();need(row,'E-Mail nicht gefunden.',404);
+  const row=await detailRow(env,id,synthetic);
   const attachments=(await env.DB.prepare('SELECT * FROM mail_attachments WHERE message_id=? ORDER BY filename').bind(id).all()).results.map(item=>({id:item.id,filename:item.filename,mime:item.mime,size:item.size,archived:item.archived===1,documentId:item.document_id}));
-  return {message:{...messageView({...row,attachment_count:attachments.length,receipt_count:attachments.filter(item=>item.documentId).length}),textBody:row.text_body,htmlBody:row.html_body},attachments,crm:await crmLinks(env,row,synthetic),thread:await threadMessages(env,row,synthetic)};
+  const rendered=row.html_body?mailDocument(row.html_body,{images:false}):null;
+  return {message:{...messageView({...row,attachment_count:attachments.length,receipt_count:attachments.filter(item=>item.documentId).length}),bcc:parse(row.bcc_json),replyTo:parse(row.reply_to_json),textBody:row.text_body,hasHtml:Boolean(row.html_body),htmlBody:rendered?rendered.html:'',blockedImages:rendered?rendered.blockedImages:0,threadable:Boolean(row.message_id_header)},attachments,crm:await crmLinks(env,row,synthetic),thread:await threadMessages(env,row,synthetic)};
+}
+async function messageDocument(env,id,synthetic,images){
+  const row=await env.DB.prepare('SELECT html_body FROM mail_messages WHERE id=? AND synthetic=?').bind(id,synthetic).first();need(row&&row.html_body,'E-Mail nicht gefunden.',404);
+  return new Response(mailDocument(row.html_body,{images}).html,{headers:{'Content-Type':'text/html; charset=utf-8','Content-Security-Policy':mailDocumentPolicy(images),'X-Frame-Options':'SAMEORIGIN','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'}});
 }
 
 export async function handleMailbox(env,request,isOwner){
   const url=new URL(request.url),path=url.pathname;if(path!==ROOT&&!path.startsWith(ROOT+'/'))return null;need(isOwner,'Nur für den Betreiber vorgesehen.',403);const synthetic=url.searchParams.get('test')==='true'?1:0;
-  if(request.method==='GET'&&path===ROOT)return response(await mailboxView(env,synthetic));
+  if(request.method==='GET'&&path===ROOT)return response(await mailboxView(env,synthetic,url.searchParams));
+  const view=/^\/api\/mailbox\/message\/([0-9a-f-]{36})\/view$/.exec(path);
+  if(request.method==='GET'&&view){need(UUID.test(view[1]),'E-Mail nicht gefunden.',404);return messageDocument(env,view[1],synthetic,url.searchParams.get('images')==='1');}
   if(request.method==='GET'&&path.startsWith(ROOT+'/message/')){const id=path.slice((ROOT+'/message/').length);need(UUID.test(id),'E-Mail nicht gefunden.',404);return response(await messageDetail(env,id,synthetic));}
   if(request.method==='GET'&&path.startsWith(ROOT+'/attachment/')){
     const id=path.slice((ROOT+'/attachment/').length);need(UUID.test(id),'Anhang nicht gefunden.',404);const row=await env.DB.prepare('SELECT a.* FROM mail_attachments a JOIN mail_messages m ON m.id=a.message_id WHERE a.id=? AND a.archived=1 AND m.synthetic=?').bind(id,synthetic).first();need(row,'Anhang nicht gefunden oder nicht unterstützt.',404);
     const file=await env.BUCKET.get(id);need(file&&hash(file.body)===row.sha256,'Anhang nicht verfügbar oder Integritätsprüfung fehlgeschlagen.',503);
-    return new Response(file.body,{headers:{'Content-Type':row.mime,'Content-Disposition':'inline; filename="Anhang"','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+    return new Response(file.body,{headers:{'Content-Type':row.mime,'Content-Disposition':(url.searchParams.get('download')==='1'?'attachment':'inline')+"; filename=\"Anhang\"; filename*=UTF-8''"+encodeURIComponent(row.filename),'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
   }
+  if(request.method==='POST'&&path===ROOT+'/upload')return response(await storeUpload(env,request,synthetic));
+  if(request.method==='POST'&&path===ROOT+'/upload/delete')return response(await deleteUpload(env,await bodyJSON(request),synthetic));
   if(request.method==='POST'&&path===ROOT+'/state')return response(await changeState(env,await bodyJSON(request),synthetic));
   if(request.method==='POST'&&path===ROOT+'/folder')return response(await createFolder(env,await bodyJSON(request)));
+  if(request.method==='POST'&&path===ROOT+'/folder/delete')return response(await deleteFolder(env,await bodyJSON(request)));
   if(request.method==='POST'&&path===ROOT+'/note')return response(await saveNote(env,await bodyJSON(request),synthetic));
   if(request.method==='POST'&&path===ROOT+'/note/delete')return response(await deleteNote(env,await bodyJSON(request),synthetic));
-  if(request.method==='POST'&&path===ROOT+'/draft')return response(await saveDraft(env,await bodyJSON(request),synthetic));
+  if(request.method==='POST'&&path===ROOT+'/draft')return response(await saveDraft(env,await bodyJSON(request,400000),synthetic));
   if(request.method==='POST'&&path===ROOT+'/draft/delete'){const input=await bodyJSON(request);return response(await deleteDraft(env,text(input.id,36),synthetic));}
   if(request.method==='POST'&&path===ROOT+'/reply-suggestion')return suggestReply(env,await bodyJSON(request),synthetic);
   if(request.method==='POST'&&path===ROOT+'/settings')return response(await saveAccount(env,await bodyJSON(request,16000)));
   if(request.method==='POST'&&path===ROOT+'/check'){const input=await bodyJSON(request);return response(await checkMailbox(env,input.kind));}
   if(request.method==='POST'&&path===ROOT+'/sync'){await bodyJSON(request);need(!synthetic,'Im Testbereich wird kein echtes Postfach abgerufen.',409);return response(await syncMailbox(env));}
-  if(request.method==='POST'&&path===ROOT+'/send'){const input=await bodyJSON(request);need(!synthetic,'Im Testbereich wird keine E-Mail versendet.',409);return response(await sendMail(env,input));}
+  if(request.method==='POST'&&path===ROOT+'/send'){const input=await bodyJSON(request,400000);need(!synthetic,'Im Testbereich wird keine E-Mail versendet.',409);return response(await sendMail(env,input));}
   return response({error:'Funktion nicht gefunden.'},404);
 }
 
 export async function mailboxBackground(env){
+  await pruneUploads(env).catch(()=>0);
   const row=await env.DB.prepare('SELECT sync_approved,imap_verified_at FROM mailbox_accounts WHERE id=1').first();if(!row||row.sync_approved!==1||!row.imap_verified_at)return {skipped:true};
   return syncMailbox(env,{automatic:true});
 }

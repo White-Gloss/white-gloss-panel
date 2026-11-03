@@ -1,69 +1,548 @@
-// Communication Center: sichere Originalnachweise plus veränderliche CRM-Metadaten.
+// Communication Center: E-Mail, Termine, Notizen und laufende Aufträge in einer Arbeitsfläche.
+// Originalnachweise bleiben serverseitig unveränderlich; Ordner, Markierungen und Notizen sind CRM-Metadaten.
 import {mountTextAssistant} from './assistant.js';
-const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-const date=value=>value?new Intl.DateTimeFormat('de-DE',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}).format(new Date(value)):'—';
-const size=value=>value<1024?value+' B':value<1024*1024?(value/1024).toFixed(0)+' KB':(value/1024/1024).toFixed(1)+' MB';
-const initials=mail=>String(mail.direction==='INBOUND'?mail.fromName||mail.fromAddress:mail.to[0]?.name||mail.to[0]?.address||'WG').split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase();
-const folderLabels={INBOX:'Posteingang',Sent:'Gesendet',Archive:'Archiv',Spam:'Spam',Trash:'Papierkorb'};
-const styles=[['short','Kurz'],['friendly','Freundlich'],['professional','Professionell'],['appointment','Termin erfragen'],['question','Rückfrage'],['detailed','Ausführlich']];
 
-export function mountMailbox(root,{synthetic=false,toast=()=>{}}={}){
+const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+const TZ='Europe/Berlin';
+const fmt={
+  time:new Intl.DateTimeFormat('de-DE',{timeZone:TZ,hour:'2-digit',minute:'2-digit'}),
+  weekday:new Intl.DateTimeFormat('de-DE',{timeZone:TZ,weekday:'short'}),
+  dayMonth:new Intl.DateTimeFormat('de-DE',{timeZone:TZ,day:'numeric',month:'short'}),
+  short:new Intl.DateTimeFormat('de-DE',{timeZone:TZ,day:'2-digit',month:'2-digit',year:'2-digit'}),
+  full:new Intl.DateTimeFormat('de-DE',{timeZone:TZ,weekday:'short',day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}),
+  key:new Intl.DateTimeFormat('sv-SE',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}),
+  dayLabel:new Intl.DateTimeFormat('de-DE',{timeZone:TZ,weekday:'long',day:'numeric',month:'long'}),
+  dayShort:new Intl.DateTimeFormat('de-DE',{timeZone:TZ,weekday:'short'}),
+  dayNumber:new Intl.DateTimeFormat('de-DE',{timeZone:TZ,day:'numeric'})
+};
+const valid=value=>value&&Number.isFinite(new Date(value).getTime());
+const dayKey=value=>fmt.key.format(new Date(value));
+function when(value){
+  if(!valid(value))return '—';const date=new Date(value),today=dayKey(Date.now()),key=dayKey(date);
+  if(key===today)return fmt.time.format(date);const diff=(Date.parse(today)-Date.parse(key))/86400000;
+  if(diff>0&&diff<6)return fmt.weekday.format(date);if(key.slice(0,4)===today.slice(0,4))return fmt.dayMonth.format(date);return fmt.short.format(date);
+}
+const full=value=>valid(value)?fmt.full.format(new Date(value)):'—';
+const size=value=>value<1024?value+' B':value<1024*1024?Math.round(value/1024)+' KB':(value/1024/1024).toFixed(1).replace('.',',')+' MB';
+const plural=(count,one,many)=>`${count} ${count===1?one:many}`;
+const hue=value=>{let sum=0;for(const char of String(value??''))sum=(sum*31+char.charCodeAt(0))>>>0;return sum%8;};
+const initialsOf=value=>String(value||'?').replace(/<.*>/,'').replace(/["']/g,'').trim().split(/[\s@._-]+/).filter(Boolean).slice(0,2).map(part=>part[0]).join('').toUpperCase()||'?';
+const partnerOf=mail=>mail.direction==='INBOUND'?{name:mail.fromName,address:mail.fromAddress}:{name:mail.to?.[0]?.name??'',address:mail.to?.[0]?.address??''};
+const avatar=(name,address,extra='')=>`<span class="cc-avatar cc-hue-${hue(address||name)} ${extra}" aria-hidden="true">${esc(initialsOf(name||address))}</span>`;
+
+const ICONS={home:'M3 10 12 3l9 7M5 9v11h14V9M9 20v-7h6v7',inbox:'M3 13h5l1 3h6l1-3h5M5 5h14l2 8v6H3v-6z',unread:'M3 6h18v12H3zM3 6l9 7 9-7',flag:'M5 21V4M5 4h11l-2 4 2 4H5',draft:'M4 20h4L19 9l-4-4L4 16zM14 6l4 4',sent:'M3 11 21 3l-8 18-2-8z',archive:'M3 4h18v4H3zM5 8v12h14V8M10 12h4',spam:'M12 3 3 7v5c0 5 4 8 9 9 5-1 9-4 9-9V7zM12 8v5M12 16v.5',trash:'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13',folder:'M3 6h6l2 2h10v11H3z',car:'M4 15h16l-2-7H6zM3 15v5M21 15v5M6 17h1M17 17h1M7 8l1-4h8l1 4',calendar:'M4 5h16v16H4zM8 3v4M16 3v4M4 10h16',note:'M5 3h11l3 3v15H5zM9 9h6M9 13h6M9 17h3',chat:'M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z',people:'M16 21v-3a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v3M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8',reply:'M10 9V5l-7 7 7 7v-4c5 0 8 1 11 5-1-6-4-10-11-11',replyAll:'M7 9V5l-6 7 6 7v-4M13 9V5l-7 7 7 7v-4c4 0 7 1 9 5-1-6-3-10-9-11',forward:'M14 9V5l7 7-7 7v-4c-5 0-8 1-11 5 1-6 4-10 11-11',clip:'M20 11l-8 8a5 5 0 0 1-7-7l8-8a3 3 0 0 1 5 4l-8 8a1 1 0 0 1-2-2l7-7',star:'M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z',eye:'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6',close:'M6 6l12 12M18 6 6 18',back:'M20 12H4M10 6l-6 6 6 6',menu:'M4 6h16M4 12h16M4 18h16',plus:'M12 5v14M5 12h14',settings:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2',sync:'M20 6v5h-5M4 18v-5h5M6 9a7 7 0 0 1 12-2l2 4M18 15a7 7 0 0 1-12 2l-2-4',search:'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14M20 20l-4-4',check:'M4 12l5 5L20 6',move:'M3 6h6l2 2h10v11H3zM12 11v6M9 14l3 3 3-3',lock:'M6 11h12v10H6zM8 11V7a4 4 0 0 1 8 0v4',arrow:'M5 12h14M13 6l6 6-6 6',pin:'M9 3h6l-1 6 4 4H6l4-4zM12 13v8',bold:'M7 4h6a4 4 0 0 1 0 8H7zM7 12h7a4 4 0 0 1 0 8H7z',italic:'M10 4h8M6 20h8M14 4 10 20',underline:'M7 4v7a5 5 0 0 0 10 0V4M5 20h14',list:'M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01',olist:'M10 6h10M10 12h10M10 18h10M4 4v4M3 12h2l-2 3h2M3 17h2v4H3',link:'M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1',quote:'M7 7h4v6H5V9M15 7h4v6h-6V9M7 13l-2 4M15 13l-2 4',clear:'M5 5l14 14M9 5h9M12 5l-4 14'};
+const icon=(name,extra='')=>`<svg class="cc-icon ${extra}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name]??ICONS.folder}"/></svg>`;
+
+const SECTIONS=[['home','Übersicht','home'],['mail','E-Mail','inbox'],['orders','Laufende Aufträge','car'],['calendar','Kalender','calendar'],['notes','Notizen','note']];
+const FOLDERS=[['INBOX','Posteingang','inbox'],['Unread','Ungelesen','unread'],['Flagged','Wichtig','flag'],['Drafts','Entwürfe','draft'],['Sent','Gesendet','sent'],['Archive','Archiv','archive'],['Spam','Spam','spam'],['Trash','Papierkorb','trash']];
+const FOLDER_LABEL={...Object.fromEntries(FOLDERS.map(([id,label])=>[id,label])),all:'Alle E-Mails'};
+const MOVE_TARGETS=[['INBOX','Posteingang'],['Archive','Archiv'],['Spam','Spam'],['Trash','Papierkorb']];
+const FILTERS=[['all','Alle'],['unread','Ungelesen'],['flagged','Markiert'],['attachments','Mit Anhang'],['crm','CRM-Bezug']];
+const STYLES=[['short','Kurz'],['friendly','Freundlich'],['professional','Professionell'],['appointment','Termin erfragen'],['question','Rückfrage'],['detailed','Ausführlich']];
+const RUNNING=['Angenommen','Termin verbindlich','In Arbeit'];
+const CLOSED=['Abgelehnt','Storniert','Abgelaufen'];
+const UPLOAD_TYPES={'application/pdf':'PDF','image/jpeg':'JPG','image/png':'PNG','image/webp':'WEBP'};
+const NEXT_STEP={'Angenommen':'Termin festlegen','Termin verbindlich':'Annahmeprotokoll erstellen','In Arbeit':'Arbeit abschließen und Rückgabe dokumentieren'};
+
+// Ansicht bleibt beim erneuten Öffnen des Bereichs erhalten (z. B. nach einem geöffneten Auftrag).
+const memory=new Map();let keyHandler=null;
+function remembered(synthetic){
+  let value=memory.get(synthetic);if(value)return value;let section='home';
+  try{const stored=localStorage.getItem('wg-cc-section');if(SECTIONS.some(([id])=>id===stored))section=stored;}catch{/* Ohne lokalen Speicher startet die Übersicht. */}
+  value={section,folder:'INBOX',query:'',filter:'all',sort:'newest',openId:null,images:new Set(),noteQuery:'',noteFilter:'all',orderQuery:'',calendarDay:null};memory.set(synthetic,value);return value;
+}
+
+export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],markSaved=()=>{}}={}){
   if(!root)return;
-  let data={account:null,messages:[],deliveries:[],folders:[],notes:[],drafts:[]},detail=null,section='mail',folder='INBOX',query='',filter='all',sort='newest',page=0,composeOpen=false,compose=null,busy=false,loading=true;
-  async function api(path='',payload){const query=synthetic?(path.includes('?')?'&':'?')+'test=true':'';const response=await fetch('/api/mailbox'+path+query,{method:payload===undefined?'GET':'POST',headers:payload===undefined?{}:{'Content-Type':'application/json'},body:payload===undefined?undefined:JSON.stringify(payload),credentials:'same-origin'});const result=await response.json().catch(()=>({error:'Postfachantwort konnte nicht gelesen werden.'}));if(!response.ok)throw Error(result.error??'Postfachzugriff fehlgeschlagen.');return result;}
-  function message(value,error=false){const element=root.querySelector('[data-mailbox-message]');if(element){element.textContent=value;element.classList.toggle('error',error);}if(!error&&value)toast(value);}
-  function accountForm(account){return `<details class="card formsection mailbox-settings"><summary>Postfachverbindung & Versandprotokoll</summary><p>IMAP und SMTP werden getrennt geprüft. Zugangsdaten bleiben verschlüsselt auf dem Server.</p><form id="mailbox-account"><div class="grid2"><label>Absenderadresse<input type="email" name="email" maxlength="320" required value="${esc(account?.email??'')}"></label><label>Anzeigename<input name="displayName" maxlength="180" value="${esc(account?.displayName??'White Gloss')}"></label></div><div class="grid2"><label>IMAP-Server<input name="imapHost" required value="${esc(account?.imapHost??'')}"></label><label>IMAP-Port<input type="number" name="imapPort" min="1" max="65535" required value="${account?.imapPort??993}"></label></div><label class="check"><input type="checkbox" name="imapSecure" ${account?.imapSecure!==false?'checked':''}>Direkte TLS-Verbindung für IMAP</label><div class="grid2"><label>SMTP-Server<input name="smtpHost" required value="${esc(account?.smtpHost??'')}"></label><label>SMTP-Port<input type="number" name="smtpPort" min="1" max="65535" required value="${account?.smtpPort??465}"></label></div><label class="check"><input type="checkbox" name="smtpSecure" ${account?.smtpSecure!==false?'checked':''}>Direkte TLS-Verbindung für SMTP</label><div class="grid2"><label>Benutzername<input name="username" autocomplete="username" required value="${esc(account?.username??'')}"></label><label>Passwort<input type="password" name="password" autocomplete="new-password" maxlength="500" ${account?'':'required'} placeholder="${account?.passwordConfigured?'Geschützt gespeichert · leer lassen zum Behalten':'Postfachpasswort'}"></label></div><label class="check"><input type="checkbox" name="syncApproved" ${account?.syncApproved?'checked':''}>Geplanten lesenden Hintergrundabruf erlauben</label><div class="actions"><button class="primary" type="submit">Zugang speichern</button><button type="button" data-mail-check="imap" ${account?'':'disabled'}>IMAP prüfen</button><button type="button" data-mail-check="smtp" ${account?'':'disabled'}>SMTP prüfen</button></div></form>${data.deliveries.length?`<div class="tablewrap"><table><thead><tr><th>Zeitpunkt</th><th>Status</th><th>Angenommen</th><th>Hinweis</th></tr></thead><tbody>${data.deliveries.slice(0,12).map(item=>`<tr><td>${esc(date(item.createdAt))}</td><td>${esc(item.status)}</td><td>${item.acceptedCount}</td><td>${esc(item.error||'SMTP-Antwort gespeichert')}</td></tr>`).join('')}</tbody></table></div>`:''}</details>`;}
-  const inFolder=(mail,name)=>{
-    if(name==='Unread')return !mail.read&&mail.direction==='INBOUND';
-    if(name==='Flagged')return mail.flagged;
-    if(name==='Drafts')return false;
-    if(name==='INBOX')return mail.direction==='INBOUND'&&mail.originalFolder==='INBOX'&&(!data.folders.some(f=>f.name===mail.folder)&&!['Archive','Spam','Trash'].includes(mail.folder));
-    if(name==='Sent')return mail.direction==='OUTBOUND'&&mail.folder==='Sent';
-    return mail.folder===name;
-  };
-  function visibleMessages(){let list=data.messages.filter(mail=>inFolder(mail,folder));if(filter==='unread')list=list.filter(mail=>!mail.read);if(filter==='attachments')list=list.filter(mail=>mail.attachmentCount);if(filter==='flagged')list=list.filter(mail=>mail.flagged);const q=query.trim().toLowerCase();if(q)list=list.filter(mail=>[mail.fromName,mail.fromAddress,mail.subject,mail.preview,...mail.to.map(item=>item.address)].join(' ').toLowerCase().includes(q));return list.sort((a,b)=>sort==='oldest'?a.receivedAt.localeCompare(b.receivedAt):sort==='sender'?String(a.fromName||a.fromAddress).localeCompare(String(b.fromName||b.fromAddress),'de'):b.receivedAt.localeCompare(a.receivedAt));}
-  function nav(){const entries=[['INBOX','Posteingang'],['Unread','Ungelesen'],['Flagged','Wichtig'],['Drafts','Entwürfe'],['Sent','Gesendet'],['Archive','Archiv'],['Spam','Spam'],['Trash','Papierkorb']];return `<aside class="communication-folders card"><button class="primary communication-compose" data-mail-compose>Neue E-Mail</button><nav aria-label="E-Mail-Bereiche">${entries.map(([id,label])=>{const count=id==='Drafts'?data.drafts.length:data.messages.filter(mail=>inFolder(mail,id)).length;return `<button class="${folder===id&&section==='mail'?'active':''}" data-mail-folder="${id}"><span>${label}</span><small>${count}</small></button>`;}).join('')}</nav>${data.folders.length?`<div class="mail-custom-folders"><span class="eyebrow">CRM-ORDNER</span>${data.folders.map(item=>`<button class="${folder===item.name?'active':''}" data-mail-folder="${esc(item.name)}"><span>${esc(item.name)}</span><small>${data.messages.filter(mail=>inFolder(mail,item.name)).length}</small></button>`).join('')}</div>`:''}<form data-mail-new-folder class="mail-new-folder"><input name="name" maxlength="60" required placeholder="Eigener Ordner" aria-label="Name für eigenen Ordner"><button class="smallbtn" type="submit" aria-label="Ordner anlegen">+</button></form><div class="communication-shortcuts"><span class="eyebrow">DIREKT ZUM CRM</span><button data-view="active">Laufende Aufträge <span>→</span></button><button data-view="calendar">Kalender <span>→</span></button><button data-view="whatsapp">WhatsApp <span>→</span></button><button class="${section==='notes'?'active':''}" data-mail-notes>Notizen <span>${data.notes.length}</span></button></div></aside>`;}
-  function listHTML(){if(folder==='Drafts')return `<section class="card communication-list"><div class="mail-list-toolbar"><strong>Entwürfe</strong><small>${data.drafts.length}</small></div>${data.drafts.length?data.drafts.map(draft=>`<button class="mail-list-item" data-mail-draft="${draft.id}"><span class="mail-list-top"><strong>${esc(draft.to||'Ohne Empfänger')}</strong><time>${esc(date(draft.updatedAt))}</time></span><span class="mail-list-subject">${esc(draft.subject||'Ohne Betreff')}</span><small>${esc(draft.text.slice(0,140)||'Noch kein Nachrichtentext')}</small></button>`).join(''):empty('Keine Entwürfe','Speichern Sie eine begonnene E-Mail als Entwurf.')}</section>`;
-    const list=visibleMessages(),pages=Math.max(1,Math.ceil(list.length/40));page=Math.min(page,pages-1);const shown=list.slice(page*40,page*40+40);
-    return `<section class="card communication-list"><div class="mail-list-toolbar"><div class="mail-search"><input type="search" value="${esc(query)}" placeholder="Absender, Betreff oder Inhalt" aria-label="E-Mails durchsuchen" data-mail-search><select aria-label="Filter" data-mail-filter><option value="all" ${filter==='all'?'selected':''}>Alle</option><option value="unread" ${filter==='unread'?'selected':''}>Ungelesen</option><option value="attachments" ${filter==='attachments'?'selected':''}>Mit Anhang</option><option value="flagged" ${filter==='flagged'?'selected':''}>Markiert</option></select><select aria-label="Sortierung" data-mail-sort><option value="newest" ${sort==='newest'?'selected':''}>Neueste</option><option value="oldest" ${sort==='oldest'?'selected':''}>Älteste</option><option value="sender" ${sort==='sender'?'selected':''}>Absender</option></select></div></div><div class="mail-list-items">${shown.length?shown.map(mail=>`<button class="mail-list-item ${detail?.message.id===mail.id?'active':''} ${mail.read?'':'unread'}" data-mail-open="${mail.id}"><span class="mail-avatar" aria-hidden="true">${esc(initials(mail))}</span><span class="mail-list-content"><span class="mail-list-top"><strong>${esc(mail.direction==='INBOUND'?mail.fromName||mail.fromAddress:mail.to.map(item=>item.address).join(', '))}</strong><time>${esc(date(mail.receivedAt))}</time></span><span class="mail-list-subject">${esc(mail.subject)}</span><span class="mail-list-preview">${esc(mail.preview||'Keine Textvorschau')}</span><small>${mail.flagged?'★ Wichtig · ':''}${mail.attachmentCount?'📎 '+mail.attachmentCount+' Anhang'+(mail.attachmentCount===1?'':'e'):'Ohne Anhang'}</small></span></button>`).join(''):empty('Keine E-Mails gefunden',query?'Passen Sie Suche oder Filter an.':'Dieser Bereich enthält derzeit keine Nachrichten.')}</div>${pages>1?`<div class="mail-pagination"><button class="smallbtn" data-mail-page="-1" ${page===0?'disabled':''}>Zurück</button><span>Seite ${page+1} von ${pages} · ${list.length} E-Mails</span><button class="smallbtn" data-mail-page="1" ${page>=pages-1?'disabled':''}>Weiter</button></div>`:''}</section>`;}
-  const empty=(title,body)=>`<div class="communication-empty"><span aria-hidden="true">✉</span><h3>${title}</h3><p>${body}</p></div>`;
-  function crmHTML(){if(!detail)return '';const {customers,orders}=detail.crm;if(!customers.length&&!orders.length)return '';return `<aside class="mail-crm-links"><div><span class="eyebrow">EINDEUTIGE E-MAIL-ZUORDNUNG</span><small>Nur exakt gespeicherte E-Mail-Adressen · keine automatische Änderung</small></div>${customers.map(item=>`<button class="smallbtn" data-customer="${item.id}">${esc(item.name||item.company||'Kunde')} · Kundenakte</button>`).join('')}${orders.map(item=>`<button class="smallbtn" data-order="${item.id}">${esc(item.wg)} · ${esc(item.status)}${item.vehicle?' · '+esc(item.vehicle):''}</button>`).join('')}</aside>`;}
-  function reader(){if(!detail)return `<section class="card communication-reader">${empty('E-Mail auswählen','Wählen Sie eine Nachricht. Der Verlauf und passende CRM-Vorgänge erscheinen hier.')}</section>`;const mail=detail.message,html=mail.htmlBody?`<iframe class="mail-html-frame" title="Sichere HTML-Darstellung der E-Mail" sandbox="" referrerpolicy="no-referrer" srcdoc="<meta charset=&quot;utf-8&quot;><style>body{font:14px/1.55 Arial,sans-serif;color:#20272e;padding:18px;word-wrap:break-word}img{max-width:100%;height:auto}table{max-width:100%}</style>${esc(mail.htmlBody)}"></iframe>`:`<div class="mail-plaintext">${esc(mail.textBody||'Diese E-Mail enthält keinen lesbaren Text.')}</div>`;
-    return `<section class="card communication-reader"><div class="mail-reader-head"><div><span class="eyebrow">${mail.direction==='INBOUND'?'EINGEGANGEN':'AUSGEHEND'} · ${esc(date(mail.receivedAt))}</span><h2>${esc(mail.subject)}</h2><p>Von ${esc(mail.fromName?mail.fromName+' · ':'')}${esc(mail.fromAddress||'Unbekannt')}<br>An ${esc(mail.to.map(item=>item.address).join(', ')||'—')}</p></div><button class="smallbtn" data-mail-close aria-label="E-Mail schließen">×</button></div><div class="mail-message-actions">${mail.direction==='INBOUND'?'<button class="primary" data-mail-reply>Antworten</button>':''}<button data-mail-forward>Weiterleiten</button><button data-mail-state="flagged">${mail.flagged?'Markierung entfernen':'Als wichtig markieren'}</button><button data-mail-state="read">${mail.read?'Als ungelesen markieren':'Als gelesen markieren'}</button><select data-mail-move aria-label="In Ordner verschieben"><option value="">Verschieben …</option>${Object.entries(folderLabels).map(([id,label])=>`<option value="${id}">${label}</option>`).join('')}${data.folders.map(item=>`<option value="${esc(item.name)}">${esc(item.name)}</option>`).join('')}</select></div>${crmHTML()}${html}${detail.attachments.length?`<div class="mail-attachments"><h3>Anhänge · ${detail.attachments.length}</h3>${detail.attachments.map(item=>`<div class="mail-attachment"><div><strong>${esc(item.filename)}</strong><small>${esc(item.mime)} · ${size(item.size)}${item.documentId?' · ungeklärter Beleg':item.archived?' · privat archiviert':' · nicht unterstützt'}</small></div>${item.archived?`<a class="smallbtn" href="/api/mailbox/attachment/${item.id}${synthetic?'?test=true':''}" target="_blank" rel="noopener noreferrer">Öffnen</a>`:''}${item.documentId?'<button class="smallbtn" data-view="finance-receipts">Belegprüfung</button>':''}</div>`).join('')}</div>`:''}${detail.thread.length>1?`<div class="mail-thread"><h3>Nachrichtenverlauf</h3>${detail.thread.map(item=>`<button data-mail-open="${item.id}" class="${item.id===mail.id?'active':''}"><strong>${esc(item.direction==='INBOUND'?item.fromName||item.fromAddress:'White Gloss')}</strong><time>${esc(date(item.receivedAt))}</time><span>${esc(item.preview)}</span></button>`).join('')}</div>`:''}${mail.direction==='INBOUND'?`<div class="mail-ai-replies"><div><strong>KI-Antwortvorschlag</strong><small>Der Nachrichtentext wird erst nach Ihrem Klick übertragen. Es wird nichts versendet.</small></div><div>${styles.map(([id,label])=>`<button class="smallbtn" data-mail-ai="${id}">${label}</button>`).join('')}</div></div>`:''}</section>`;}
-  function composeHTML(){if(!composeOpen)return '';const value=compose??{to:'',subject:'',text:'',replyTo:null,id:null};return `<div class="mail-compose-backdrop"><section class="card mail-compose-window" role="dialog" aria-modal="true" aria-label="E-Mail verfassen"><div class="mail-compose-title"><div><span class="eyebrow">NEUE NACHRICHT</span><strong>${value.replyTo?'Antwort verfassen':'E-Mail verfassen'}</strong></div><button class="smallbtn" data-mail-compose-close aria-label="Editor schließen">×</button></div><form id="mailbox-compose"><label>Empfänger<input type="text" name="to" required value="${esc(value.to)}" placeholder="kunde@example.de"></label><label>Betreff<input name="subject" maxlength="500" required value="${esc(value.subject)}"></label><label>Nachricht<textarea name="text" rows="14" maxlength="50000" required>${esc(value.text)}</textarea></label><label class="check"><input type="checkbox" name="confirmed" required>Empfänger und Inhalt geprüft; jetzt senden.</label><div class="actions"><button type="button" data-mail-save-draft>Entwurf speichern</button><button class="primary" type="submit" ${synthetic||!data.account?.smtpVerifiedAt?'disabled':''}>E-Mail senden</button></div><p class="hint">${synthetic?'Im Testbereich ist der Versand gesperrt.':!data.account?.smtpVerifiedAt?'Zuerst SMTP erfolgreich prüfen.':'Kein automatischer Versand. Entwürfe bleiben bis zum erfolgreichen SMTP-Versand erhalten.'}</p></form></section></div>`;}
-  function notesHTML(){return `<section class="card communication-notes"><div class="card-title"><div><h2>Notizen</h2><small>Interne Arbeitsnotizen mit direktem Bezug zur geöffneten E-Mail oder zum Auftrag</small></div><button class="smallbtn" data-mail-notes-back>Zurück zu E-Mails</button></div><form id="mail-note-form" class="mail-note-editor"><input type="hidden" name="id"><label>Notiz<textarea name="body" rows="5" maxlength="10000" required placeholder="Interne Notiz …"></textarea></label>${detail?`<input type="hidden" name="messageId" value="${detail.message.id}"><label>Verknüpfter Auftrag<select name="orderId"><option value="">Kein Auftrag</option>${detail.crm.orders.map(order=>`<option value="${order.id}">${esc(order.wg)} · ${esc(order.name)} · ${esc(order.vehicle)}</option>`).join('')}</select></label><p class="hint">Verknüpft mit: ${esc(detail.message.subject)}</p>`:'<input type="hidden" name="messageId" value=""><input type="hidden" name="orderId" value="">'}<button class="primary" type="submit">Notiz speichern</button></form><div class="mail-note-list">${data.notes.length?data.notes.map(note=>`<article><p>${esc(note.body)}</p><small>${esc(date(note.updatedAt))}${note.wg?' · '+esc(note.wg):''}${note.subject?' · '+esc(note.subject):''}</small><div class="actions"><button class="smallbtn" data-note-edit="${note.id}">Bearbeiten</button>${note.orderId?`<button class="smallbtn" data-order="${note.orderId}">Auftrag öffnen</button>`:''}${note.messageId?`<button class="smallbtn" data-note-mail="${note.messageId}">E-Mail öffnen</button>`:''}<button class="smallbtn danger" data-note-delete="${note.id}">Löschen</button></div></article>`).join(''):empty('Noch keine Notizen','Die erste interne Notiz ist schnell erstellt.')}</div></section>`;}
-  function draw(){const account=data.account;root.innerHTML=`<div class="communication-center"><section class="mailbox-status card"><div><span class="eyebrow">COMMUNICATION CENTER</span><strong>${esc(account?.email||'Postfach noch nicht eingerichtet')}</strong><small>${account?.lastSyncAt?'Letzter Abruf: '+esc(date(account.lastSyncAt)):'E-Mail, Kalender, Aufträge und Notizen an einem Ort'}</small></div><div class="mailbox-connection"><span class="badge ${account?.imapVerifiedAt?'good':'warn'}">IMAP ${account?.imapVerifiedAt?'verbunden':'offen'}</span><span class="badge ${account?.smtpVerifiedAt?'good':'warn'}">SMTP ${account?.smtpVerifiedAt?'bereit':'offen'}</span><button class="smallbtn" data-mail-sync ${synthetic||!account?.imapVerifiedAt?'disabled':''}>Abrufen</button><button class="smallbtn" data-mail-refresh>Aktualisieren</button></div></section>${account?.lastSyncError?`<p class="notice">Letzter Abruffehler: ${esc(account.lastSyncError)}</p>`:''}<div class="communication-workspace">${nav()}${section==='notes'?notesHTML():listHTML()+reader()}</div>${section==='mail'?accountForm(account):''}<p data-mailbox-message role="status" aria-live="polite"></p></div>${composeHTML()}`;if(composeOpen)mountTextAssistant(root.querySelector('#mailbox-compose textarea[name="text"]'),{synthetic});loading=false;}
-  async function reload(keepDetail=true){data=await api();if(keepDetail&&detail)detail=await api('/message/'+detail.message.id).catch(()=>null);draw();}
-  async function openMail(id,markRead=true){detail=await api('/message/'+id);section='mail';if(markRead&&!detail.message.read)await api('/state',{messageId:id,read:true});data=await api();detail=await api('/message/'+id);folder=detail.message.direction==='OUTBOUND'?'Sent':folder;draw();}
+  const ui=remembered(synthetic);
+  let data=null,list=[],total=0,detail=null,detailState='idle',detailError='',listState='loading',listError='',busy=false,compose=null,selection=new Set(),selectMode=false,railOpen=false,settingsOpen=false,searchTimer=null,loadToken=0,observer=null,confirmDelete=null;
+
+  async function api(path='',payload,params={}){
+    const search=new URLSearchParams(params);if(synthetic)search.set('test','true');const query=search.toString();
+    const response=await fetch('/api/mailbox'+path+(query?'?'+query:''),{method:payload===undefined?'GET':'POST',headers:payload===undefined?{}:{'Content-Type':'application/json'},body:payload===undefined?undefined:JSON.stringify(payload),credentials:'same-origin'});
+    const result=await response.json().catch(()=>({error:'Antwort des Communication Centers konnte nicht gelesen werden.'}));if(!response.ok)throw Error(result.error??'Zugriff auf das Postfach fehlgeschlagen.');return result;
+  }
+  const $=selector=>root.querySelector(selector);
+  const region=name=>root.querySelector(`[data-region="${name}"]`);
+  function message(value,error=false){const element=$('[data-mailbox-message]');if(element){element.textContent=value;element.classList.toggle('error',error);}if(value&&!error)toast(value);if(value&&error)toast(value,{error:true});}
   async function run(action){if(busy)return;busy=true;root.setAttribute('aria-busy','true');try{await action();}catch(error){message(error.message,true);}finally{busy=false;root.removeAttribute('aria-busy');}}
-  function startCompose(values={}){compose={id:null,to:'',subject:'',text:'',replyTo:null,...values};composeOpen=true;draw();root.querySelector('#mailbox-compose [name="to"]').focus();}
+  const allOrders=()=>{try{return (orders()??[]).filter(order=>!order.trash?.deletedAt);}catch{return [];}};
+  const running=()=>allOrders().filter(order=>RUNNING.includes(order.status)).sort((a,b)=>String(a.appointment?.start??'9999').localeCompare(String(b.appointment?.start??'9999')));
+  const appointments=()=>allOrders().filter(order=>valid(order.appointment?.start)&&!CLOSED.includes(order.status)).sort((a,b)=>a.appointment.start.localeCompare(b.appointment.start));
+  const ownAddress=()=>String(data?.account?.email??'').toLowerCase();
+  const counts=name=>data?.counts?.[name]??{total:0,unread:0};
+
+  // ---------- Laden ----------
+  function listParams(append=false){
+    if(ui.section==='home')return {folder:'Unread',limit:'6'};
+    if(ui.section!=='mail'||ui.folder==='Drafts')return {folder:'INBOX',limit:'1'};
+    const params={folder:ui.folder,limit:'50',offset:append?String(list.length):'0'};if(ui.query)params.q=ui.query;if(ui.filter!=='all')params.filter=ui.filter;if(ui.sort!=='newest')params.sort=ui.sort;return params;
+  }
+  async function load({append=false}={}){
+    const token=++loadToken;if(!append){listState='loading';listError='';}
+    try{const result=await api('',undefined,listParams(append));if(token!==loadToken)return false;data=result;list=append?[...list,...result.messages]:result.messages;total=result.total;listState='ready';return true;}
+    catch(error){if(token!==loadToken)return false;listState='error';listError=error.message;if(!data)throw error;return true;}
+  }
+  async function refreshMeta(){const result=await api('',undefined,{folder:'INBOX',limit:'1'}).catch(()=>null);if(result){const keep={messages:data?.messages,total:data?.total};data={...result,...keep};drawRail();drawStatus();}}
+
+  // ---------- Gerüst ----------
+  function sectionTitle(){if(ui.section!=='mail')return SECTIONS.find(([id])=>id===ui.section)?.[1]??'Übersicht';return FOLDER_LABEL[ui.folder]??ui.folder;}
+  function drawAll(){
+    root.innerHTML=`<div class="cc ${railOpen?'cc-rail-open':''}" data-cc data-section="${ui.section}">
+      <header class="cc-head"><div class="cc-head-title"><button type="button" class="cc-icon-btn cc-rail-toggle" data-cc-rail aria-label="Ordner und Bereiche öffnen" aria-expanded="${railOpen}">${icon('menu')}</button><div><span class="eyebrow">COMMUNICATION CENTER${synthetic?' · TESTBEREICH':''}</span><h1 data-cc-title>${esc(sectionTitle())}</h1></div></div><div class="cc-head-status" data-region="status"></div></header>
+      <div class="cc-shell"><aside class="cc-rail" data-region="rail" aria-label="Communication Center"></aside><button type="button" class="cc-rail-backdrop" data-cc-rail-close aria-label="Navigation schließen" tabindex="-1"></button><section class="cc-main" data-region="main"></section></div>
+      <div data-region="compose"></div><div data-region="settings"></div><p class="cc-statusline" data-mailbox-message role="status" aria-live="polite"></p></div>`;
+    drawStatus();drawRail();drawMain();drawCompose();drawSettings();
+  }
+  function drawStatus(){
+    const element=region('status');if(!element)return;const account=data?.account;
+    element.innerHTML=`<div class="cc-account"><strong>${esc(account?.email||'Postfach nicht eingerichtet')}</strong><small>${account?.lastSyncAt?'Abgerufen '+esc(when(account.lastSyncAt)):account?'Noch nicht abgerufen':'IMAP & SMTP verbinden'}</small></div>
+      <span class="cc-pill ${account?.imapVerifiedAt?'good':'warn'}" title="Empfang">IMAP ${account?.imapVerifiedAt?'verbunden':'offen'}</span><span class="cc-pill ${account?.smtpVerifiedAt?'good':'warn'}" title="Versand">SMTP ${account?.smtpVerifiedAt?'bereit':'offen'}</span>
+      <button type="button" class="cc-icon-btn" data-mail-sync ${synthetic||!account?.imapVerifiedAt?'disabled':''} aria-label="Neue E-Mails abrufen" title="Neue E-Mails abrufen">${icon('sync')}</button>
+      <button type="button" class="cc-icon-btn" data-mail-refresh aria-label="Ansicht aktualisieren" title="Aktualisieren">${icon('arrow')}</button>
+      <button type="button" class="cc-icon-btn" data-mail-settings aria-label="Postfach-Einstellungen" title="Postfach-Einstellungen">${icon('settings')}</button>`;
+  }
+  function navButton({id,label,iconName,count=0,unread=0,active=false,attrs=''}){
+    return `<button type="button" class="cc-nav-item ${active?'active':''}" ${attrs} ${active?'aria-current="page"':''}>${icon(iconName)}<span class="cc-nav-label">${esc(label)}</span>${unread?`<span class="cc-count strong" aria-label="${unread} ungelesen">${unread}</span>`:count?`<span class="cc-count">${count}</span>`:''}</button>`;
+  }
+  function drawRail(){
+    const element=region('rail');if(!element)return;const today=dayKey(Date.now()),todayCount=appointments().filter(order=>dayKey(order.appointment.start)===today).length;
+    const mailNav=FOLDERS.map(([id,label,iconName])=>{const c=id==='Drafts'?{total:data?.drafts?.length??0,unread:0}:counts(id);return navButton({id,label,iconName,count:['INBOX','Archive','Spam','Trash'].includes(id)?0:c.total,unread:['INBOX','Unread'].includes(id)?c.unread||(id==='Unread'?c.total:0):['Archive','Spam'].includes(id)?c.unread:0,active:ui.section==='mail'&&ui.folder===id,attrs:`data-mail-folder="${id}"`});}).join('');
+    const custom=(data?.folders??[]).map(item=>`<div class="cc-nav-row">${navButton({label:item.name,iconName:'folder',count:counts(item.name).total,unread:counts(item.name).unread,active:ui.section==='mail'&&ui.folder===item.name,attrs:`data-mail-folder="${esc(item.name)}"`})}<button type="button" class="cc-nav-remove" data-mail-folder-delete="${item.id}" aria-label="Ordner ${esc(item.name)} entfernen" title="Ordner entfernen (E-Mails kehren zurück)">${icon('close')}</button></div>`).join('');
+    element.innerHTML=`<button type="button" class="primary cc-compose-btn" data-mail-compose>${icon('plus')}<span>Neue E-Mail</span></button>
+      <nav class="cc-nav" aria-label="Übersicht">${navButton({label:'Übersicht',iconName:'home',active:ui.section==='home',attrs:'data-cc-section="home"'})}</nav>
+      <nav class="cc-nav" aria-label="E-Mail-Ordner"><span class="cc-nav-heading">E-Mail</span>${mailNav}</nav>
+      <div class="cc-nav"><span class="cc-nav-heading">Eigene Ordner</span>${custom||'<small class="cc-nav-empty">Noch keine eigenen Ordner</small>'}<form class="cc-new-folder" data-mail-new-folder><input name="name" maxlength="60" required placeholder="Neuer Ordner" aria-label="Name für eigenen Ordner"><button type="submit" class="cc-icon-btn" aria-label="Ordner anlegen">${icon('plus')}</button></form></div>
+      <nav class="cc-nav" aria-label="CRM"><span class="cc-nav-heading">CRM</span>
+        ${navButton({label:'Laufende Aufträge',iconName:'car',count:running().length,active:ui.section==='orders',attrs:'data-cc-section="orders"'})}
+        ${navButton({label:'Kalender',iconName:'calendar',count:todayCount,active:ui.section==='calendar',attrs:'data-cc-section="calendar"'})}
+        ${navButton({label:'Notizen',iconName:'note',count:data?.notes?.length??0,active:ui.section==='notes',attrs:'data-mail-notes'})}
+        <button type="button" class="cc-nav-item cc-nav-out" data-view="whatsapp">${icon('chat')}<span class="cc-nav-label">WhatsApp</span>${icon('arrow','cc-out')}</button>
+        <button type="button" class="cc-nav-item cc-nav-out" data-view="customers">${icon('people')}<span class="cc-nav-label">Kunden</span>${icon('arrow','cc-out')}</button>
+      </nav>
+      <p class="cc-rail-note">${icon('lock')}Ordner und Markierungen gelten im Panel. Das Postfach beim Anbieter bleibt unverändert.</p>`;
+    markSaved(element);
+  }
+  function drawMain(){
+    const element=region('main');if(!element)return;const title=$('[data-cc-title]');if(title)title.textContent=sectionTitle();$('[data-cc]')?.setAttribute('data-section',ui.section);
+    disconnectObserver();
+    if(ui.section==='mail'){element.innerHTML=`<div class="cc-mail ${ui.openId?'has-detail':''}"><section class="cc-list" data-region="list" aria-label="Nachrichtenliste"></section><section class="cc-reader" data-region="reader" aria-label="Nachricht"></section></div>`;drawList();drawReader();return;}
+    element.innerHTML=ui.section==='orders'?ordersHTML():ui.section==='calendar'?calendarHTML():ui.section==='notes'?notesHTML():homeHTML();markSaved(element);
+  }
+  function empty(title,body,iconName='inbox',action=''){return `<div class="cc-empty">${icon(iconName,'cc-empty-icon')}<h3>${esc(title)}</h3><p>${esc(body)}</p>${action}</div>`;}
+  function skeleton(rows=6){return `<div class="cc-skeleton" aria-hidden="true">${Array.from({length:rows},()=>'<div class="cc-skeleton-row"><span class="cc-skeleton-avatar"></span><span><i></i><i></i><i></i></span></div>').join('')}</div><p class="visually-hidden">Wird geladen …</p>`;}
+
+  // ---------- Übersicht ----------
+  function homeHTML(){
+    const account=data?.account,unreadMails=list.slice(0,6),agenda=appointments().filter(order=>new Date(order.appointment.end??order.appointment.start).getTime()>=Date.now()-3600000).slice(0,5),active=running().slice(0,5),notes=(data?.notes??[]).slice(0,4),today=dayKey(Date.now());
+    const kpi=(label,value,hint,attrs)=>`<button type="button" class="cc-kpi" ${attrs}><span>${esc(label)}</span><strong>${value}</strong><small>${esc(hint)}</small></button>`;
+    return `<div class="cc-home">
+      ${account?'':`<div class="cc-setup">${icon('lock')}<div><strong>Postfach verbinden</strong><p>IMAP-Empfang und SMTP-Versand werden getrennt geprüft. Zugangsdaten bleiben verschlüsselt auf dem Server.</p></div><button type="button" class="primary" data-mail-settings>Jetzt einrichten</button></div>`}
+      <div class="cc-kpis">${kpi('Ungelesen',counts('Unread').total,'E-Mails ohne Lesestatus','data-mail-folder="Unread"')}${kpi('Wichtig',counts('Flagged').total,'Markierte Nachrichten','data-mail-folder="Flagged"')}${kpi('Laufende Aufträge',running().length,'Angenommen · terminiert · in Arbeit','data-cc-section="orders"')}${kpi('Termine heute',appointments().filter(order=>dayKey(order.appointment.start)===today).length,'Aus den Aufträgen','data-cc-section="calendar"')}${kpi('Entwürfe',data?.drafts?.length??0,'Begonnene E-Mails','data-mail-folder="Drafts"')}</div>
+      <div class="cc-home-grid">
+        <section class="cc-panel"><header><h2>${icon('unread')}Ungelesene E-Mails</h2><button type="button" class="cc-link" data-mail-folder="INBOX">Posteingang öffnen ${icon('arrow')}</button></header>${listState==='loading'?skeleton(3):unreadMails.length?`<div class="cc-mini-list">${unreadMails.map(mail=>`<button type="button" class="cc-mini-mail" data-mail-open="${mail.id}">${avatar(partnerOf(mail).name,partnerOf(mail).address)}<span><strong>${esc(mail.fromName||mail.fromAddress)}</strong><span>${esc(mail.subject)}</span></span><time>${esc(when(mail.receivedAt))}</time></button>`).join('')}</div>`:empty('Alles gelesen','Keine ungelesenen E-Mails im Posteingang.','check')}</section>
+        <section class="cc-panel"><header><h2>${icon('calendar')}Heute & demnächst</h2><button type="button" class="cc-link" data-cc-section="calendar">Kalender ${icon('arrow')}</button></header>${agenda.length?`<div class="cc-mini-list">${agenda.map(order=>`<button type="button" class="cc-mini-event" data-order="${esc(order.id)}"><span class="cc-date-badge"><small>${esc(fmt.dayShort.format(new Date(order.appointment.start)))}</small><strong>${esc(fmt.dayNumber.format(new Date(order.appointment.start)))}</strong></span><span><strong>${esc(fmt.time.format(new Date(order.appointment.start)))} · ${esc(order.source?.name||'Ohne Namen')}</strong><span>${esc([order.source?.vehicle,order.wg].filter(Boolean).join(' · '))}</span></span></button>`).join('')}</div>`:empty('Keine anstehenden Termine','Neue Termine entstehen im Auftrag.','calendar')}</section>
+        <section class="cc-panel"><header><h2>${icon('car')}Laufende Aufträge</h2><button type="button" class="cc-link" data-cc-section="orders">Alle ${icon('arrow')}</button></header>${active.length?`<div class="cc-mini-list">${active.map(order=>`<button type="button" class="cc-mini-order" data-order="${esc(order.id)}"><span class="cc-status-dot ${order.status==='In Arbeit'?'running':order.status==='Termin verbindlich'?'confirmed':'open'}"></span><span><strong>${esc(order.wg)} · ${esc(order.source?.name||'Ohne Namen')}</strong><span>${esc(order.status)} · ${esc(NEXT_STEP[order.status]??'')}</span></span></button>`).join('')}</div>`:empty('Keine laufenden Aufträge','Angenommene Aufträge erscheinen hier automatisch.','car')}</section>
+        <section class="cc-panel"><header><h2>${icon('note')}Notizen</h2><button type="button" class="cc-link" data-mail-notes>Alle ${icon('arrow')}</button></header>${notes.length?`<div class="cc-mini-notes">${notes.map(note=>`<article>${note.pinned?icon('pin','cc-pinned'):''}<p>${esc(note.body.slice(0,180))}</p><small>${esc(when(note.updatedAt))}${note.wg?' · '+esc(note.wg):''}</small></article>`).join('')}</div>`:empty('Noch keine Notizen','Halte Rückrufe und Absprachen direkt fest.','note','<button type="button" class="smallbtn" data-mail-notes>Notiz erstellen</button>')}</section>
+      </div></div>`;
+  }
+
+  // ---------- E-Mail-Liste ----------
+  function drawList(){
+    const element=region('list');if(!element)return;
+    if(ui.folder==='Drafts'){element.innerHTML=`<div class="cc-list-head"><div><h2>Entwürfe</h2><small>${plural(data?.drafts?.length??0,'Entwurf','Entwürfe')}</small></div></div><div class="cc-items" data-region="items">${(data?.drafts??[]).length?data.drafts.map(draft=>`<div class="cc-row" role="button" tabindex="0" data-mail-draft="${draft.id}">${avatar('',draft.to||'?')}<div class="cc-row-body"><div class="cc-row-top"><strong class="cc-sender">${esc(draft.to||'Ohne Empfänger')}</strong><time>${esc(when(draft.updatedAt))}</time></div><div class="cc-row-subject">${esc(draft.subject||'(Ohne Betreff)')}</div><div class="cc-row-preview">${esc(draft.text.slice(0,160)||'Noch kein Nachrichtentext')}</div><div class="cc-row-tags"><span class="cc-tag warn">Entwurf</span>${draft.attachments.length?`<span class="cc-tag">${icon('clip')}${draft.attachments.length}</span>`:''}</div></div></div>`).join(''):empty('Keine Entwürfe','Begonnene E-Mails lassen sich im Editor als Entwurf speichern.','draft')}</div>`;return;}
+    const label=FOLDER_LABEL[ui.folder]??ui.folder,c=counts(ui.folder);
+    element.innerHTML=`<div class="cc-list-head"><div><h2>${esc(label)}</h2><small data-cc-list-count>${listCountText(c)}</small></div><button type="button" class="cc-toggle ${selectMode?'active':''}" data-mail-select-mode aria-pressed="${selectMode}">${icon('check')}<span>Auswählen</span></button></div>
+      <div class="cc-search">${icon('search','cc-search-icon')}<input type="search" value="${esc(ui.query)}" placeholder="Absender, Betreff oder Inhalt suchen" aria-label="E-Mails durchsuchen" data-mail-search enterkeyhint="search" autocomplete="off"><select aria-label="Sortierung" data-mail-sort><option value="newest" ${ui.sort==='newest'?'selected':''}>Neueste zuerst</option><option value="oldest" ${ui.sort==='oldest'?'selected':''}>Älteste zuerst</option><option value="sender" ${ui.sort==='sender'?'selected':''}>Nach Absender</option></select></div>
+      <div class="cc-chips" role="group" aria-label="Filter">${FILTERS.map(([id,text])=>`<button type="button" class="cc-chip ${ui.filter===id?'active':''}" data-mail-filter="${id}" aria-pressed="${ui.filter===id}">${esc(text)}</button>`).join('')}</div>
+      <div class="cc-bulk" data-region="bulk" ${selection.size?'':'hidden'}></div>
+      <div class="cc-items" data-region="items" role="list" aria-busy="${listState==='loading'}"></div>`;
+    drawBulk();drawItems();
+  }
+  function listCountText(c){return listState==='loading'?'Wird geladen …':`${plural(total,'E-Mail','E-Mails')}${ui.query||ui.filter!=='all'?' gefunden':''}${c.unread&&!ui.query&&ui.filter==='all'?' · '+c.unread+' ungelesen':''}`;}
+  function rowHTML(mail){
+    const partner=partnerOf(mail),name=mail.direction==='INBOUND'?mail.fromName||mail.fromAddress:'An: '+(mail.to.map(item=>item.name||item.address).join(', ')||'—'),selected=selection.has(mail.id);
+    const tags=[mail.crm?.order?`<span class="cc-tag crm">${icon('car')}${esc(mail.crm.order)}${mail.crm.status?' · '+esc(mail.crm.status):''}</span>`:'',mail.crm?.customer&&!mail.crm?.order?`<span class="cc-tag crm">${icon('people')}${esc(mail.crm.customer)}</span>`:'',['Unread','Flagged','all'].includes(ui.folder)||ui.query?`<span class="cc-tag">${esc(FOLDER_LABEL[mail.folder]??mail.folder)}</span>`:'',mail.receiptCount?'<span class="cc-tag warn">Beleg</span>':''].join('');
+    return `<div class="cc-row ${mail.read?'':'unread'} ${ui.openId===mail.id?'active':''} ${selected?'selected':''}" role="listitem" tabindex="0" data-mail-open="${mail.id}" aria-label="${esc((mail.read?'':'Ungelesen, ')+name+', '+mail.subject)}">
+      <label class="cc-row-check ${selectMode?'visible':''}" data-mail-quick><input type="checkbox" data-mail-select="${mail.id}" ${selected?'checked':''} aria-label="Auswählen"></label>
+      ${avatar(partner.name,partner.address)}
+      <div class="cc-row-body"><div class="cc-row-top"><strong class="cc-sender">${esc(name)}</strong><span class="cc-row-icons">${mail.attachmentCount?icon('clip','cc-mini'):''}${mail.flagged?icon('star','cc-mini cc-flagged'):''}</span><time datetime="${esc(mail.receivedAt)}">${esc(when(mail.receivedAt))}</time></div>
+      <div class="cc-row-subject">${mail.isReply?'<span class="cc-reply-mark">↩</span>':''}${esc(mail.subject)}</div><div class="cc-row-preview">${esc(mail.preview||'Keine Textvorschau')}</div>${tags?`<div class="cc-row-tags">${tags}</div>`:''}</div>
+      <div class="cc-row-actions" data-mail-quick><button type="button" data-mail-quick-action="read" data-id="${mail.id}" aria-label="${mail.read?'Als ungelesen markieren':'Als gelesen markieren'}" title="${mail.read?'Ungelesen':'Gelesen'}">${icon('unread')}</button><button type="button" data-mail-quick-action="flag" data-id="${mail.id}" aria-label="${mail.flagged?'Markierung entfernen':'Als wichtig markieren'}" title="Wichtig">${icon('star')}</button><button type="button" data-mail-quick-action="archive" data-id="${mail.id}" aria-label="Archivieren" title="Archivieren">${icon('archive')}</button><button type="button" data-mail-quick-action="trash" data-id="${mail.id}" aria-label="In den Papierkorb" title="Löschen">${icon('trash')}</button></div></div>`;
+  }
+  function drawItems(){
+    const element=region('items');if(!element)return;const count=$('[data-cc-list-count]');if(count)count.textContent=listCountText(counts(ui.folder));element.setAttribute('aria-busy',String(listState==='loading'));disconnectObserver();
+    if(listState==='loading'&&!list.length){element.innerHTML=skeleton();return;}
+    if(listState==='error'){element.innerHTML=empty('Liste konnte nicht geladen werden',listError,'spam','<button type="button" class="smallbtn" data-mail-refresh>Erneut versuchen</button>');return;}
+    if(!list.length){element.innerHTML=ui.query||ui.filter!=='all'?empty('Keine E-Mails gefunden','Passen Sie Suche oder Filter an.','search','<button type="button" class="smallbtn" data-mail-reset>Suche zurücksetzen</button>'):empty(ui.folder==='INBOX'?'Posteingang ist leer':'Keine Nachrichten',ui.folder==='INBOX'&&!data?.account?'Verbinden Sie zuerst das Postfach.':'Dieser Bereich enthält derzeit keine Nachrichten.','inbox',ui.folder==='INBOX'&&!data?.account?'<button type="button" class="smallbtn" data-mail-settings>Postfach einrichten</button>':'');return;}
+    element.innerHTML=list.map(rowHTML).join('')+(list.length<total?`<div class="cc-more"><button type="button" class="smallbtn" data-mail-more>Weitere laden · ${list.length} von ${total}</button></div>`:list.length>20?`<p class="cc-end">Alle ${total} E-Mails geladen</p>`:'');
+    const more=element.querySelector('[data-mail-more]');
+    if(more&&typeof window.IntersectionObserver==='function'){observer=new window.IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting))loadMore();},{rootMargin:'0px 0px 240px 0px'});observer.observe(more);}
+  }
+  function disconnectObserver(){observer?.disconnect();observer=null;}
+  let loadingMore=false;
+  async function loadMore(){if(loadingMore||list.length>=total)return;loadingMore=true;try{await load({append:true});drawItems();}catch(error){message(error.message,true);}finally{loadingMore=false;}}
+  function drawBulk(){
+    const element=region('bulk');if(!element)return;element.hidden=!selection.size;if(!selection.size){element.innerHTML='';return;}
+    element.innerHTML=`<strong>${selection.size} ausgewählt</strong><div><button type="button" class="smallbtn" data-mail-bulk="read">Gelesen</button><button type="button" class="smallbtn" data-mail-bulk="unread">Ungelesen</button><button type="button" class="smallbtn" data-mail-bulk="flag">Wichtig</button><button type="button" class="smallbtn" data-mail-bulk="archive">Archivieren</button><button type="button" class="smallbtn danger" data-mail-bulk="trash">Löschen</button>${moveSelect('data-mail-bulk-move')}<button type="button" class="smallbtn" data-mail-bulk="all">Alle sichtbaren</button><button type="button" class="smallbtn" data-mail-bulk="none">Aufheben</button></div>`;
+  }
+  function moveSelect(attribute){return `<select ${attribute} aria-label="In Ordner verschieben"><option value="">Verschieben …</option>${MOVE_TARGETS.map(([id,label])=>`<option value="${id}">${label}</option>`).join('')}${(data?.folders??[]).map(item=>`<option value="${esc(item.name)}">${esc(item.name)}</option>`).join('')}</select>`;}
+
+  // ---------- Lesebereich ----------
+  function drawReader(){
+    const element=region('reader');if(!element)return;$('.cc-mail')?.classList.toggle('has-detail',Boolean(ui.openId));
+    if(!ui.openId){element.innerHTML=empty('Keine Nachricht ausgewählt','Wählen Sie eine E-Mail. Verlauf, Anhänge und passende CRM-Vorgänge erscheinen hier.','unread');return;}
+    if(detailState==='loading'||!detail){element.innerHTML=detailState==='error'?`<div class="cc-reader-bar"><button type="button" class="cc-icon-btn cc-back" data-mail-close aria-label="Zurück zur Liste">${icon('back')}</button></div>${empty('E-Mail konnte nicht geöffnet werden',detailError,'spam','<button type="button" class="smallbtn" data-mail-retry>Erneut versuchen</button>')}`:`<div class="cc-reader-loading" aria-hidden="true"><i></i><i></i><i></i><i></i></div><p class="visually-hidden">E-Mail wird geladen …</p>`;return;}
+    const mail=detail.message,inbound=mail.direction==='INBOUND',sender=inbound?{name:mail.fromName,address:mail.fromAddress}:{name:data?.account?.displayName||'White Gloss',address:mail.fromAddress},imagesAllowed=ui.images.has(mail.id);
+    const recipients=(label,items)=>items?.length?`<div><dt>${label}</dt><dd>${items.map(item=>esc(item.name?`${item.name} <${item.address}>`:item.address)).join(', ')}</dd></div>`:'';
+    const frame=mail.hasHtml?`${mail.blockedImages&&!imagesAllowed?`<div class="cc-images-blocked">${icon('lock')}<span>${plural(mail.blockedImages,'externes Bild wurde','externe Bilder wurden')} zum Schutz blockiert. Beim Anzeigen erfährt der Absender, dass die E-Mail geöffnet wurde.</span><button type="button" class="smallbtn" data-mail-images>Bilder anzeigen</button></div>`:''}<iframe class="cc-frame" data-mail-frame title="Inhalt der E-Mail" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" src="/api/mailbox/message/${mail.id}/view?images=${imagesAllowed?'1':'0'}${synthetic?'&amp;test=true':''}"></iframe>`:`<div class="mail-plaintext cc-plaintext">${esc(mail.textBody||'Diese E-Mail enthält keinen lesbaren Text.')}</div>`;
+    element.innerHTML=`<article class="cc-reader-inner">
+      <div class="cc-reader-bar"><button type="button" class="cc-icon-btn cc-back" data-mail-close aria-label="Zurück zur Liste">${icon('back')}</button>
+        <div class="cc-reader-actions">${inbound?`<button type="button" class="primary" data-mail-reply>${icon('reply')}<span>Antworten</span></button><button type="button" data-mail-reply-all>${icon('replyAll')}<span>Allen antworten</span></button>`:''}<button type="button" data-mail-forward>${icon('forward')}<span>Weiterleiten</span></button></div>
+        <div class="cc-reader-tools"><button type="button" class="cc-icon-btn ${mail.flagged?'active':''}" data-mail-state="flagged" aria-pressed="${mail.flagged}" aria-label="${mail.flagged?'Markierung entfernen':'Als wichtig markieren'}" title="Wichtig">${icon('star')}</button><button type="button" class="cc-icon-btn" data-mail-state="read" aria-label="${mail.read?'Als ungelesen markieren':'Als gelesen markieren'}" title="${mail.read?'Als ungelesen markieren':'Als gelesen markieren'}">${icon('unread')}</button><button type="button" class="cc-icon-btn" data-mail-move-to="Archive" aria-label="Archivieren" title="Archivieren">${icon('archive')}</button><button type="button" class="cc-icon-btn" data-mail-move-to="${mail.folder==='Trash'?'':'Trash'}" aria-label="${mail.folder==='Trash'?'Wiederherstellen':'In den Papierkorb'}" title="${mail.folder==='Trash'?'Wiederherstellen':'Löschen'}">${icon(mail.folder==='Trash'?'inbox':'trash')}</button>${moveSelect('data-mail-move')}<button type="button" class="cc-icon-btn" data-mail-note-here aria-label="Notiz zu dieser E-Mail" title="Notiz">${icon('note')}</button></div></div>
+      <header class="cc-message-head"><div class="cc-message-tags"><span class="cc-tag">${esc(FOLDER_LABEL[mail.folder]??mail.folder)}</span>${mail.flagged?'<span class="cc-tag warn">Wichtig</span>':''}${inbound?'':'<span class="cc-tag">Ausgehend</span>'}</div><h2>${esc(mail.subject)}</h2>
+        <div class="cc-sender-block">${avatar(sender.name,sender.address,'large')}<div><strong>${esc(sender.name||sender.address)}</strong>${sender.name?`<span>&lt;${esc(sender.address)}&gt;</span>`:''}<dl class="cc-recipients">${recipients('An',mail.to)}${recipients('Cc',mail.cc)}${recipients('Bcc',mail.bcc)}${mail.replyTo?.length&&mail.replyTo[0].address!==mail.fromAddress?recipients('Antwort an',mail.replyTo):''}</dl></div><time datetime="${esc(mail.receivedAt)}">${esc(full(mail.receivedAt))}</time></div></header>
+      ${crmHTML()}
+      <div class="cc-body">${frame}</div>
+      ${attachmentsHTML()}${threadHTML()}
+      ${inbound?`<div class="mail-ai-replies cc-ai"><div><strong>KI-Antwortvorschlag</strong><small>Der Nachrichtentext wird erst nach Ihrem Klick übertragen. Es wird nichts versendet; der Entwurf öffnet sich im Editor.</small></div><div>${STYLES.map(([id,label])=>`<button type="button" class="smallbtn" data-mail-ai="${id}">${label}</button>`).join('')}</div></div>`:''}
+    </article>`;
+    const iframe=element.querySelector('[data-mail-frame]');if(iframe)iframe.addEventListener('load',()=>fitFrame(iframe));
+  }
+  function fitFrame(frame){
+    try{const doc=frame.contentDocument;if(!doc?.documentElement)return;const fit=()=>{const height=Math.max(doc.documentElement.scrollHeight,doc.body?.scrollHeight??0);frame.style.height=Math.min(Math.max(height+4,180),30000)+'px';};fit();for(const image of doc.images)if(!image.complete)image.addEventListener('load',fit,{once:true});setTimeout(fit,400);}catch{/* Ohne Zugriff bleibt die feste Mindesthöhe mit eigenem Scrollbereich. */}
+  }
+  function crmHTML(){
+    const {customers=[],orders:linked=[]}=detail.crm??{};
+    if(!customers.length&&!linked.length)return `<div class="cc-crm cc-crm-none">${icon('people')}<span>Kein CRM-Bezug: Die Adresse ist keinem Kunden oder Auftrag exakt zugeordnet.</span></div>`;
+    return `<section class="cc-crm" aria-label="CRM-Zuordnung"><header><span class="eyebrow">CRM · eindeutige Zuordnung</span><small>Nur exakt gespeicherte E-Mail-Adressen und feste Auftragsverknüpfungen</small></header>
+      ${customers.map(customer=>`<div class="cc-crm-customer">${avatar(customer.name||customer.company,customer.email)}<div><strong>${esc(customer.name||customer.company||'Kunde')}</strong><span>${esc([customer.company&&customer.name?customer.company:'',customer.city].filter(Boolean).join(' · '))}</span>${customer.vehicles?.length?`<div class="cc-crm-vehicles">${customer.vehicles.map(vehicle=>`<span class="cc-tag">${icon('car')}${esc([vehicle.label,vehicle.plate].filter(Boolean).join(' · ')||'Fahrzeug')}</span>`).join('')}</div>`:''}</div><div class="cc-crm-actions">${customer.phone?`<a class="smallbtn button" href="tel:${esc(customer.phone.replace(/[^+0-9]/g,''))}">Anrufen</a>`:''}<button type="button" class="smallbtn" data-customer="${esc(customer.id)}">Kundenakte</button><button type="button" class="smallbtn" data-cc-note-customer="${esc(customer.id)}">Notiz</button></div></div>`).join('')}
+      ${linked.length?`<div class="cc-crm-orders">${linked.map(order=>`<div class="cc-crm-order ${order.running?'running':''}"><span class="cc-status-dot ${order.status==='In Arbeit'?'running':order.running?'confirmed':'open'}"></span><div><strong>${esc(order.wg)} · ${esc(order.status)}</strong><span>${esc([order.vehicle,order.plate].filter(Boolean).join(' · ')||order.name)}${order.appointment?' · Termin '+esc(full(order.appointment.start)):''}</span></div><button type="button" class="smallbtn" data-order="${esc(order.id)}">Auftrag öffnen</button><button type="button" class="smallbtn" data-cc-note-order="${esc(order.id)}">Notiz</button></div>`).join('')}</div>`:''}</section>`;
+  }
+  function attachmentsHTML(){
+    if(!detail.attachments.length)return '';
+    return `<section class="cc-attachments"><h3>${icon('clip')}${plural(detail.attachments.length,'Anhang','Anhänge')}</h3><div class="cc-attachment-grid">${detail.attachments.map(item=>`<div class="cc-attachment"><span class="cc-file-icon ${item.mime==='application/pdf'?'pdf':'img'}">${esc(UPLOAD_TYPES[item.mime]??'DATEI')}</span><div><strong title="${esc(item.filename)}">${esc(item.filename)}</strong><small>${esc(size(item.size))}${item.documentId?' · ungeklärter Beleg':item.archived?'':' · Format nicht unterstützt'}</small></div>${item.archived?`<a class="smallbtn button" href="/api/mailbox/attachment/${item.id}${synthetic?'?test=true':''}" target="_blank" rel="noopener noreferrer">Öffnen</a><a class="smallbtn button" href="/api/mailbox/attachment/${item.id}?download=1${synthetic?'&amp;test=true':''}" download>Laden</a>`:''}${item.documentId?'<button type="button" class="smallbtn" data-view="finance-receipts">Belegprüfung</button>':''}</div>`).join('')}</div></section>`;
+  }
+  function threadHTML(){
+    if(detail.thread.length<2)return '';
+    return `<section class="cc-thread"><h3>Unterhaltung · ${detail.thread.length} Nachrichten</h3>${detail.thread.map(item=>{const own=item.direction==='OUTBOUND';return `<button type="button" class="cc-thread-item ${item.id===detail.message.id?'active':''} ${item.read?'':'unread'}" data-mail-open="${item.id}">${avatar(own?'White Gloss':item.fromName,own?ownAddress():item.fromAddress)}<span><strong>${esc(own?'Sie':item.fromName||item.fromAddress)}</strong><span>${esc(item.preview||item.subject)}</span></span><time>${esc(when(item.receivedAt))}</time></button>`;}).join('')}</section>`;
+  }
+
+  // ---------- Laufende Aufträge ----------
+  function ordersHTML(){
+    const q=ui.orderQuery.trim().toLowerCase(),items=running().filter(order=>!q||[order.wg,order.source?.name,order.source?.vehicle,order.source?.plate,order.source?.email,order.status].join(' ').toLowerCase().includes(q));
+    return `<div class="cc-section"><div class="cc-section-head"><div><h2>Laufende Aufträge</h2><small>Angenommen, terminiert oder in Arbeit · ${running().length} insgesamt</small></div><div class="cc-section-tools"><input type="search" value="${esc(ui.orderQuery)}" placeholder="Auftrag, Kunde, Fahrzeug" aria-label="Laufende Aufträge durchsuchen" data-cc-order-search><button type="button" class="smallbtn" data-view="active">Vollansicht ${icon('arrow')}</button></div></div>
+      ${items.length?`<div class="cc-order-grid">${items.map(order=>{const email=order.source?.email;return `<article class="cc-order-card"><header><span class="cc-status-dot ${order.status==='In Arbeit'?'running':order.status==='Termin verbindlich'?'confirmed':'open'}"></span><strong>${esc(order.wg)}</strong><span class="cc-tag">${esc(order.status)}</span></header><h3>${esc(order.source?.name||'Ohne Namen')}</h3><p>${esc([order.source?.vehicle,order.source?.plate].filter(Boolean).join(' · ')||'Fahrzeug nicht angegeben')}</p><dl><div><dt>Termin</dt><dd>${order.appointment?.start?esc(full(order.appointment.start)):'Noch offen'}</dd></div><div><dt>Nächster Schritt</dt><dd>${esc(NEXT_STEP[order.status]??'—')}</dd></div></dl><footer><button type="button" class="smallbtn primary" data-order="${esc(order.id)}">Öffnen</button>${email?`<button type="button" class="smallbtn" data-cc-mail-to="${esc(email)}" data-cc-subject="${esc('Ihr Auftrag '+order.wg)}">E-Mail schreiben</button><button type="button" class="smallbtn" data-cc-mail-search="${esc(email)}">E-Mails</button>`:''}<button type="button" class="smallbtn" data-cc-note-order="${esc(order.id)}">Notiz</button></footer></article>`;}).join('')}</div>`:empty(q?'Kein Treffer':'Keine laufenden Aufträge',q?'Suchbegriff anpassen.':'Angenommene, terminierte und laufende Aufträge erscheinen hier automatisch.','car')}</div>`;
+  }
+
+  // ---------- Kalender ----------
+  function calendarHTML(){
+    const today=dayKey(Date.now()),events=appointments(),days=[];const start=new Date(today+'T12:00:00Z');
+    for(let index=0;index<14;index++){const day=new Date(start);day.setUTCDate(start.getUTCDate()+index);const key=day.toISOString().slice(0,10);days.push({key,count:events.filter(order=>dayKey(order.appointment.start)===key).length,date:day});}
+    const selected=ui.calendarDay,upcoming=events.filter(order=>selected?dayKey(order.appointment.start)===selected:dayKey(order.appointment.start)>=today),groups=new Map();
+    for(const order of upcoming.slice(0,60)){const key=dayKey(order.appointment.start);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(order);}
+    const unscheduled=running().filter(order=>!order.appointment?.start);
+    const dayName=new Intl.DateTimeFormat('de-DE',{timeZone:'UTC',weekday:'short'}),dayNum=new Intl.DateTimeFormat('de-DE',{timeZone:'UTC',day:'numeric'}),label=new Intl.DateTimeFormat('de-DE',{timeZone:'UTC',weekday:'long',day:'numeric',month:'long'});
+    return `<div class="cc-section"><div class="cc-section-head"><div><h2>Kalender</h2><small>Termine aus Ihren Aufträgen · Europe/Berlin</small></div><div class="cc-section-tools"><a class="smallbtn button" href="/api/calendar.ics${synthetic?'?test=true':''}" download>Exportieren</a><button type="button" class="smallbtn" data-view="calendar">Monatskalender ${icon('arrow')}</button></div></div>
+      <div class="cc-week" role="group" aria-label="Die nächsten 14 Tage">${days.map(day=>`<button type="button" class="cc-day ${day.key===today?'today':''} ${selected===day.key?'active':''} ${day.count?'busy':''}" data-cc-day="${day.key}" aria-pressed="${selected===day.key}" aria-label="${esc(label.format(day.date))}: ${plural(day.count,'Termin','Termine')}"><small>${esc(dayName.format(day.date))}</small><strong>${esc(dayNum.format(day.date))}</strong><span>${day.count||''}</span></button>`).join('')}</div>
+      ${selected?`<p class="cc-filter-note">Gefiltert auf ${esc(label.format(new Date(selected+'T12:00:00Z')))} · <button type="button" class="cc-link" data-cc-day="">Alle anstehenden zeigen</button></p>`:''}
+      <div class="cc-agenda">${groups.size?[...groups].map(([key,items])=>`<section><h3>${key===today?'Heute · ':''}${esc(label.format(new Date(key+'T12:00:00Z')))}</h3>${items.map(order=>{const confirmed=Boolean(order.appointment?.confirmation)||['Termin verbindlich','In Arbeit','Erledigt','Bezahlt'].includes(order.status);return `<article class="cc-event ${confirmed?'confirmed':'proposed'} ${order.status==='In Arbeit'?'running':''}"><div class="cc-event-time"><strong>${esc(fmt.time.format(new Date(order.appointment.start)))}</strong><small>${valid(order.appointment.end)?'bis '+esc(fmt.time.format(new Date(order.appointment.end))):''}</small></div><div class="cc-event-body"><strong>${esc(order.source?.name||'Ohne Namen')}</strong><span>${esc([order.source?.vehicle,order.wg].filter(Boolean).join(' · '))}</span><span class="cc-tag ${confirmed?'good':'warn'}">${confirmed?esc(order.status):'Terminvorschlag'}</span></div><div class="cc-event-actions"><button type="button" class="smallbtn" data-order="${esc(order.id)}">Auftrag</button>${order.source?.email?`<button type="button" class="smallbtn" data-cc-mail-to="${esc(order.source.email)}" data-cc-subject="${esc('Ihr Termin · '+order.wg)}">E-Mail</button>`:''}</div></article>`;}).join('')}</section>`).join(''):empty(selected?'Keine Termine an diesem Tag':'Keine anstehenden Termine','Termine werden im Auftrag festgelegt und erscheinen hier automatisch.','calendar')}</div>
+      ${unscheduled.length?`<section class="cc-unscheduled"><h3>Laufend ohne Termin · ${unscheduled.length}</h3>${unscheduled.map(order=>`<button type="button" class="cc-mini-order" data-order="${esc(order.id)}"><span class="cc-status-dot open"></span><span><strong>${esc(order.wg)} · ${esc(order.source?.name||'Ohne Namen')}</strong><span>${esc(NEXT_STEP[order.status]??order.status)}</span></span></button>`).join('')}</section>`:''}</div>`;
+  }
+
+  // ---------- Notizen ----------
+  let noteDraft={id:null,body:'',orderId:'',customerId:'',messageId:'',pinned:false};
+  function notesHTML(){
+    const notes=data?.notes??[],q=ui.noteQuery.trim().toLowerCase(),filtered=notes.filter(note=>(ui.noteFilter==='pinned'?note.pinned:ui.noteFilter==='orders'?note.orderId:ui.noteFilter==='mails'?note.messageId:true)&&(!q||[note.body,note.wg,note.subject,note.customerName].join(' ').toLowerCase().includes(q)));
+    const orderOptions=[...new Map([...running(),...(detail?.crm?.orders??[]).map(order=>({id:order.id,wg:order.wg,source:{name:order.name}}))].map(order=>[order.id,order])).values()];
+    const linkedMail=noteDraft.messageId?(detail?.message?.id===noteDraft.messageId?detail.message.subject:notes.find(note=>note.messageId===noteDraft.messageId)?.subject??'Verknüpfte E-Mail'):'';
+    const filterButtons=[['all','Alle'],['pinned','Angeheftet'],['orders','Mit Auftrag'],['mails','Mit E-Mail']];
+    return `<div class="cc-section cc-notes"><div class="cc-section-head"><div><h2>Notizen</h2><small>Interne Arbeitsnotizen · nicht für Kunden sichtbar</small></div></div>
+      <form id="mail-note-form" class="cc-note-editor"><input type="hidden" name="id" value="${esc(noteDraft.id??'')}"><input type="hidden" name="messageId" value="${esc(noteDraft.messageId)}"><input type="hidden" name="customerId" value="${esc(noteDraft.customerId)}">
+        <label class="visually-hidden" for="cc-note-body">Notiz</label><textarea id="cc-note-body" name="body" rows="3" maxlength="10000" required placeholder="Notiz schnell erfassen … (Strg/⌘ + Enter speichert)">${esc(noteDraft.body)}</textarea>
+        <div class="cc-note-options"><label>Auftrag<select name="orderId"><option value="">Kein Auftrag</option>${orderOptions.map(order=>`<option value="${esc(order.id)}" ${noteDraft.orderId===order.id?'selected':''}>${esc(order.wg)} · ${esc(order.source?.name||'')}</option>`).join('')}</select></label>
+        <label class="check"><input type="checkbox" name="pinned" ${noteDraft.pinned?'checked':''}>Anheften</label>
+        ${linkedMail?`<span class="cc-tag">${icon('unread')}${esc(linkedMail)}<button type="button" class="cc-tag-remove" data-cc-note-unlink="message" aria-label="E-Mail-Verknüpfung entfernen">×</button></span>`:detail?`<button type="button" class="smallbtn" data-cc-note-link-mail>Mit geöffneter E-Mail verknüpfen</button>`:''}
+        ${noteDraft.customerId?`<span class="cc-tag">${icon('people')}Kunde verknüpft<button type="button" class="cc-tag-remove" data-cc-note-unlink="customer" aria-label="Kundenverknüpfung entfernen">×</button></span>`:''}
+        <span class="cc-note-submit">${noteDraft.id?'<button type="button" class="smallbtn" data-cc-note-cancel>Abbrechen</button>':''}<button class="primary" type="submit">${noteDraft.id?'Änderung speichern':'Notiz speichern'}</button></span></div></form>
+      <div class="cc-note-tools"><input type="search" value="${esc(ui.noteQuery)}" placeholder="Notizen durchsuchen" aria-label="Notizen durchsuchen" data-cc-note-search><div class="cc-chips">${filterButtons.map(([id,label])=>`<button type="button" class="cc-chip ${ui.noteFilter===id?'active':''}" data-cc-note-filter="${id}" aria-pressed="${ui.noteFilter===id}">${label}</button>`).join('')}</div></div>
+      <div class="cc-note-list" data-region="notes">${filtered.length?filtered.map(note=>`<article class="cc-note ${note.pinned?'pinned':''}"><p>${esc(note.body)}</p><footer><small>${esc(when(note.updatedAt))}${note.wg?' · '+esc(note.wg):''}${note.customerName?' · '+esc(note.customerName):''}${note.subject?' · '+esc(note.subject):''}</small><div><button type="button" class="cc-icon-btn ${note.pinned?'active':''}" data-cc-note-pin="${note.id}" aria-pressed="${note.pinned}" aria-label="${note.pinned?'Lösen':'Anheften'}" title="${note.pinned?'Lösen':'Anheften'}">${icon('pin')}</button><button type="button" class="smallbtn" data-note-edit="${note.id}">Bearbeiten</button>${note.orderId?`<button type="button" class="smallbtn" data-order="${note.orderId}">Auftrag</button>`:''}${note.customerId?`<button type="button" class="smallbtn" data-customer="${note.customerId}">Kunde</button>`:''}${note.messageId?`<button type="button" class="smallbtn" data-note-mail="${note.messageId}">E-Mail</button>`:''}<button type="button" class="smallbtn danger" data-note-delete="${note.id}">${confirmDelete===note.id?'Wirklich löschen?':'Löschen'}</button></div></footer></article>`).join(''):empty(notes.length?'Keine passende Notiz':'Noch keine Notizen',notes.length?'Suche oder Filter anpassen.':'Die erste interne Notiz ist schnell erstellt.','note')}</div></div>`;
+  }
+  function openNotes(values={}){noteDraft={id:null,body:'',orderId:'',customerId:'',messageId:'',pinned:false,...values};confirmDelete=null;setSection('notes');root.querySelector('#cc-note-body')?.focus();}
+
+  // ---------- Editor ----------
+  const textToHtml=value=>String(value??'').split(/\n{2,}/).map(block=>`<p>${esc(block).replace(/\n/g,'<br>')}</p>`).join('')||'<p><br></p>';
+  function plainText(node){
+    let output='';const walk=parent=>{for(const child of parent.childNodes){if(child.nodeType===3){output+=child.nodeValue;continue;}if(child.nodeType!==1)continue;const tag=child.tagName;if(tag==='BR'){output+='\n';continue;}const block=/^(P|DIV|LI|BLOCKQUOTE|UL|OL|H[1-6]|TR|HR)$/.test(tag);if(block&&output&&!output.endsWith('\n'))output+='\n';if(tag==='LI')output+='• ';
+      if(tag==='BLOCKQUOTE'){const start=output.length;walk(child);const inner=output.slice(start);output=output.slice(0,start)+inner.split('\n').map(line=>line?'> '+line:line).join('\n');}else walk(child);if(block&&!output.endsWith('\n'))output+='\n';}};
+    walk(node);return output.replace(/ /g,' ').replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
+  }
+  function quoteNode(editor){return editor.querySelector('[data-cc-quote]')??[...editor.children].find(child=>child.tagName==='BLOCKQUOTE')??null;}
+  function ownText(editor){const clone=editor.cloneNode(true);clone.querySelector('[data-cc-quote]')?.remove();return plainText(clone);}
+  function replaceOwnText(editor,value){const quote=quoteNode(editor),fragment=document.createElement('div');fragment.innerHTML=textToHtml(value);if(quote&&quote.parentNode===editor){while(editor.firstChild&&editor.firstChild!==quote)editor.firstChild.remove();for(const node of [...fragment.childNodes])editor.insertBefore(node,quote);editor.insertBefore(document.createElement('p'),quote).append(document.createElement('br'));}else editor.innerHTML=fragment.innerHTML;markComposeDirty();}
+  function quoteHTML(mail,{forward=false}={}){
+    const sender=mail.fromName?`${esc(mail.fromName)} &lt;${esc(mail.fromAddress)}&gt;`:esc(mail.fromAddress),body=textToHtml((mail.textBody||mail.preview||'').slice(0,20000));
+    if(forward)return `<div data-cc-quote><p>---------- Weitergeleitete Nachricht ----------<br>Von: ${sender}<br>Datum: ${esc(full(mail.receivedAt))}<br>Betreff: ${esc(mail.subject)}<br>An: ${esc(mail.to.map(item=>item.address).join(', '))}${mail.cc?.length?'<br>Cc: '+esc(mail.cc.map(item=>item.address).join(', ')):''}</p><blockquote>${body}</blockquote></div>`;
+    return `<div data-cc-quote><p>Am ${esc(full(mail.receivedAt))} schrieb ${sender}:</p><blockquote>${body}</blockquote></div>`;
+  }
+  const subjectWith=(prefix,subject)=>new RegExp('^'+prefix+':','i').test(subject)?subject:prefix+': '+subject;
+  function replyValues(mode,draftText=''){
+    const mail=detail.message,own=ownAddress(),primary=(mail.replyTo?.length?mail.replyTo:[{address:mail.fromAddress}]).map(item=>item.address).filter(address=>address&&address!==own);
+    const to=mail.direction==='OUTBOUND'?mail.to.map(item=>item.address):primary;const cc=mode==='replyAll'?[...mail.to,...(mail.cc??[])].map(item=>item.address).filter(address=>address&&address!==own&&!to.includes(address)):[];
+    return {mode,to:[...new Set(to)].join(', '),cc:[...new Set(cc)].join(', '),subject:subjectWith('Re',mail.subject),html:(draftText?textToHtml(draftText):'<p><br></p>')+'<p><br></p>'+quoteHTML(mail),replyTo:mail.id};
+  }
+  function forwardValues(){const mail=detail.message;return {mode:'forward',subject:subjectWith('Fwd',mail.subject),html:'<p><br></p>'+quoteHTML(mail,{forward:true}),attachments:detail.attachments.filter(item=>item.archived).map(item=>({id:item.id,source:'mail',filename:item.filename,mime:item.mime,size:item.size}))};}
+  function openCompose(values={}){
+    compose={id:null,mode:'new',to:'',cc:'',bcc:'',subject:'',html:'',text:'',attachments:[],replyTo:null,requestId:null,stage:'edit',dirty:false,...values};compose.showCc=Boolean(compose.cc);compose.showBcc=Boolean(compose.bcc);
+    if(!compose.html&&compose.text)compose.html=textToHtml(compose.text);drawCompose();
+    const form=$('#mailbox-compose');(form?.elements.to.value?form.querySelector('[data-compose-editor]'):form?.elements.to)?.focus();
+  }
+  function markComposeDirty(){if(!compose)return;compose.dirty=true;const form=$('#mailbox-compose');if(form)form.dataset.dirty='true';}
+  function drawCompose(){
+    const element=region('compose');if(!element)return;if(!compose){element.innerHTML='';return;}
+    const account=data?.account,canSend=!synthetic&&Boolean(account?.smtpVerifiedAt),title={reply:'Antworten',replyAll:'Allen antworten',forward:'Weiterleiten'}[compose.mode]??'Neue E-Mail';
+    const contacts=[...new Map([...allOrders().filter(order=>order.source?.email).map(order=>[order.source.email.toLowerCase(),order.source.name]),...list.map(mail=>[partnerOf(mail).address,partnerOf(mail).name])].filter(([address])=>address)).entries()].slice(0,200);
+    element.innerHTML=`<div class="cc-compose-layer" data-compose-layer><form id="mailbox-compose" class="cc-compose" role="dialog" aria-modal="true" aria-labelledby="cc-compose-title" novalidate>
+      <header class="cc-compose-head"><div><span class="eyebrow">${esc(account?.email||'Postfach nicht eingerichtet')}</span><strong id="cc-compose-title">${esc(title)}</strong></div><button type="button" class="cc-icon-btn" data-mail-compose-close aria-label="Editor schließen">${icon('close')}</button></header>
+      <div class="cc-compose-fields">
+        <label class="cc-field"><span>An</span><input type="text" name="to" value="${esc(compose.to)}" placeholder="kunde@example.de, weitere@example.de" autocomplete="off" list="cc-contacts" inputmode="email"><span class="cc-field-toggles">${compose.showCc?'':'<button type="button" data-compose-show="cc">Cc</button>'}${compose.showBcc?'':'<button type="button" data-compose-show="bcc">Bcc</button>'}</span></label>
+        ${compose.showCc?`<label class="cc-field"><span>Cc</span><input type="text" name="cc" value="${esc(compose.cc)}" autocomplete="off" inputmode="email"></label>`:''}
+        ${compose.showBcc?`<label class="cc-field"><span>Bcc</span><input type="text" name="bcc" value="${esc(compose.bcc)}" autocomplete="off" inputmode="email"></label>`:''}
+        <label class="cc-field"><span>Betreff</span><input name="subject" maxlength="500" value="${esc(compose.subject)}"></label>
+        <datalist id="cc-contacts">${contacts.map(([address,name])=>`<option value="${esc(address)}">${esc(name||'')}</option>`).join('')}</datalist>
+      </div>
+      <div class="cc-toolbar" role="toolbar" aria-label="Formatierung">${[['bold','bold','Fett'],['italic','italic','Kursiv'],['underline','underline','Unterstrichen'],['insertUnorderedList','list','Aufzählung'],['insertOrderedList','olist','Nummerierung'],['quote','quote','Zitat'],['link','link','Link einfügen'],['removeFormat','clear','Formatierung entfernen']].map(([command,iconName,label])=>`<button type="button" class="cc-icon-btn" data-format="${command}" aria-label="${label}" title="${label}">${icon(iconName)}</button>`).join('')}</div>
+      <div class="cc-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Nachricht" data-compose-editor spellcheck="true">${compose.html||'<p><br></p>'}</div>
+      <div class="cc-compose-attachments" data-region="compose-attachments"></div>
+      <div class="cc-compose-assistant" data-compose-assistant></div>
+      <footer class="cc-compose-foot" data-region="compose-foot"></footer>
+    </form></div>`;
+    const editor=element.querySelector('[data-compose-editor]');
+    mountTextAssistant(editor,{synthetic,read:()=>ownText(editor),write:value=>replaceOwnText(editor,value)});
+    drawComposeAttachments();drawComposeFoot(canSend);markSaved(element);if(compose.dirty)element.querySelector('#mailbox-compose').dataset.dirty='true';
+  }
+  function drawComposeAttachments(){
+    const element=region('compose-attachments');if(!element||!compose)return;const used=compose.attachments.reduce((sum,item)=>sum+Number(item.size??0),0);
+    element.innerHTML=`${compose.attachments.length?`<div class="cc-attach-list">${compose.attachments.map(item=>`<span class="cc-attach-chip ${item.pending?'pending':''}"><span class="cc-file-icon ${item.mime==='application/pdf'?'pdf':'img'}">${esc(UPLOAD_TYPES[item.mime]??'DATEI')}</span><span><strong title="${esc(item.filename)}">${esc(item.filename)}</strong><small>${item.pending?'Wird hochgeladen …':esc(size(item.size))}</small></span>${item.pending?'':`<button type="button" class="cc-icon-btn" data-compose-remove="${esc(item.id)}" aria-label="Anhang ${esc(item.filename)} entfernen">${icon('close')}</button>`}</span>`).join('')}</div>`:''}
+      <div class="cc-attach-row"><label class="smallbtn button cc-attach-add">${icon('clip')}Datei anhängen<input type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp" data-compose-file class="visually-hidden"></label><small>PDF, JPG, PNG, WebP · max. 12 MB je Datei · ${size(used)} von 15 MB</small></div>`;
+  }
+  function drawComposeFoot(canSend=!synthetic&&Boolean(data?.account?.smtpVerifiedAt)){
+    const element=region('compose-foot');if(!element||!compose)return;
+    if(compose.stage==='confirm'){const value=readCompose(),recipients=[value.to,value.cc,value.bcc].join(',').split(/[,;\n]+/).map(item=>item.trim()).filter(Boolean).length;element.innerHTML=`<div class="cc-confirm" role="alertdialog" aria-label="Versand bestätigen"><div><strong>Jetzt an ${plural(recipients,'Empfänger','Empfänger')} senden?</strong><small>${esc(value.subject)} · ${plural(compose.attachments.length,'Anhang','Anhänge')}. Ein Versand lässt sich nicht zurückholen.</small></div><div><button type="button" data-compose-stage="edit">Zurück</button><button type="button" class="primary" data-compose-send-confirmed>Jetzt senden</button></div></div>`;element.querySelector('[data-compose-send-confirmed]')?.focus();return;}
+    if(compose.stage==='closing'){element.innerHTML=`<div class="cc-confirm" role="alertdialog" aria-label="Ungespeicherte Änderungen"><div><strong>Ungespeicherte Änderungen</strong><small>Als Entwurf sichern oder verwerfen?</small></div><div><button type="button" data-compose-stage="edit">Weiter schreiben</button><button type="button" class="danger" data-compose-discard>Verwerfen</button><button type="button" class="primary" data-mail-save-draft>Entwurf speichern</button></div></div>`;return;}
+    element.innerHTML=`<p class="hint">${synthetic?'Im Testbereich ist der Versand gesperrt.':!data?.account?.smtpVerifiedAt?'Zum Versenden zuerst SMTP in den Postfach-Einstellungen prüfen.':'Kein automatischer Versand. Entwürfe bleiben bis zum angenommenen SMTP-Versand erhalten.'}</p><div class="cc-compose-actions">${compose.id?'<button type="button" class="danger" data-compose-delete-draft>Entwurf löschen</button>':''}<button type="button" data-mail-save-draft>Entwurf speichern</button><button type="submit" class="primary" ${canSend?'':'disabled'}>${icon('sent')}<span>Senden</span></button></div>`;
+  }
+  function readCompose(){
+    const form=$('#mailbox-compose'),editor=form?.querySelector('[data-compose-editor]');if(!form||!editor)return null;
+    return {to:form.elements.to.value,cc:form.elements.cc?.value??compose.cc,bcc:form.elements.bcc?.value??compose.bcc,subject:form.elements.subject.value,html:editor.innerHTML,text:plainText(editor),attachments:compose.attachments.filter(item=>!item.pending).map(item=>item.id)};
+  }
+  function closeCompose(force=false){if(!compose)return;if(!force&&compose.dirty){compose.stage='closing';drawComposeFoot();return;}compose=null;drawCompose();}
+  async function saveDraft(){
+    const value=readCompose();const result=await api('/draft',{id:compose.id,...value,mode:compose.mode,replyTo:compose.replyTo});compose=null;drawCompose();ui.section='mail';ui.folder='Drafts';ui.openId=null;await load();drawRail();drawMain();message('Entwurf gespeichert.');return result;
+  }
+  async function uploadFiles(files){
+    for(const file of files){
+      const type=String(file.type||'').toLowerCase(),used=compose.attachments.reduce((sum,item)=>sum+Number(item.size??0),0);
+      if(!UPLOAD_TYPES[type]){message(`„${file.name}“: nur PDF, JPG, PNG oder WebP möglich.`,true);continue;}
+      if(file.size>(data?.limits?.attachmentBytes??12*1024*1024)){message(`„${file.name}“ ist größer als 12 MB.`,true);continue;}
+      if(used+file.size>(data?.limits?.totalBytes??15*1024*1024)){message('Anhänge dürfen zusammen höchstens 15 MB groß sein.',true);continue;}
+      if(compose.attachments.length>=(data?.limits?.files??10)){message('Höchstens 10 Anhänge pro E-Mail.',true);break;}
+      const temp={id:'pending-'+Math.random().toString(36).slice(2),filename:file.name,mime:type,size:file.size,pending:true};compose.attachments.push(temp);drawComposeAttachments();
+      try{const search=new URLSearchParams({name:file.name});if(synthetic)search.set('test','true');const response=await fetch('/api/mailbox/upload?'+search,{method:'POST',headers:{'Content-Type':type},body:file,credentials:'same-origin'});const result=await response.json().catch(()=>({error:'Upload-Antwort nicht lesbar.'}));if(!response.ok)throw Error(result.error??'Upload fehlgeschlagen.');Object.assign(temp,result.attachment,{pending:false});markComposeDirty();}
+      catch(error){compose.attachments=compose.attachments.filter(item=>item!==temp);message(error.message,true);}
+      drawComposeAttachments();
+    }
+  }
+  function format(command){
+    const editor=$('[data-compose-editor]');if(!editor)return;editor.focus();
+    if(command==='link'){const url=window.prompt('Link-Adresse (https://… oder mailto:…)','https://');if(!url)return;if(!/^(https?:\/\/|mailto:)/i.test(url.trim())){message('Nur https://-, http://- oder mailto:-Links sind erlaubt.',true);return;}document.execCommand('createLink',false,url.trim());}
+    else if(command==='quote')document.execCommand('formatBlock',false,'blockquote');
+    else document.execCommand(command,false);
+    markComposeDirty();
+  }
+
+  // ---------- Einstellungen ----------
+  function drawSettings(){
+    const element=region('settings');if(!element)return;if(!settingsOpen){element.innerHTML='';return;}const account=data?.account;
+    element.innerHTML=`<div class="cc-drawer-layer"><section class="cc-drawer" role="dialog" aria-modal="true" aria-labelledby="cc-settings-title"><header><div><span class="eyebrow">POSTFACH</span><h2 id="cc-settings-title">Verbindung & Versandprotokoll</h2></div><button type="button" class="cc-icon-btn" data-mail-settings-close aria-label="Einstellungen schließen">${icon('close')}</button></header>
+      <p class="hint">IMAP und SMTP werden getrennt geprüft. Zugangsdaten bleiben verschlüsselt auf dem Server. Eine Prüfung versendet keine E-Mail.</p>
+      <form id="mailbox-account"><div class="grid2"><label>Absenderadresse<input type="email" name="email" maxlength="320" required value="${esc(account?.email??'')}"></label><label>Anzeigename<input name="displayName" maxlength="180" value="${esc(account?.displayName??'White Gloss')}"></label></div><div class="grid2"><label>IMAP-Server<input name="imapHost" required value="${esc(account?.imapHost??'')}"></label><label>IMAP-Port<input type="number" name="imapPort" min="1" max="65535" required value="${account?.imapPort??993}"></label></div><label class="check"><input type="checkbox" name="imapSecure" ${account?.imapSecure!==false?'checked':''}>Direkte TLS-Verbindung für IMAP</label><div class="grid2"><label>SMTP-Server<input name="smtpHost" required value="${esc(account?.smtpHost??'')}"></label><label>SMTP-Port<input type="number" name="smtpPort" min="1" max="65535" required value="${account?.smtpPort??465}"></label></div><label class="check"><input type="checkbox" name="smtpSecure" ${account?.smtpSecure!==false?'checked':''}>Direkte TLS-Verbindung für SMTP</label><div class="grid2"><label>Benutzername<input name="username" autocomplete="username" required value="${esc(account?.username??'')}"></label><label>Passwort<input type="password" name="password" autocomplete="new-password" maxlength="500" ${account?'':'required'} placeholder="${account?.passwordConfigured?'Geschützt gespeichert · leer lassen zum Behalten':'Postfachpasswort'}"></label></div><label class="check"><input type="checkbox" name="syncApproved" ${account?.syncApproved?'checked':''}>Geplanten lesenden Hintergrundabruf erlauben</label><div class="actions"><button class="primary" type="submit">Zugang speichern</button><button type="button" data-mail-check="imap" ${account?'':'disabled'}>IMAP prüfen</button><button type="button" data-mail-check="smtp" ${account?'':'disabled'}>SMTP prüfen</button></div></form>
+      ${account?.lastSyncError?`<p class="notice">Letzter Abruffehler: ${esc(account.lastSyncError)}</p>`:''}
+      <h3>Versandprotokoll</h3>${data?.deliveries?.length?`<div class="tablewrap"><table><thead><tr><th>Zeitpunkt</th><th>Status</th><th>Angenommen</th><th>Hinweis</th></tr></thead><tbody>${data.deliveries.slice(0,20).map(item=>`<tr><td>${esc(full(item.createdAt))}</td><td>${esc(item.status)}</td><td>${item.acceptedCount}</td><td>${esc(item.error||'SMTP-Antwort gespeichert')}</td></tr>`).join('')}</tbody></table></div>`:'<p class="hint">Noch keine Versandvorgänge.</p>'}
+    </section></div>`;markSaved(element);element.querySelector('input')?.focus();
+  }
+
+  // ---------- Aktionen ----------
+  function setSection(section){ui.section=section;railOpen=false;$('[data-cc]')?.classList.remove('cc-rail-open');try{localStorage.setItem('wg-cc-section',section);}catch{/* optional */}
+    if(section==='mail'||section==='home'){list=[];listState='loading';drawMain();drawRail();return load().then(()=>{if(ui.section===section){drawMain();drawRail();drawStatus();}}).catch(error=>message(error.message,true));}
+    drawMain();drawRail();return Promise.resolve();}
+  // Ordnerwechsel startet wie in gängigen Mailprogrammen ohne alte Suche und Filter.
+  function openFolder(folder){ui.folder=folder;ui.query='';ui.filter='all';ui.openId=null;detail=null;selection.clear();selectMode=false;return setSection('mail');}
+  async function openMessage(id,{markRead=true}={}){
+    // Aus Übersicht oder Notizen geöffnet: Ansicht „Ungelesen“ bzw. „Alle“ enthält die Nachricht sicher.
+    if(ui.section!=='mail'){const fromHome=ui.section==='home';ui.section='mail';ui.folder=fromHome?'Unread':'all';ui.query='';ui.filter='all';selectMode=false;selection.clear();try{localStorage.setItem('wg-cc-section','mail');}catch{/* optional */}list=[];listState='loading';drawMain();drawRail();load().then(()=>{drawList();drawRail();}).catch(error=>message(error.message,true));}
+    ui.openId=id;detail=null;detailState='loading';drawReader();markActive();const token=id;
+    if(window.matchMedia?.('(max-width: 999px)').matches)$('.cc-mail')?.scrollIntoView({block:'start'});
+    try{let result=await api('/message/'+id);if(ui.openId!==token)return;
+      if(markRead&&!result.message.read){await api('/state',{messageId:id,read:true});result={...result,message:{...result.message,read:true}};const row=list.find(mail=>mail.id===id);if(row)row.read=true;refreshMeta();}
+      detail=result;detailState='ready';}
+    catch(error){if(ui.openId!==token)return;detailState='error';detailError=error.message;}
+    drawReader();drawItems();
+  }
+  function markActive(){for(const row of root.querySelectorAll('.cc-row[data-mail-open]'))row.classList.toggle('active',row.dataset.mailOpen===ui.openId);$('.cc-mail')?.classList.toggle('has-detail',Boolean(ui.openId));}
+  async function changeState(ids,patch,note){
+    await api('/state',{messageIds:ids,...patch});
+    for(const mail of list)if(ids.includes(mail.id)){if(patch.read!==undefined)mail.read=patch.read;if(patch.flagged!==undefined)mail.flagged=patch.flagged;}
+    const leaves=patch.folder!==undefined;if(leaves){list=list.filter(mail=>!ids.includes(mail.id));total=Math.max(0,total-ids.length);if(ids.includes(ui.openId)){ui.openId=null;detail=null;}}
+    else if(detail&&ids.includes(detail.message.id))detail={...detail,message:{...detail.message,...(patch.read!==undefined?{read:patch.read}:{}),...(patch.flagged!==undefined?{flagged:patch.flagged}:{})}};
+    selection=new Set([...selection].filter(id=>!ids.includes(id)));await refreshMeta();drawItems();drawBulk();drawReader();if(note)message(note);
+  }
+  const moveNote=folder=>folder==='Trash'?'In den Papierkorb verschoben.':folder==='Archive'?'Archiviert.':folder==='Spam'?'Als Spam abgelegt.':folder===null?'Wiederhergestellt.':'Verschoben nach „'+(FOLDER_LABEL[folder]??folder)+'“.';
+  function quickAction(action,id){
+    const mail=list.find(item=>item.id===id)??(detail?.message.id===id?detail.message:null);if(!mail)return;
+    if(action==='read')return run(()=>changeState([id],{read:!mail.read}));
+    if(action==='flag')return run(()=>changeState([id],{flagged:!mail.flagged}));
+    if(action==='archive')return run(()=>changeState([id],{folder:'Archive'},moveNote('Archive')));
+    if(action==='trash')return run(()=>changeState([id],{folder:mail.folder==='Trash'?null:'Trash'},moveNote(mail.folder==='Trash'?null:'Trash')));
+  }
+  function scheduleSearch(){clearTimeout(searchTimer);searchTimer=setTimeout(async()=>{selection.clear();drawBulk();try{await load();drawItems();}catch(error){message(error.message,true);}},260);}
+  function moveFocus(step){const rows=[...root.querySelectorAll('.cc-row[data-mail-open]')];if(!rows.length)return;const index=rows.findIndex(row=>row.dataset.mailOpen===ui.openId);const next=rows[Math.max(0,Math.min(rows.length-1,index+step))]??rows[0];next.focus();run(()=>openMessage(next.dataset.mailOpen));}
+
   root.addEventListener('click',event=>{
-    const open=event.target.closest('[data-mail-open]');if(open)run(()=>openMail(open.dataset.mailOpen));
-    if(event.target.closest('[data-mail-compose]'))startCompose();
-    if(event.target.closest('[data-mail-compose-close]')){composeOpen=false;draw();}
-    if(event.target.closest('[data-mail-close]')){detail=null;draw();}
-    const targetFolder=event.target.closest('[data-mail-folder]');if(targetFolder){folder=targetFolder.dataset.mailFolder;section='mail';page=0;detail=null;draw();}
-    if(event.target.closest('[data-mail-notes]')){section='notes';draw();}if(event.target.closest('[data-mail-notes-back]')){section='mail';draw();}
-    if(event.target.closest('[data-mail-refresh]'))run(()=>reload());if(event.target.closest('[data-mail-sync]'))run(async()=>{const result=await api('/sync',{});await reload(false);message(result.message);});
-    const check=event.target.closest('[data-mail-check]');if(check)run(async()=>{const result=await api('/check',{kind:check.dataset.mailCheck});await reload(false);message(result.message);});
-    if(event.target.closest('[data-mail-reply]')&&detail)startCompose({to:detail.message.fromAddress,subject:/^re:/i.test(detail.message.subject)?detail.message.subject:'Re: '+detail.message.subject,text:'\n\n--- Ursprüngliche Nachricht ---\n'+detail.message.textBody.slice(0,10000),replyTo:detail.message.id});
-    if(event.target.closest('[data-mail-forward]')&&detail)startCompose({subject:/^fwd:/i.test(detail.message.subject)?detail.message.subject:'Fwd: '+detail.message.subject,text:'\n\n--- Weitergeleitete Nachricht ---\n'+detail.message.textBody.slice(0,15000)});
-    const state=event.target.closest('[data-mail-state]');if(state&&detail)run(async()=>{await api('/state',state.dataset.mailState==='read'?{messageId:detail.message.id,read:!detail.message.read}:{messageId:detail.message.id,flagged:!detail.message.flagged});await reload();});
-    const ai=event.target.closest('[data-mail-ai]');if(ai&&detail)run(async()=>{const result=await api('/reply-suggestion',{messageId:detail.message.id,style:ai.dataset.mailAi,confirmed:true});startCompose({to:detail.message.fromAddress,subject:/^re:/i.test(detail.message.subject)?detail.message.subject:'Re: '+detail.message.subject,text:result.draft,replyTo:detail.message.id});message('KI-Entwurf in den Editor übernommen. Bitte vor dem Versand prüfen.');});
-    const draft=event.target.closest('[data-mail-draft]');if(draft){const value=data.drafts.find(item=>item.id===draft.dataset.mailDraft);if(value)startCompose(value);}
-    if(event.target.closest('[data-mail-save-draft]'))run(async()=>{const form=root.querySelector('#mailbox-compose');const result=await api('/draft',{id:compose?.id,to:form.elements.to.value,subject:form.elements.subject.value,text:form.elements.text.value,replyTo:compose?.replyTo});await reload();composeOpen=false;folder='Drafts';draw();message('Entwurf gespeichert.');});
-    const pager=event.target.closest('[data-mail-page]');if(pager){page+=Number(pager.dataset.mailPage);draw();root.querySelector('.communication-list')?.scrollIntoView({block:'start'});}
-    const edit=event.target.closest('[data-note-edit]');if(edit){const note=data.notes.find(item=>item.id===edit.dataset.noteEdit),form=root.querySelector('#mail-note-form');if(note&&form){form.elements.id.value=note.id;form.elements.body.value=note.body;form.elements.body.focus();}}
-    const del=event.target.closest('[data-note-delete]');if(del)run(async()=>{await api('/note/delete',{id:del.dataset.noteDelete});await reload(false);message('Notiz gelöscht.');});
-    const noteMail=event.target.closest('[data-note-mail]');if(noteMail)run(()=>openMail(noteMail.dataset.noteMail));
+    const target=event.target;if(!(target instanceof window.Element))return;
+    const quick=target.closest('[data-mail-quick-action]');if(quick){event.stopPropagation();quickAction(quick.dataset.mailQuickAction,quick.dataset.id);return;}
+    if(target.closest('[data-mail-quick]'))return;
+    const open=target.closest('[data-mail-open]');if(open){if(selectMode&&open.classList.contains('cc-row')){toggleSelect(open.dataset.mailOpen);return;}run(()=>openMessage(open.dataset.mailOpen));return;}
+    if(target.closest('[data-mail-compose]')){openCompose();return;}
+    if(target.closest('[data-mail-compose-close]')){closeCompose();return;}
+    if(target.closest('[data-compose-discard]')){closeCompose(true);return;}
+    const stage=target.closest('[data-compose-stage]');if(stage&&compose){compose.stage=stage.dataset.composeStage;drawComposeFoot();return;}
+    if(target.closest('[data-compose-send-confirmed]'))return run(sendCompose);
+    const show=target.closest('[data-compose-show]');if(show&&compose){const values=readCompose();compose={...compose,to:values.to,cc:values.cc,bcc:values.bcc,subject:values.subject,html:values.html,[show.dataset.composeShow==='cc'?'showCc':'showBcc']:true};drawCompose();$('#mailbox-compose')?.elements[show.dataset.composeShow]?.focus();return;}
+    const remove=target.closest('[data-compose-remove]');if(remove&&compose){const id=remove.dataset.composeRemove,item=compose.attachments.find(entry=>entry.id===id);compose.attachments=compose.attachments.filter(entry=>entry.id!==id);markComposeDirty();drawComposeAttachments();if(item?.source==='upload')api('/upload/delete',{id}).catch(()=>{});return;}
+    const formatButton=target.closest('[data-format]');if(formatButton){format(formatButton.dataset.format);return;}
+    if(target.closest('[data-mail-save-draft]'))return run(saveDraft);
+    if(target.closest('[data-compose-delete-draft]')&&compose?.id)return run(async()=>{await api('/draft/delete',{id:compose.id});compose=null;drawCompose();await load();drawRail();drawMain();message('Entwurf gelöscht.');});
+    if(target.closest('[data-mail-close]')){const previous=ui.openId;ui.openId=null;detail=null;drawReader();markActive();[...root.querySelectorAll('.cc-row[data-mail-open]')].find(row=>row.dataset.mailOpen===previous)?.scrollIntoView({block:'center'});return;}
+    if(target.closest('[data-mail-retry]')&&ui.openId)return run(()=>openMessage(ui.openId));
+    const folder=target.closest('[data-mail-folder]');if(folder){run(()=>openFolder(folder.dataset.mailFolder));return;}
+    const section=target.closest('[data-cc-section]');if(section){run(()=>setSection(section.dataset.ccSection));return;}
+    if(target.closest('[data-mail-notes]')){openNotes();return;}
+    if(target.closest('[data-cc-rail]')){railOpen=!$('[data-cc]').classList.contains('cc-rail-open');$('[data-cc]').classList.toggle('cc-rail-open',railOpen);target.closest('[data-cc-rail]').setAttribute('aria-expanded',String(railOpen));if(railOpen)region('rail')?.querySelector('button')?.focus();return;}
+    if(target.closest('[data-cc-rail-close]')){railOpen=false;$('[data-cc]').classList.remove('cc-rail-open');return;}
+    if(target.closest('[data-mail-settings]')){settingsOpen=true;drawSettings();return;}
+    if(target.closest('[data-mail-settings-close]')||target.matches('.cc-drawer-layer')){settingsOpen=false;drawSettings();return;}
+    if(target.closest('[data-mail-refresh]'))return run(async()=>{await load();if(ui.openId&&ui.section==='mail'){const result=await api('/message/'+ui.openId).catch(()=>null);if(result){detail=result;detailState='ready';}}drawStatus();drawRail();drawMain();});
+    if(target.closest('[data-mail-sync]'))return run(async()=>{const result=await api('/sync',{});await load();drawStatus();drawRail();drawMain();message(result.message);});
+    const check=target.closest('[data-mail-check]');if(check)return run(async()=>{const result=await api('/check',{kind:check.dataset.mailCheck});await refreshMeta();drawSettings();message(result.message);});
+    if(target.closest('[data-mail-more]')){loadMore();return;}
+    if(target.closest('[data-mail-reset]')){ui.query='';ui.filter='all';drawList();run(async()=>{await load();drawItems();});return;}
+    const filter=target.closest('[data-mail-filter]');if(filter){ui.filter=filter.dataset.mailFilter;selection.clear();for(const chip of root.querySelectorAll('[data-mail-filter]')){chip.classList.toggle('active',chip===filter);chip.setAttribute('aria-pressed',String(chip===filter));}listState='loading';drawItems();run(async()=>{await load();drawItems();});return;}
+    if(target.closest('[data-mail-select-mode]')){selectMode=!selectMode;if(!selectMode)selection.clear();drawList();return;}
+    const bulk=target.closest('[data-mail-bulk]');if(bulk){const ids=[...selection],action=bulk.dataset.mailBulk;
+      if(action==='none'){selection.clear();drawItems();drawBulk();return;}if(action==='all'){selection=new Set(list.map(mail=>mail.id));drawItems();drawBulk();return;}
+      const patch={read:{read:true},unread:{read:false},flag:{flagged:true},archive:{folder:'Archive'},trash:{folder:'Trash'}}[action];if(patch&&ids.length)return run(()=>changeState(ids,patch,plural(ids.length,'E-Mail','E-Mails')+' aktualisiert.'));return;}
+    if(detail){
+      if(target.closest('[data-mail-reply]')){openCompose(replyValues('reply'));return;}
+      if(target.closest('[data-mail-reply-all]')){openCompose(replyValues('replyAll'));return;}
+      if(target.closest('[data-mail-forward]')){openCompose(forwardValues());return;}
+      const state=target.closest('[data-mail-state]');if(state)return run(()=>changeState([detail.message.id],state.dataset.mailState==='read'?{read:!detail.message.read}:{flagged:!detail.message.flagged}));
+      const moveTo=target.closest('[data-mail-move-to]');if(moveTo){const value=moveTo.dataset.mailMoveTo||null;return run(()=>changeState([detail.message.id],{folder:value},moveNote(value)));}
+      if(target.closest('[data-mail-images]')){ui.images.add(detail.message.id);drawReader();return;}
+      if(target.closest('[data-mail-note-here]')){openNotes({messageId:detail.message.id,orderId:detail.crm.orders.find(order=>order.running)?.id??''});return;}
+      const ai=target.closest('[data-mail-ai]');if(ai)return run(async()=>{const result=await api('/reply-suggestion',{messageId:detail.message.id,style:ai.dataset.mailAi,confirmed:true});openCompose(replyValues('reply',result.draft));markComposeDirty();message('KI-Entwurf in den Editor übernommen. Bitte vor dem Versand prüfen.');});
+    }
+    const draft=target.closest('[data-mail-draft]');if(draft){const value=data?.drafts?.find(item=>item.id===draft.dataset.mailDraft);if(value)openCompose({...value,html:value.html||textToHtml(value.text)});return;}
+    const deleteFolder=target.closest('[data-mail-folder-delete]');if(deleteFolder)return run(async()=>{await api('/folder/delete',{id:deleteFolder.dataset.mailFolderDelete});if(!['INBOX','Unread','Flagged','Drafts','Sent','Archive','Spam','Trash'].includes(ui.folder)){ui.folder='INBOX';}await load();drawRail();drawMain();message('Ordner entfernt. Enthaltene E-Mails sind zurück im Ursprungsordner.');});
+    const mailTo=target.closest('[data-cc-mail-to]');if(mailTo){openCompose({to:mailTo.dataset.ccMailTo,subject:mailTo.dataset.ccSubject??''});return;}
+    const mailSearch=target.closest('[data-cc-mail-search]');if(mailSearch){ui.folder='all';ui.query=mailSearch.dataset.ccMailSearch;ui.filter='all';ui.openId=null;run(()=>setSection('mail'));return;}
+    const day=target.closest('[data-cc-day]');if(day){ui.calendarDay=day.dataset.ccDay||null;drawMain();return;}
+    const noteOrder=target.closest('[data-cc-note-order]');if(noteOrder){openNotes({orderId:noteOrder.dataset.ccNoteOrder,messageId:ui.section==='mail'&&detail?detail.message.id:''});return;}
+    const noteCustomer=target.closest('[data-cc-note-customer]');if(noteCustomer){openNotes({customerId:noteCustomer.dataset.ccNoteCustomer,messageId:detail?.message.id??''});return;}
+    if(target.closest('[data-cc-note-link-mail]')&&detail){noteDraft={...noteDraft,...readNoteForm(),messageId:detail.message.id};drawMain();return;}
+    const unlink=target.closest('[data-cc-note-unlink]');if(unlink){noteDraft={...noteDraft,...readNoteForm(),[unlink.dataset.ccNoteUnlink==='message'?'messageId':'customerId']:''};drawMain();return;}
+    if(target.closest('[data-cc-note-cancel]')){noteDraft={id:null,body:'',orderId:'',customerId:'',messageId:'',pinned:false};drawMain();return;}
+    const noteFilter=target.closest('[data-cc-note-filter]');if(noteFilter){ui.noteFilter=noteFilter.dataset.ccNoteFilter;noteDraft={...noteDraft,...readNoteForm()};drawMain();return;}
+    const edit=target.closest('[data-note-edit]');if(edit){const note=data.notes.find(item=>item.id===edit.dataset.noteEdit);if(note){noteDraft={id:note.id,body:note.body,orderId:note.orderId??'',customerId:note.customerId??'',messageId:note.messageId??'',pinned:note.pinned};drawMain();root.querySelector('#cc-note-body')?.focus();}return;}
+    const pin=target.closest('[data-cc-note-pin]');if(pin){const note=data.notes.find(item=>item.id===pin.dataset.ccNotePin);if(note)return run(async()=>{await api('/note',{id:note.id,body:note.body,orderId:note.orderId,messageId:note.messageId,customerId:note.customerId,pinned:!note.pinned});await refreshMeta();drawMain();});return;}
+    const del=target.closest('[data-note-delete]');if(del){if(confirmDelete!==del.dataset.noteDelete){confirmDelete=del.dataset.noteDelete;noteDraft={...noteDraft,...readNoteForm()};drawMain();return;}return run(async()=>{await api('/note/delete',{id:del.dataset.noteDelete});confirmDelete=null;if(noteDraft.id===del.dataset.noteDelete)noteDraft={id:null,body:'',orderId:'',customerId:'',messageId:'',pinned:false};await refreshMeta();drawMain();message('Notiz gelöscht.');});}
+    const noteMail=target.closest('[data-note-mail]');if(noteMail){run(()=>openMessage(noteMail.dataset.noteMail,{markRead:false}));return;}
+    if(railOpen&&target.closest('[data-view],[data-order],[data-customer]')){railOpen=false;$('[data-cc]')?.classList.remove('cc-rail-open');}
   });
-  root.addEventListener('input',event=>{if(event.target.matches('[data-mail-search]')){query=event.target.value;page=0;const position=event.target.selectionStart;draw();const input=root.querySelector('[data-mail-search]');input.focus();input.setSelectionRange(position,position);}});
-  root.addEventListener('change',event=>{if(event.target.matches('[data-mail-filter]')){filter=event.target.value;page=0;draw();}if(event.target.matches('[data-mail-sort]')){sort=event.target.value;draw();}if(event.target.matches('[data-mail-move]')&&event.target.value&&detail)run(async()=>{await api('/state',{messageId:detail.message.id,folder:event.target.value});await reload();message('E-Mail in den CRM-Ordner verschoben.');});});
-  root.addEventListener('submit',event=>{event.preventDefault();event.stopPropagation();const form=event.target;
-    if(form.id==='mailbox-account')run(async()=>{const fields=new FormData(form),result=await api('/settings',{email:fields.get('email'),displayName:fields.get('displayName'),imapHost:fields.get('imapHost'),imapPort:Number(fields.get('imapPort')),imapSecure:form.elements.imapSecure.checked,smtpHost:fields.get('smtpHost'),smtpPort:Number(fields.get('smtpPort')),smtpSecure:form.elements.smtpSecure.checked,username:fields.get('username'),password:fields.get('password'),syncApproved:form.elements.syncApproved.checked});await reload(false);message(result.message);});
-    if(form.id==='mailbox-compose')run(async()=>{const result=await api('/send',{requestId:crypto.randomUUID(),draftId:compose?.id,to:form.elements.to.value,subject:form.elements.subject.value,text:form.elements.text.value,replyTo:compose?.replyTo,confirmed:form.elements.confirmed.checked});composeOpen=false;folder='Sent';await reload(false);message(result.status==='PARTIAL'?'Nur ein Teil der Empfänger wurde angenommen. Bitte Versandprotokoll prüfen.':'SMTP hat die E-Mail angenommen. Die endgültige Zustellung ist damit noch nicht bestätigt.');});
-    if(form.matches('[data-mail-new-folder]'))run(async()=>{await api('/folder',{name:form.elements.name.value});folder=form.elements.name.value;await reload(false);message('Eigener CRM-Ordner angelegt.');});
-    if(form.id==='mail-note-form')run(async()=>{await api('/note',{id:form.elements.id.value||null,body:form.elements.body.value,messageId:form.elements.messageId.value||null,orderId:form.elements.orderId.value||null});await reload(false);message('Notiz gespeichert.');});
+  function toggleSelect(id){if(selection.has(id))selection.delete(id);else selection.add(id);const row=[...root.querySelectorAll('.cc-row[data-mail-open]')].find(item=>item.dataset.mailOpen===id);row?.classList.toggle('selected',selection.has(id));const box=row?.querySelector('[data-mail-select]');if(box)box.checked=selection.has(id);drawBulk();}
+  function readNoteForm(){const form=root.querySelector('#mail-note-form');if(!form)return {};return {body:form.elements.body.value,orderId:form.elements.orderId.value,pinned:form.elements.pinned.checked};}
+  async function sendCompose(){
+    const value=readCompose();compose.requestId??=crypto.randomUUID();
+    const result=await api('/send',{requestId:compose.requestId,draftId:compose.id,...value,replyTo:compose.replyTo,confirmed:true});
+    compose=null;drawCompose();ui.section='mail';ui.folder='Sent';ui.openId=null;await load();drawRail();drawMain();
+    message(result.status==='PARTIAL'?'Nur ein Teil der Empfänger wurde angenommen. Bitte Versandprotokoll prüfen.':'SMTP hat die E-Mail angenommen. Die endgültige Zustellung ist damit noch nicht bestätigt.');
+  }
+  root.addEventListener('keydown',event=>{
+    const row=event.target.closest?.('.cc-row[data-mail-open],.cc-row[data-mail-draft]');if(row&&(event.key==='Enter'||event.key===' ')&&event.target===row){event.preventDefault();row.click();return;}
+    if(event.target.matches?.('[data-compose-editor]')&&(event.metaKey||event.ctrlKey)&&event.key==='Enter'){event.preventDefault();$('#mailbox-compose')?.requestSubmit?.();return;}
+    if(event.target.matches?.('#cc-note-body')&&(event.metaKey||event.ctrlKey)&&event.key==='Enter'){event.preventDefault();root.querySelector('#mail-note-form')?.requestSubmit?.();return;}
+    if(event.key==='Escape'){if(compose){event.preventDefault();closeCompose();return;}if(settingsOpen){settingsOpen=false;drawSettings();return;}if(railOpen){railOpen=false;$('[data-cc]').classList.remove('cc-rail-open');return;}}
   });
-  root.innerHTML='<div class="communication-skeleton card"><span></span><span></span><span></span><p>Communication Center wird geladen …</p></div>';reload(false).catch(error=>{loading=false;message(error.message,true);});
+  root.addEventListener('input',event=>{
+    if(event.target.matches('[data-mail-search]')){ui.query=event.target.value;listState='loading';const count=$('[data-cc-list-count]');if(count)count.textContent='Suche läuft …';scheduleSearch();return;}
+    if(event.target.matches('[data-cc-order-search]')){ui.orderQuery=event.target.value;const position=event.target.selectionStart;drawMain();const input=$('[data-cc-order-search]');input?.focus();input?.setSelectionRange(position,position);return;}
+    if(event.target.matches('[data-cc-note-search]')){ui.noteQuery=event.target.value;const position=event.target.selectionStart;noteDraft={...noteDraft,...readNoteForm()};drawMain();const input=$('[data-cc-note-search]');input?.focus();input?.setSelectionRange(position,position);return;}
+    if(event.target.closest?.('#mailbox-compose'))markComposeDirty();
+  });
+  root.addEventListener('paste',event=>{
+    const editor=event.target.closest?.('[data-compose-editor]');if(!editor)return;const value=event.clipboardData?.getData('text/plain');if(typeof value!=='string')return;
+    // Fremdformatierungen (Word, Webseiten) werden beim Einfügen bewusst entfernt.
+    event.preventDefault();if(!document.execCommand('insertText',false,value)){const selection=window.getSelection?.();if(selection?.rangeCount){const range=selection.getRangeAt(0);range.deleteContents();range.insertNode(document.createTextNode(value));range.collapse(false);}}markComposeDirty();
+  });
+  root.addEventListener('mousedown',event=>{if(event.target.closest?.('[data-format]'))event.preventDefault();});
+  root.addEventListener('dragover',event=>{if(compose&&event.target.closest?.('[data-compose-layer]')){event.preventDefault();$('#mailbox-compose')?.classList.add('dropping');}});
+  root.addEventListener('dragleave',event=>{if(event.target.matches?.('#mailbox-compose'))$('#mailbox-compose')?.classList.remove('dropping');});
+  root.addEventListener('drop',event=>{if(!compose||!event.target.closest?.('[data-compose-layer]'))return;event.preventDefault();$('#mailbox-compose')?.classList.remove('dropping');const files=[...(event.dataTransfer?.files??[])];if(files.length)uploadFiles(files);});
+  root.addEventListener('change',event=>{
+    const target=event.target;
+    if(target.matches('[data-mail-select]')){toggleSelect(target.dataset.mailSelect);return;}
+    if(target.matches('[data-mail-sort]')){ui.sort=target.value;listState='loading';drawItems();run(async()=>{await load();drawItems();});return;}
+    if(target.matches('[data-mail-move]')&&target.value&&detail){const value=target.value;run(()=>changeState([detail.message.id],{folder:value},moveNote(value)));return;}
+    if(target.matches('[data-mail-bulk-move]')&&target.value&&selection.size){const value=target.value,ids=[...selection];run(()=>changeState(ids,{folder:value},moveNote(value)));return;}
+    if(target.matches('[data-compose-file]')){const files=[...(target.files??[])];target.value='';if(files.length&&compose)uploadFiles(files);return;}
+  });
+  root.addEventListener('submit',event=>{
+    event.preventDefault();event.stopPropagation();const form=event.target;
+    if(form.id==='mailbox-account')return run(async()=>{const fields=new FormData(form),result=await api('/settings',{email:fields.get('email'),displayName:fields.get('displayName'),imapHost:fields.get('imapHost'),imapPort:Number(fields.get('imapPort')),imapSecure:form.elements.imapSecure.checked,smtpHost:fields.get('smtpHost'),smtpPort:Number(fields.get('smtpPort')),smtpSecure:form.elements.smtpSecure.checked,username:fields.get('username'),password:fields.get('password'),syncApproved:form.elements.syncApproved.checked});await refreshMeta();drawSettings();message(result.message);});
+    if(form.id==='mailbox-compose'){if(!compose)return;const value=readCompose();
+      if(!value.to.trim()){message('Bitte mindestens einen Empfänger angeben.',true);form.elements.to.focus();return;}
+      if(!value.subject.trim()){message('Bitte einen Betreff angeben.',true);form.elements.subject.focus();return;}
+      if(!value.text.trim()){message('Bitte einen Nachrichtentext schreiben.',true);form.querySelector('[data-compose-editor]')?.focus();return;}
+      if(compose.attachments.some(item=>item.pending)){message('Bitte warten, bis alle Anhänge hochgeladen sind.',true);return;}
+      compose.stage='confirm';drawComposeFoot();return;}
+    if(form.matches('[data-mail-new-folder]'))return run(async()=>{const name=form.elements.name.value.trim();await api('/folder',{name});ui.folder=name;ui.section='mail';ui.openId=null;await load();drawRail();drawMain();message('Eigener Ordner angelegt.');});
+    if(form.id==='mail-note-form')return run(async()=>{const value=readNoteForm();await api('/note',{id:form.elements.id.value||null,body:value.body,messageId:form.elements.messageId.value||null,orderId:value.orderId||null,customerId:form.elements.customerId.value||null,pinned:value.pinned});noteDraft={id:null,body:'',orderId:'',customerId:'',messageId:'',pinned:false};await refreshMeta();drawMain();message('Notiz gespeichert.');});
+  });
+
+  // Tastenkürzel nur außerhalb von Eingabefeldern und nur solange der Bereich sichtbar ist.
+  if(keyHandler)document.removeEventListener('keydown',keyHandler);
+  keyHandler=event=>{
+    if(!root.isConnected){document.removeEventListener('keydown',keyHandler);keyHandler=null;return;}
+    if(event.defaultPrevented||event.metaKey||event.ctrlKey||event.altKey||compose||settingsOpen)return;const target=event.target;
+    if(target instanceof window.HTMLElement&&(target.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)))return;if(document.querySelector('dialog[open]'))return;
+    const key=event.key;
+    if(key==='c'){event.preventDefault();openCompose();return;}
+    if(ui.section!=='mail')return;
+    if(key==='/'){event.preventDefault();$('[data-mail-search]')?.focus();return;}
+    if(key==='j'||key==='ArrowDown'&&target.closest?.('.cc-items')){event.preventDefault();moveFocus(1);return;}
+    if(key==='k'||key==='ArrowUp'&&target.closest?.('.cc-items')){event.preventDefault();moveFocus(-1);return;}
+    if(!detail)return;
+    if(key==='r'&&detail.message.direction==='INBOUND'){event.preventDefault();openCompose(replyValues('reply'));}
+    else if(key==='a'&&detail.message.direction==='INBOUND'){event.preventDefault();openCompose(replyValues('replyAll'));}
+    else if(key==='f'){event.preventDefault();openCompose(forwardValues());}
+    else if(key==='e'){event.preventDefault();quickAction('archive',detail.message.id);}
+    else if(key==='#'||key==='Delete'){event.preventDefault();quickAction('trash',detail.message.id);}
+    else if(key==='s'){event.preventDefault();quickAction('flag',detail.message.id);}
+    else if(key==='u'){event.preventDefault();quickAction('read',detail.message.id);}
+    else if(key==='Escape'){ui.openId=null;detail=null;drawReader();markActive();}
+  };
+  document.addEventListener('keydown',keyHandler);
+
+  root.innerHTML='<div class="cc-boot card"><span></span><span></span><span></span><p>Communication Center wird geladen …</p></div>';
+  load().then(()=>{drawAll();if(ui.section==='mail'&&ui.openId)openMessage(ui.openId,{markRead:false});}).catch(error=>{root.innerHTML=`<div class="cc-boot card">${empty('Communication Center nicht erreichbar',error.message,'spam','<button type="button" class="smallbtn" data-cc-reload>Erneut versuchen</button>')}</div>`;root.querySelector('[data-cc-reload]')?.addEventListener('click',()=>mountMailbox(root,{synthetic,toast,orders,markSaved}),{once:true});});
 }
