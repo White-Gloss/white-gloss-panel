@@ -16,6 +16,8 @@ async function openRail(page,width){if(width<1400&&!(await page.locator('.cc').e
 
 for(const viewport of viewports)test(`communication center layout and mail workflow at ${viewport.width}x${viewport.height}`,async t=>{
   const f=await browserFixture(t,{viewport}),{page}=f,tag=viewport.width+'x'+viewport.height;
+  // Kurze Schrittzeit: ein hängender Schritt darf die übrigen Bildschirmbreiten nicht abbrechen.
+  page.setDefaultTimeout(10000);
   await f.seedOrder({status:'In Arbeit'});
   await ingestMessage(f.env,plain('Frage zur Politur'),{folder:'INBOX',uid:1,uidValidity:'browser'});
   await ingestMessage(f.env,html,{folder:'INBOX',uid:2,uidValidity:'browser'});
@@ -49,6 +51,13 @@ for(const viewport of viewports)test(`communication center layout and mail workf
 
   for(const section of ['orders','calendar']){await openRail(page,viewport.width);await page.locator(`.cc-rail [data-cc-section="${section}"]`).click();await page.locator(section==='orders'?'.cc-order-card':'.cc-day').first().waitFor();await noOverflow(page,section);}
   await f.screenshot('communication-calendar-'+tag,{fullPage:false});
-  await openRail(page,viewport.width);await page.locator('.cc-rail [data-mail-notes]').click();await page.locator('#cc-note-body').fill('Rückruf vor Terminbestätigung');await page.locator('#mail-note-form [type="submit"]').click();await page.locator('.cc-note',{hasText:'Rückruf'}).waitFor();await noOverflow(page,'notes');
+  await openRail(page,viewport.width);await page.locator('.cc-rail [data-mail-notes]').click();await page.locator('#cc-note-body').fill('Rückruf vor Terminbestätigung');await page.locator('#mail-note-form [type="submit"]').click();
+  const noteShown=await page.locator('.cc-note',{hasText:'Rückruf'}).waitFor({timeout:8000}).then(()=>true,()=>false);
+  if(!noteShown){
+    // Protokolliert Zustand von Formular, Statuszeile, Anfragen und Seitenfehlern für die Ursachenanalyse.
+    const state=await page.evaluate(async()=>{const api=await (await fetch('/api/mailbox')).json(),form=document.querySelector('#mail-note-form'),active=document.activeElement;return {status:document.querySelector('[data-mailbox-message]')?.textContent,toast:document.querySelector('#toast')?.textContent,busy:document.querySelector('#mailbox-root')?.getAttribute('aria-busy'),notesApi:api.notes?.length,notesDom:document.querySelectorAll('.cc-note').length,body:form?.elements.body?.value,valid:form?.checkValidity(),active:active?.tagName+'#'+active?.id,section:document.querySelector('[data-cc]')?.dataset.section};});
+    t.diagnostic('note diagnostics '+tag+' '+JSON.stringify({...state,requests:f.requests.filter(item=>item.path.startsWith('/api/mailbox')).slice(-8),errors:f.errors}));
+  }
+  assert.ok(noteShown,'saved note appears in the notes list');await noOverflow(page,'notes');
   assert.ok(!f.requests.some(item=>item.path.startsWith('/pixel')),'tracking pixel was never requested');assert.deepEqual(f.errors,[]);
 });
