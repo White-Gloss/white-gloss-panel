@@ -1,6 +1,6 @@
 # Umzug auf Hostinger
 
-Stand: 25.10.2026. Quellen sind jeweils genannt. Nur Gelesenes steht als Tatsache da,
+Stand: 25.10.2026, Releaseweg aktualisiert am 03.11.2026. Quellen sind jeweils genannt. Nur Gelesenes steht als Tatsache da,
 alles andere ist als offen markiert. Keine Geheimnisse in dieser Datei.
 
 ## Zustand
@@ -19,9 +19,24 @@ alles andere ist als offen markiert. Keine Geheimnisse in dieser Datei.
 
 ## Hostinger-Releaseweg
 
-Der Releaseweg ist seit 25.10.2026 im Repository vorbereitet, aber noch **nicht aktiviert
-oder live getestet**. Er verwendet den vorhandenen VPS und verändert weder DNS noch die
-Hauptwebsite. Caddy in Docker bleibt unverändert; der Release wechselt nur den versionierten
+**Stand 03.11.2026: aktiv.** Nachweis ist der GitHub-Lauf **Panel checks #165**
+(Commit `200559c`), Job **Hostinger panel release**, Schritt „Publish panel on Hostinger VPS
+and verify HTTPS“. Das Log zeigt:
+
+- „Aktiver Panel-Commit vor Veröffentlichung: 2a883f4…“
+- „Eigener Paneldienst und Timer aktiviert.“
+- „Hostinger-Panel veröffentlicht und über HTTPS geprüft: 200559c…“
+
+Damit sind die Repository-Variable `PANEL_RELEASE_TARGET=hostinger` und die Secrets der
+Umgebung `hostinger-panel` eingerichtet. Jeder Push auf `main` wird nach den Code- und
+Browserprüfungen **automatisch veröffentlicht**; ein Merge auf `main` ist eine
+Veröffentlichung. Der Job prüft dabei den aktiven Commit auf dem VPS, `/healthz` mit dem
+Header `x-panel-commit`, die Anmeldeseite und die Paneldateien gegen das Releasepaket.
+Eine eigene Prüfung des Servers durch den Cloud-Agenten ist nicht möglich: Dessen Umgebung
+erreicht `panel.white-gloss.de` nicht (HTTP 403 durch die Netzwerkrichtlinie, 03.11.2026).
+
+Die folgenden Abschnitte beschreiben die Einrichtung vom 25.10.2026. Der Releaseweg
+verwendet den vorhandenen VPS und verändert weder DNS noch die Hauptwebsite. Caddy in Docker bleibt unverändert; der Release wechselt nur den versionierten
 Panelstand unter `/srv/white-gloss-panel/releases` und startet den Paneldienst neu.
 
 Enthalten sind:
@@ -95,5 +110,15 @@ bestätigt. Bei einem Fehler ist der Release nicht als erfolgreich zu betrachten
 
 Der alte automatische IONOS-Release bleibt abgeschaltet. Ein grüner Check- oder
 Browser-Workflow allein ist keine Veröffentlichung. Entscheidend ist der erfolgreiche
-Job **Hostinger panel release** einschließlich aller Liveprüfungen. Ohne ausdrückliche
-Betreiberfreigabe werden keine Serveränderungen vorgenommen.
+Job **Hostinger panel release** einschließlich aller Liveprüfungen.
+
+Betreiberentscheidung vom 03.11.2026: Der Agent gibt beauftragte Aufgaben aus
+[Roadmap](Roadmap.md) nach erfolgreichen Prüfungen selbst frei, führt sie über `main`
+und diesen Job online und prüft das Joblog. Es gibt bewusst keinen zusätzlichen
+manuellen Freigabeschritt. Andere Serveränderungen erfolgen nur mit ausdrücklicher
+Betreiberfreigabe.
+
+**Rückfall:** Schlägt die Installation fehl, stellt `deploy/install-panel.sh` den vorherigen
+Release automatisch wieder her. Ein fachlich fehlerhafter Release wird mit einem
+Revert-Commit auf `main` zurückgenommen; der nächste Lauf veröffentlicht den vorherigen
+Stand erneut. Änderungen ohne Datenbankänderung sind so ohne Datenverlust umkehrbar.
