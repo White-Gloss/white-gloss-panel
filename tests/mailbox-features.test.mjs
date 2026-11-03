@@ -94,6 +94,8 @@ test('uploads are validated, drafts keep Cc/Bcc/HTML/attachments and sending car
   const view=await (await f.call('/api/mailbox?folder=Sent')).json();assert.equal(view.total,1);assert.equal(view.drafts.length,0);assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM mail_uploads').first()).n,0);
   const sentDetail=await (await f.call('/api/mailbox/message/'+view.messages[0].id)).json();assert.deepEqual(sentDetail.message.cc.map(item=>item.address),['partner@example.invalid']);assert.deepEqual(sentDetail.message.bcc.map(item=>item.address),['archiv@example.invalid']);assert.equal(sentDetail.attachments.length,2);assert.equal(sentDetail.attachments[0].documentId,null,'outbound attachments never become receipts');
   assert.equal(sentDetail.thread.length,2,'reply joins the conversation');
+  assert.ok(!sentDetail.attachments.some(item=>[pdf.id,png.id].includes(item.id)),'sent attachments are separate archive copies');
+  await f.env.BUCKET.delete(pdf.id);await f.env.BUCKET.delete(png.id);
   const file=await f.call('/api/mailbox/attachment/'+sentDetail.attachments[0].id+'?download=1');assert.equal(file.status,200);assert.match(file.headers.get('content-disposition'),/^attachment; .*filename\*=UTF-8''Angebot\.pdf/);
 });
 
@@ -111,4 +113,7 @@ test('synthetic area isolates uploads and refuses real sending',async t=>{
   const f=await fixture(t);const live=(await (await f.upload('Live.pdf',PDF,'application/pdf')).json()).attachment;
   assert.equal((await f.call('/api/mailbox/draft?test=true',{to:'a@example.invalid',subject:'x',text:'y',attachments:[live.id]})).status,404,'live upload is not usable in the test area');
   assert.equal((await f.call('/api/mailbox/send?test=true',{requestId:randomUUID(),to:'a@example.invalid',subject:'x',text:'y',confirmed:true})).status,409);
+  const folder=(await (await f.call('/api/mailbox/folder',{name:'Gemeinsam'})).json()).folder;
+  assert.equal((await f.call('/api/mailbox/folder/delete?test=true',{id:folder.id})).status,409,'shared folders cannot be removed from the test area');
+  assert.deepEqual((await (await f.call('/api/mailbox')).json()).folders.map(item=>item.name),['Gemeinsam']);
 });

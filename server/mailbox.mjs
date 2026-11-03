@@ -189,17 +189,17 @@ async function sendMail(env,input){
   const previous=await env.DB.prepare('SELECT * FROM mail_deliveries WHERE request_id=?').bind(input.requestId).first();
   if(previous){need(previous.status==='SENT'||previous.status==='PARTIAL','Dieser Versand ist noch ungeklärt. Kein automatischer Neuversuch; bitte zuerst das Postfach prüfen.',409);return {ok:true,status:previous.status,duplicate:true};}
   const resolved=await resolveAttachments(env,input.attachments??[],0),files=[];
-  for(const item of resolved){const file=await env.BUCKET.get(item.id);need(file&&hash(file.body)===item.sha256,'Anhang „'+item.filename+'“ ist nicht verfügbar oder beschädigt.',503);files.push({...item,content:Buffer.from(file.body),storedId:item.source==='upload'?item.id:randomUUID()});}
+  for(const item of resolved){const file=await env.BUCKET.get(item.id);need(file&&hash(file.body)===item.sha256,'Anhang „'+item.filename+'“ ist nicht verfügbar oder beschädigt.',503);files.push({...item,content:Buffer.from(file.body),storedId:randomUUID()});}
   need(files.reduce((sum,item)=>sum+item.content.length,0)<=ATTACHMENT_LIMITS.totalBytes,'Anhänge sind zusammen größer als 15 MB.',413);
   const id=randomUUID(),at=new Date().toISOString(),key='OUTBOUND:'+input.requestId,providerId='<'+input.requestId+'@white-gloss.local>';
   const inReplyTo=original?.message_id_header||null,references=inReplyTo?[original.references_header,inReplyTo].filter(Boolean).join(' ').split(/\s+/).slice(-20).join(' '):null;
-  const copied=[];for(const file of files)if(file.source==='mail'){await env.BUCKET.put(file.storedId,file.content,{httpMetadata:{contentType:file.mime}});copied.push(file.storedId);}
+  // Jeder Versandanhang erhält eine eigene Archivkopie. Uploads und ihre Bereinigung berühren den Nachweis nie.
+  const copied=[];try{for(const file of files){await env.BUCKET.put(file.storedId,file.content,{httpMetadata:{contentType:file.mime}});copied.push(file.storedId);}}catch(error){for(const storedId of copied)await env.BUCKET.delete(storedId).catch(()=>{});throw error;}
   const statements=[
     env.DB.prepare(`INSERT INTO mail_messages(id,dedupe_key,synthetic,direction,folder,uid,uid_validity,message_id_hash,from_name,from_address,to_json,subject,text_body,html_body,received_at,imported_at,cc_json,bcc_json,message_id_header,references_header)
       VALUES(?,?,0,'OUTBOUND','Sent',NULL,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,key,hash(providerId),row.display_name,row.email,JSON.stringify(recipients.map(address=>({name:'',address}))),subject,body,html,at,at,JSON.stringify(copies.map(address=>({name:'',address}))),JSON.stringify(blind.map(address=>({name:'',address}))),providerId,references),
     env.DB.prepare("INSERT INTO mail_deliveries(request_id,message_id,status,created_at,updated_at) VALUES(?,?,'PENDING',?,?)").bind(input.requestId,id,at,at),
-    ...files.map(file=>env.DB.prepare('INSERT INTO mail_attachments VALUES(?,?,?,?,?,?,1,NULL)').bind(file.storedId,id,file.filename,file.mime,file.content.length,file.sha256)),
-    ...files.filter(file=>file.source==='upload').map(file=>env.DB.prepare('DELETE FROM mail_uploads WHERE id=?').bind(file.id))
+    ...files.map(file=>env.DB.prepare('INSERT INTO mail_attachments VALUES(?,?,?,?,?,?,1,NULL)').bind(file.storedId,id,file.filename,file.mime,file.content.length,file.sha256))
   ];if(original?.message_id_hash)statements.push(env.DB.prepare('INSERT INTO mail_thread_links VALUES(?,?)').bind(id,original.message_id_hash));
   try{await env.DB.batch(statements);}catch(error){for(const storedId of copied)await env.BUCKET.delete(storedId).catch(()=>{});throw error;}
   const message={from:row.display_name?`"${row.display_name.replace(/["\\\r\n]/g,'')}" <${row.email}>`:row.email,to:recipients.join(', '),...(copies.length?{cc:copies.join(', ')}:{}),...(blind.length?{bcc:blind.join(', ')}:{}),subject,text:body,...(html?{html:outboundHtml(html)}:{}),messageId:providerId,...(inReplyTo?{inReplyTo,references}:{}),...(files.length?{attachments:files.map(file=>({filename:file.filename,content:file.content,contentType:file.mime}))}:{})};
@@ -208,7 +208,7 @@ async function sendMail(env,input){
     const result=transporter?await transporter.sendMail(message):await env.MAILBOX_ADAPTERS.sendMail(smtpConfig(row,password),message);
     const accepted=Array.isArray(result.accepted)?result.accepted:[],rejected=Array.isArray(result.rejected)?result.rejected:[],status=accepted.length&&rejected.length?'PARTIAL':accepted.length?'SENT':'FAILED',updatedAt=new Date().toISOString();
     await env.DB.prepare('UPDATE mail_deliveries SET status=?,accepted_count=?,rejected_count=?,provider_message_id=?,provider_response=?,error=?,updated_at=? WHERE request_id=?').bind(status,accepted.length,rejected.length,text(result.messageId,500)||null,text(result.response,500)||null,status==='FAILED'?'SMTP hat keinen Empfänger angenommen. Kein automatischer Neuversuch.':null,updatedAt,input.requestId).run();
-    if((status==='SENT'||status==='PARTIAL')&&input.draftId)await deleteDraft(env,text(input.draftId,36),0);
+    if(status==='SENT'||status==='PARTIAL'){if(input.draftId)await deleteDraft(env,text(input.draftId,36),0);for(const file of files.filter(item=>item.source==='upload'))await deleteUpload(env,{id:file.id},0).catch(()=>{});}
     return {ok:status!=='FAILED',status,acceptedCount:accepted.length,rejectedCount:rejected.length,messageId:id};
   }catch(error){
     const detail='SMTP-Ergebnis ungeklärt. Kein automatischer Neuversuch; bitte zuerst das Postfach prüfen.';
@@ -257,7 +257,8 @@ export async function handleMailbox(env,request,isOwner){
   if(request.method==='POST'&&path===ROOT+'/upload/delete')return response(await deleteUpload(env,await bodyJSON(request),synthetic));
   if(request.method==='POST'&&path===ROOT+'/state')return response(await changeState(env,await bodyJSON(request),synthetic));
   if(request.method==='POST'&&path===ROOT+'/folder')return response(await createFolder(env,await bodyJSON(request)));
-  if(request.method==='POST'&&path===ROOT+'/folder/delete')return response(await deleteFolder(env,await bodyJSON(request)));
+  // Ordner sind nicht nach Test- und Live-Bereich getrennt; Löschen ist daher nur im Live-Bereich möglich.
+  if(request.method==='POST'&&path===ROOT+'/folder/delete'){const input=await bodyJSON(request);need(!synthetic,'Im Testbereich können keine Ordner entfernt werden.',409);return response(await deleteFolder(env,input));}
   if(request.method==='POST'&&path===ROOT+'/note')return response(await saveNote(env,await bodyJSON(request),synthetic));
   if(request.method==='POST'&&path===ROOT+'/note/delete')return response(await deleteNote(env,await bodyJSON(request),synthetic));
   if(request.method==='POST'&&path===ROOT+'/draft')return response(await saveDraft(env,await bodyJSON(request,400000),synthetic));

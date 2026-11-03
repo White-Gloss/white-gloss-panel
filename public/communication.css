@@ -27,7 +27,7 @@
 /* Arbeitsfläche */
 .cc-shell{display:grid;grid-template-columns:228px minmax(0,1fr);gap:16px;align-items:stretch;min-width:0}
 .cc-rail{display:flex;flex-direction:column;gap:14px;padding:14px 12px;background:var(--wg-paper);border:1px solid var(--wg-rule);border-radius:var(--cc-radius);overflow-y:auto;min-height:0}
-.cc-rail-backdrop{display:none}
+.cc .cc-rail-backdrop{display:none}
 .cc-compose-btn{width:100%;min-height:42px;font-size:14px}
 .cc-nav{display:grid;gap:1px}
 .cc-nav-heading{padding:0 10px 6px;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--wg-subtle)}
@@ -251,7 +251,7 @@
   .cc-shell{grid-template-columns:minmax(0,1fr)}
   .cc-rail{position:fixed;top:0;bottom:0;left:0;z-index:42;width:min(300px,86vw);border-radius:0;padding:calc(16px + env(safe-area-inset-top,0px)) 12px calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-105%);visibility:hidden;transition:transform .2s ease,visibility 0s linear .2s;box-shadow:16px 0 50px #141f2a33}
   .cc-rail-open .cc-rail{transform:none;visibility:visible;transition:transform .2s ease}
-  .cc-rail-open .cc-rail-backdrop{display:block;position:fixed;inset:0;z-index:41;width:100%;border:0;border-radius:0;background:#141f2a59}
+  .cc.cc-rail-open .cc-rail-backdrop{display:block;position:fixed;inset:0;z-index:41;width:100%;border:0;border-radius:0;background:#141f2a59}
   .cc-mail{grid-template-columns:minmax(280px,340px) minmax(0,1fr)}
   .cc-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
   .cc-reader-actions button span{display:none}.cc-reader-actions button{padding:6px 10px}

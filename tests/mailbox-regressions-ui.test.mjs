@@ -49,3 +49,25 @@ test('a reopened reply draft keeps the quoted original out of the grammar correc
   assert.equal(analyses.length,1);const sent=analyses[0].input[0].content.map(part=>part.text??'').join('\n');assert.match(sent,/Termn/);assert.doesNotMatch(sent,/Originaltext der Kundin/,'quoted original is not sent for correction');
   await ui.click('.cc-compose [data-assistant-apply]');editor=ui.$('[data-compose-editor]');assert.match(editor.textContent,/Korrigierte Antwort\./);assert.match(editor.querySelector('[data-cc-quote]').textContent,/Originaltext der Kundin bleibt unverändert\./,'quote survives the correction');assert.deepEqual(ui.errors,[]);
 });
+
+const mail=(index,stamp)=>Buffer.from(`From: Absender ${index} <absender${index}@example.invalid>\r\nTo: ${owner}\r\nSubject: Sammel ${index}\r\nMessage-ID: <${randomUUID()}@example.invalid>\r\nDate: ${new Date(stamp+index*60000).toUTCString()}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nText ${index}`);
+test('bulk actions above 200 selected messages run in parts and reach every message',async t=>{
+  const ui=await mount(t,{seed:async env=>{for(let index=0;index<205;index++)await ingestMessage(env,mail(index,Date.UTC(2026,8,1,8)),{folder:'INBOX',uid:index+1,uidValidity:'bulk'});}});
+  await ui.click('.cc-rail [data-mail-folder="INBOX"]');for(let page=0;page<4;page++)await ui.click('[data-mail-more]');assert.equal(ui.$$('.cc-row[data-mail-open]').length,205);
+  await ui.click('[data-mail-select-mode]');await ui.click('[data-mail-bulk="all"]');assert.match(ui.$('[data-region="bulk"]').textContent,/205 ausgewählt/);
+  await ui.click('[data-mail-bulk="archive"]');assert.equal(ui.$$('.cc-row[data-mail-open]').length,0);
+  const view=await (await ui.call('/api/mailbox?folder=Archive&limit=1')).json();assert.equal(view.total,205,'all 205 messages are archived');assert.equal(view.counts.INBOX.total,0);assert.deepEqual(ui.errors,[]);
+});
+
+test('moving a message while "all mail" is shown keeps it listed with its new folder',async t=>{
+  let first;const ui=await mount(t,{seed:async(env,call)=>{first=(await ingestMessage(env,mail(1,Date.UTC(2026,8,2,8)),{folder:'INBOX',uid:1,uidValidity:'all'})).id;await ingestMessage(env,mail(2,Date.UTC(2026,8,2,8)),{folder:'INBOX',uid:2,uidValidity:'all'});await call('/api/mailbox/note',{body:'Rückruf vereinbart',messageId:first});}});
+  await ui.click('.cc-rail [data-mail-notes]');await ui.click('[data-note-mail]');assert.equal(ui.$('[data-cc-title]').textContent,'Alle E-Mails');assert.equal(ui.$$('.cc-row[data-mail-open]').length,2);
+  await ui.click('[data-mail-move-to="Archive"]');const rows=ui.$$('.cc-row[data-mail-open]');assert.equal(rows.length,2,'message stays in "all mail"');
+  assert.match(rows.find(row=>row.dataset.mailOpen===first).textContent,/Archiv/);assert.ok(ui.$('.cc-reader [data-mail-reply]'),'reader stays open');assert.deepEqual(ui.errors,[]);
+});
+
+test('pinning a note keeps unsaved text in the quick note form',async t=>{
+  const ui=await mount(t,{seed:async(env,call)=>{await call('/api/mailbox/note',{body:'Vorhandene Notiz'});}});
+  await ui.click('.cc-rail [data-mail-notes]');const form=ui.$('#mail-note-form');form.elements.body.value='Noch nicht gespeichert';form.elements.body.dispatchEvent(new ui.w.Event('input',{bubbles:true}));
+  await ui.click('[data-cc-note-pin]');assert.ok(ui.$('.cc-note.pinned'));assert.equal(ui.$('#mail-note-form').elements.body.value,'Noch nicht gespeichert');assert.deepEqual(ui.errors,[]);
+});

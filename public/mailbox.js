@@ -115,7 +115,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   function drawRail(){
     const element=region('rail');if(!element)return;const today=dayKey(Date.now()),todayCount=appointments().filter(order=>dayKey(order.appointment.start)===today).length;
     const mailNav=FOLDERS.map(([id,label,iconName])=>{const c=id==='Drafts'?{total:data?.drafts?.length??0,unread:0}:counts(id);return navButton({id,label,iconName,count:['INBOX','Archive','Spam','Trash'].includes(id)?0:c.total,unread:['INBOX','Unread'].includes(id)?c.unread||(id==='Unread'?c.total:0):['Archive','Spam'].includes(id)?c.unread:0,active:ui.section==='mail'&&ui.folder===id,attrs:`data-mail-folder="${id}"`});}).join('');
-    const custom=(data?.folders??[]).map(item=>`<div class="cc-nav-row">${navButton({label:item.name,iconName:'folder',count:counts(item.name).total,unread:counts(item.name).unread,active:ui.section==='mail'&&ui.folder===item.name,attrs:`data-mail-folder="${esc(item.name)}"`})}<button type="button" class="cc-nav-remove" data-mail-folder-delete="${item.id}" aria-label="Ordner ${esc(item.name)} entfernen" title="Ordner entfernen (E-Mails kehren zurück)">${icon('close')}</button></div>`).join('');
+    const custom=(data?.folders??[]).map(item=>`<div class="cc-nav-row">${navButton({label:item.name,iconName:'folder',count:counts(item.name).total,unread:counts(item.name).unread,active:ui.section==='mail'&&ui.folder===item.name,attrs:`data-mail-folder="${esc(item.name)}"`})}${synthetic?'':`<button type="button" class="cc-nav-remove" data-mail-folder-delete="${item.id}" aria-label="Ordner ${esc(item.name)} entfernen" title="Ordner entfernen (E-Mails kehren zurück)">${icon('close')}</button>`}</div>`).join('');
     element.innerHTML=`<button type="button" class="primary cc-compose-btn" data-mail-compose>${icon('plus')}<span>Neue E-Mail</span></button>
       <nav class="cc-nav" aria-label="Übersicht">${navButton({label:'Übersicht',iconName:'home',active:ui.section==='home',attrs:'data-cc-section="home"'})}</nav>
       <nav class="cc-nav" aria-label="E-Mail-Ordner"><span class="cc-nav-heading">E-Mail</span>${mailNav}</nav>
@@ -190,7 +190,8 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   let loadingMore=false;
   async function loadMore(){if(loadingMore||list.length>=total)return;loadingMore=true;try{await load({append:true});drawItems();}catch(error){message(error.message,true);}finally{loadingMore=false;}}
   function drawBulk(){
-    const element=region('bulk');if(!element)return;element.hidden=!selection.size;if(!selection.size){element.innerHTML='';return;}
+    const element=region('bulk');if(!element)return;const show=selectMode||selection.size>0;element.hidden=!show;if(!show){element.innerHTML='';return;}
+    if(!selection.size){element.innerHTML=`<strong>Nachrichten auswählen</strong><div><button type="button" class="smallbtn" data-mail-bulk="all">Alle sichtbaren</button></div>`;return;}
     element.innerHTML=`<strong>${selection.size} ausgewählt</strong><div><button type="button" class="smallbtn" data-mail-bulk="read">Gelesen</button><button type="button" class="smallbtn" data-mail-bulk="unread">Ungelesen</button><button type="button" class="smallbtn" data-mail-bulk="flag">Wichtig</button><button type="button" class="smallbtn" data-mail-bulk="archive">Archivieren</button><button type="button" class="smallbtn danger" data-mail-bulk="trash">Löschen</button>${moveSelect('data-mail-bulk-move')}<button type="button" class="smallbtn" data-mail-bulk="all">Alle sichtbaren</button><button type="button" class="smallbtn" data-mail-bulk="none">Aufheben</button></div>`;
   }
   function moveSelect(attribute){return `<select ${attribute} aria-label="In Ordner verschieben"><option value="">Verschieben …</option>${MOVE_TARGETS.map(([id,label])=>`<option value="${id}">${label}</option>`).join('')}${(data?.folders??[]).map(item=>`<option value="${esc(item.name)}">${esc(item.name)}</option>`).join('')}</select>`;}
@@ -407,11 +408,22 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
     drawReader();drawItems();
   }
   function markActive(){for(const row of root.querySelectorAll('.cc-row[data-mail-open]'))row.classList.toggle('active',row.dataset.mailOpen===ui.openId);$('.cc-mail')?.classList.toggle('has-detail',Boolean(ui.openId));}
+  // Ablage nach einer Verschiebung; null bzw. ein unpassender Systemordner bedeutet Ursprungsordner.
+  function effectiveFolder(mail,target){if(target===null||target===undefined)return mail.originalFolder;if(target==='INBOX'&&mail.direction==='OUTBOUND')return mail.originalFolder;if(target==='Sent'&&mail.direction==='INBOUND')return mail.originalFolder;return target;}
+  // Entspricht der serverseitigen Ordnerlogik; entscheidet, ob eine verschobene Nachricht in der Ansicht bleibt.
+  function inView(mail){const folder=mail.folder,view=ui.folder;if(view==='all')return true;if(view==='Unread')return mail.direction==='INBOUND'&&!mail.read&&!['Trash','Spam'].includes(folder);if(view==='Flagged')return mail.flagged&&folder!=='Trash';if(view==='INBOX')return mail.direction==='INBOUND'&&folder==='INBOX';if(view==='Sent')return mail.direction==='OUTBOUND'&&folder==='Sent';return folder===view;}
   async function changeState(ids,patch,note){
-    await api('/state',{messageIds:ids,...patch});
-    for(const mail of list)if(ids.includes(mail.id)){if(patch.read!==undefined)mail.read=patch.read;if(patch.flagged!==undefined)mail.flagged=patch.flagged;trackFilter(mail.id,patch);}
-    const leaves=patch.folder!==undefined;if(leaves){const removed=list.filter(mail=>ids.includes(mail.id));list=list.filter(mail=>!ids.includes(mail.id));total=Math.max(0,total-removed.length);for(const mail of removed)stale.delete(mail.id);if(ids.includes(ui.openId)){ui.openId=null;detail=null;}}
-    else if(detail&&ids.includes(detail.message.id))detail={...detail,message:{...detail.message,...(patch.read!==undefined?{read:patch.read}:{}),...(patch.flagged!==undefined?{flagged:patch.flagged}:{})}};
+    // Der Server nimmt höchstens 200 Nachrichten je Anfrage; größere Auswahlen laufen in Teilen.
+    for(let index=0;index<ids.length;index+=200){
+      try{await api('/state',{messageIds:ids.slice(index,index+200),...patch});}
+      catch(error){selection.clear();await load().catch(()=>{});drawItems();drawBulk();throw Error(index?`${index} von ${ids.length} E-Mails geändert. ${error.message}`:error.message);}
+    }
+    for(const mail of list)if(ids.includes(mail.id)){if(patch.read!==undefined)mail.read=patch.read;if(patch.flagged!==undefined)mail.flagged=patch.flagged;if(patch.folder!==undefined)mail.folder=effectiveFolder(mail,patch.folder);trackFilter(mail.id,patch);}
+    if(patch.folder!==undefined){
+      const removed=list.filter(mail=>ids.includes(mail.id)&&!inView(mail));list=list.filter(mail=>!removed.includes(mail));total=Math.max(0,total-removed.length);for(const mail of removed)stale.delete(mail.id);
+      if(removed.some(mail=>mail.id===ui.openId)){ui.openId=null;detail=null;}
+    }
+    if(detail&&ids.includes(detail.message.id)){const row=list.find(mail=>mail.id===detail.message.id);detail={...detail,message:{...detail.message,...(patch.read!==undefined?{read:patch.read}:{}),...(patch.flagged!==undefined?{flagged:patch.flagged}:{}),...(row&&patch.folder!==undefined?{folder:row.folder}:{})}};}
     selection=new Set([...selection].filter(id=>!ids.includes(id)));await refreshMeta();drawItems();drawBulk();drawReader();if(note)message(note);
   }
   const moveNote=folder=>folder==='Trash'?'In den Papierkorb verschoben.':folder==='Archive'?'Archiviert.':folder==='Spam'?'Als Spam abgelegt.':folder===null?'Wiederhergestellt.':'Verschoben nach „'+(FOLDER_LABEL[folder]??folder)+'“.';
@@ -481,7 +493,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
     if(target.closest('[data-cc-note-cancel]')){noteDraft={id:null,body:'',orderId:'',customerId:'',messageId:'',pinned:false};drawMain();return;}
     const noteFilter=target.closest('[data-cc-note-filter]');if(noteFilter){ui.noteFilter=noteFilter.dataset.ccNoteFilter;noteDraft={...noteDraft,...readNoteForm()};drawMain();return;}
     const edit=target.closest('[data-note-edit]');if(edit){const note=data.notes.find(item=>item.id===edit.dataset.noteEdit);if(note){noteDraft={id:note.id,body:note.body,orderId:note.orderId??'',customerId:note.customerId??'',messageId:note.messageId??'',pinned:note.pinned};drawMain();root.querySelector('#cc-note-body')?.focus();}return;}
-    const pin=target.closest('[data-cc-note-pin]');if(pin){const note=data.notes.find(item=>item.id===pin.dataset.ccNotePin);if(note)return run(async()=>{await api('/note',{id:note.id,body:note.body,orderId:note.orderId,messageId:note.messageId,customerId:note.customerId,pinned:!note.pinned});await refreshMeta();drawMain();});return;}
+    const pin=target.closest('[data-cc-note-pin]');if(pin){const note=data.notes.find(item=>item.id===pin.dataset.ccNotePin);if(note)return run(async()=>{noteDraft={...noteDraft,...readNoteForm()};await api('/note',{id:note.id,body:note.body,orderId:note.orderId,messageId:note.messageId,customerId:note.customerId,pinned:!note.pinned});await refreshMeta();drawMain();});return;}
     const del=target.closest('[data-note-delete]');if(del){if(confirmDelete!==del.dataset.noteDelete){confirmDelete=del.dataset.noteDelete;noteDraft={...noteDraft,...readNoteForm()};drawMain();return;}return run(async()=>{await api('/note/delete',{id:del.dataset.noteDelete});confirmDelete=null;if(noteDraft.id===del.dataset.noteDelete)noteDraft={id:null,body:'',orderId:'',customerId:'',messageId:'',pinned:false};await refreshMeta();drawMain();message('Notiz gelöscht.');});}
     const noteMail=target.closest('[data-note-mail]');if(noteMail){run(()=>openMessage(noteMail.dataset.noteMail,{markRead:false}));return;}
     if(railOpen&&target.closest('[data-view],[data-order],[data-customer]')){railOpen=false;$('[data-cc]')?.classList.remove('cc-rail-open');}
