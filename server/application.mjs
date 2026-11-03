@@ -30,7 +30,7 @@ export async function createApplication(env){
   const handle=async request=>{
     try{
       const url=new URL(request.url);if(url.origin!==env.PANEL_ORIGIN)return errorResponse('Ungültiger Host.',400);
-      if(url.pathname==='/healthz')return new Response('ok',{headers:{'Content-Type':'text/plain',...(releaseCommit?{'X-Panel-Commit':releaseCommit}:{})}});
+      if(url.pathname==='/healthz')return new Response('ok',{headers:{'Content-Type':'text/plain',...(releaseCommit?{'X-Panel-Commit':releaseCommit}:{}),...(env.agentSchemaError?{'X-Agent-Schema':env.agentSchemaError}:{})}});
       // Scripts, styles, the web app manifest and icons are public; customer data never is.
       if(request.method==='GET'&&/^\/[a-zA-Z0-9_-]+\.(css|js|mjs|webmanifest|png|svg|woff2)$/.test(url.pathname))return env.ASSETS.fetch(request);
       if(request.method==='GET'&&['/auth/login','/auth/verify'].includes(url.pathname))return loginPage();
