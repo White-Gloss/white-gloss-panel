@@ -511,3 +511,20 @@ dialog{box-shadow:0 20px 60px #0e12182b}
 @media(max-width:1260px){.communication-workspace{grid-template-columns:176px 320px minmax(360px,1fr);gap:12px}.mail-search{grid-template-columns:1fr 1fr}.mail-search input{grid-column:1/-1}.mail-message-actions{padding:12px 18px}.mail-reader-head{padding:20px 18px}.mail-crm-links{margin:16px 18px 0}.mail-plaintext{padding:20px 18px}.mail-attachments,.mail-thread,.mail-ai-replies{margin-left:18px;margin-right:18px}}
 @media(max-width:1020px){.communication-workspace{grid-template-columns:170px minmax(280px,340px) minmax(0,1fr)}.communication-reader{grid-column:2/-1}.mail-list-items{max-height:520px;min-height:300px}}
 @media(max-width:760px){.communication-workspace{grid-template-columns:1fr}.communication-folders{position:static;display:flex;gap:8px;max-height:none;overflow-x:auto;padding:10px}.communication-compose{flex:0 0 125px;margin:0}.communication-folders nav{display:flex;gap:4px}.communication-folders nav button{width:auto;white-space:nowrap}.communication-folders nav button small,.mail-custom-folders,.mail-new-folder{display:none}.communication-shortcuts{display:flex;margin:0;padding:0;border:0}.communication-shortcuts>.eyebrow{display:none}.communication-shortcuts button{width:auto;white-space:nowrap}.communication-list,.communication-reader{grid-column:1}.communication-reader:has(.communication-empty){display:none}.mail-list-items{min-height:0;max-height:480px}.mail-html-frame{height:480px}.mail-compose-backdrop{padding:8px}.mail-compose-window{max-height:calc(100vh - 16px)}.mail-list-item{padding:12px}.mail-message-actions button{min-height:40px}.communication-notes{padding:16px}}
+/* Handlungszentrale: Dringlichkeit über Randfarbe, Text und Zahl, nicht nur über Farbe. */
+.action-center .action-summary{display:flex;flex-wrap:wrap;gap:var(--space-xs);padding:var(--space-sm) 20px;border-bottom:1px solid var(--wg-rule);background:#fafaf8}
+.action-center .action-summary span{display:inline-flex;align-items:baseline;gap:6px;padding:4px 10px;border:1px solid var(--wg-rule);border-radius:999px;font-size:12px;color:var(--wg-copy);background:var(--wg-paper)}
+.action-center .action-summary strong{font-size:15px;color:var(--wg-ink)}
+.action-center .action-summary [data-level="overdue"]{border-color:#e3c4bf;background:var(--wg-error-bg)}
+.action-center .action-summary [data-level="today"]{border-color:#e8d6b6;background:var(--wg-warning-bg)}
+.action-item{text-align:left;font-family:inherit;cursor:pointer}
+.action-item.level-overdue{border-left-color:var(--wg-error);border-left-width:4px}
+.action-item.level-overdue .agenda-kind{color:var(--wg-error)}
+.action-item.level-today{border-left-color:#b48a52;border-left-width:4px}
+.action-item.level-today .agenda-kind{color:var(--wg-warning)}
+.action-item.level-waiting{border-left-color:var(--wg-rule-strong);border-left-style:dashed}
+.action-more>summary{padding:12px 20px;cursor:pointer;color:var(--wg-copy);font-size:13px;font-weight:600;border-top:1px solid var(--wg-rule)}
+.action-more[open]>summary{border-bottom:1px solid var(--wg-rule)}
+.operations-note.attention{color:var(--wg-error);background:var(--wg-error-bg)}
+.operations-note.attention .smallbtn{margin-left:8px}
+@media(max-width:760px){.action-center .action-summary{padding:var(--space-sm) 15px}.action-more>summary{padding:12px 15px}.action-item{min-height:64px}}
