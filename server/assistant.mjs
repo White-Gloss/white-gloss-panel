@@ -21,6 +21,42 @@ const prompts={
   text:'Korrigiere ausschließlich deutsche Rechtschreibung, Grammatik und offensichtliche Zeichensetzung. Bewahre Inhalt, Ton, Namen, Termine, Preise und Zahlen exakt. Keine neuen Zusagen oder Fakten ergänzen. Gib den korrigierten Text und eine kurze Änderungsliste zurück.',
   vehicle:'Analysiere nur sichtbare Fahrzeugmerkmale für eine interne Detailing-Kalkulation. Beschreibe Beobachtungen ohne Schadensdiagnose und ohne Preis. Nenne Unsicherheiten durch Licht, Bildqualität und fehlende Perspektiven. Keine Kundenbotschaft formulieren und keinen Festpreis vorschlagen.'
 };
+const PROVIDERS={
+  openai:{label:'OpenAI / ChatGPT',base:'https://api.openai.com/v1',mode:'responses'},
+  xai:{label:'xAI / Grok',base:'https://api.x.ai/v1',mode:'chat'},
+  openrouter:{label:'OpenRouter',base:'https://openrouter.ai/api/v1',mode:'chat'},
+  groq:{label:'Groq',base:'https://api.groq.com/openai/v1',mode:'chat'},
+  mistral:{label:'Mistral',base:'https://api.mistral.ai/v1',mode:'chat'},
+  compatible:{label:'Andere KI',base:null,mode:'chat'}
+};
+export function assistantProviderChoices(){return Object.entries(PROVIDERS).map(([id,item])=>({id,label:item.label}));}
+function providerTarget(input,old){
+  const provider=text(input.provider||old?.provider||'openai',40);need(PROVIDERS[provider],'Unbekannter KI-Anbieter.',400);
+  if(provider!=='compatible'){need(!text(input.baseUrl,300),'Diese KI hat eine feste Adresse.',400);return {provider,base:PROVIDERS[provider].base,mode:PROVIDERS[provider].mode,stored:null};}
+  let url;try{url=new URL(text(input.baseUrl||old?.base_url,300));}catch{throw new AppError('KI-Adresse ist ungültig.',400);}
+  need(url.protocol==='https:'&&!url.username&&!url.password&&!url.search&&!url.hash&&(url.pathname==='/'||url.pathname===''),'KI-Adresse muss ein reiner HTTPS-Ursprung ohne Schlüssel sein.',400);
+  return {provider,base:url.origin+'/v1',mode:'chat',stored:url.origin};
+}
+function chatBody(payload){
+  const content=[];
+  for(const part of payload.input?.[0]?.content??[]){
+    if(part.type==='input_text')content.push({type:'text',text:part.text});
+    else if(part.type==='input_image')content.push({type:'image_url',image_url:{url:part.image_url}});
+    else if(part.type==='input_file')throw new AppError('PDF-Belege kann diese KI nicht direkt lesen. Dafür OpenAI nutzen oder ein Foto senden.',409);
+    else throw new AppError('Diese KI unterstützt den Inhalt nicht.',409);
+  }
+  return {model:payload.model,messages:[{role:'user',content}],response_format:{type:'json_object'},max_tokens:payload.max_output_tokens??2000};
+}
+function asResponses(data){
+  const message=data.choices?.[0]?.message?.content,textValue=typeof message==='string'?message:JSON.stringify(message??'');
+  return {id:data.id,status:data.choices?.[0]?.finish_reason==='stop'?'completed':'incomplete',model:data.model,output:[{type:'message',content:[{type:'output_text',text:textValue}]}]};
+}
+export async function completeAssistant(env,config,payload){
+  if(env.ASSISTANT_ADAPTERS?.analyze)return env.ASSISTANT_ADAPTERS.analyze(config,payload);
+  const responses=config.mode==='responses',result=await fetch(config.base+(responses?'/responses':'/chat/completions'),{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+config.apiKey},body:JSON.stringify(responses?payload:chatBody(payload)),redirect:'manual',signal:AbortSignal.timeout(90000)});
+  need(![301,302,303,307,308].includes(result.status),'Weiterleitung der KI-Adresse ist nicht erlaubt.',502);need(result.ok,'KI-Analyse fehlgeschlagen: HTTP '+result.status,502);
+  const raw=await result.text();need(raw.length<=2000000,'KI-Antwort ist zu groß.',502);let data;try{data=JSON.parse(raw);}catch{throw new AppError('KI-Antwort konnte nicht gelesen werden.',502);}return responses?data:asResponses(data);
+}
 
 export async function assistantSchema(env){
   await env.DB.batch([
@@ -35,6 +71,9 @@ export async function assistantSchema(env){
     `CREATE TRIGGER IF NOT EXISTS no_assistant_suggestions_update BEFORE UPDATE ON assistant_suggestions BEGIN SELECT RAISE(ABORT,'KI-Prüfvorschläge sind unveränderlich'); END`,
     `CREATE TRIGGER IF NOT EXISTS no_assistant_suggestions_delete BEFORE DELETE ON assistant_suggestions BEGIN SELECT RAISE(ABORT,'KI-Prüfvorschläge werden nicht gelöscht'); END`
   ].map(sql=>env.DB.prepare(sql)));
+  const columns=new Set(((await env.DB.prepare("SELECT name FROM pragma_table_info('assistant_settings')").all()).results??[]).map(row=>row.name));
+  if(!columns.has('provider'))await env.DB.prepare("ALTER TABLE assistant_settings ADD COLUMN provider TEXT NOT NULL DEFAULT 'openai'").run();
+  if(!columns.has('base_url'))await env.DB.prepare('ALTER TABLE assistant_settings ADD COLUMN base_url TEXT').run();
 }
 async function bodyJSON(request){
   need(request.headers.get('origin')===new URL(request.url).origin,'Ungültiger Ursprung.',403);
@@ -43,24 +82,24 @@ async function bodyJSON(request){
   try{const value=JSON.parse(raw);need(value&&typeof value==='object'&&!Array.isArray(value),'Ungültige Eingabe.');return value;}
   catch(error){if(error instanceof AppError)throw error;throw new AppError('Ungültige Eingabe.',400);}
 }
-function publicSettings(row){return row?{configured:Boolean(row.api_key),model:row.model,dataApproved:row.data_approved===1,verifiedAt:row.verified_at,lastError:row.last_error,updatedAt:row.updated_at}:{configured:false,model:'gpt-6-astra',dataApproved:false,verifiedAt:null,lastError:null,updatedAt:null};}
-export async function assistantCredentials(env){const row=await env.DB.prepare('SELECT * FROM assistant_settings WHERE id=1').first();need(row?.api_key,'KI-Verbindung ist noch nicht eingerichtet.',409);let apiKey;try{apiKey=await unprotect(env,row.api_key);}catch{throw new AppError('KI-Schlüssel kann nicht entschlüsselt werden. Bitte erneut geschützt speichern.',503);}need(apiKey,'KI-Schlüssel fehlt.',409);return {row,apiKey,config:{apiKey,model:row.model}};}
+function publicSettings(row){return {providers:assistantProviderChoices(),provider:row?.provider||'openai',baseUrl:row?.provider==='compatible'?row.base_url:'',configured:Boolean(row?.api_key),model:row?.model||'gpt-6-astra',dataApproved:row?.data_approved===1,verifiedAt:row?.verified_at??null,lastError:row?.last_error??null,updatedAt:row?.updated_at??null};}
+export async function assistantCredentials(env){const row=await env.DB.prepare('SELECT * FROM assistant_settings WHERE id=1').first();need(row?.api_key,'KI-Verbindung ist noch nicht eingerichtet.',409);let apiKey;try{apiKey=await unprotect(env,row.api_key);}catch{throw new AppError('KI-Schlüssel kann nicht entschlüsselt werden. Bitte erneut geschützt speichern.',503);}need(apiKey,'KI-Schlüssel fehlt.',409);const target=providerTarget({provider:row.provider||'openai',baseUrl:row.provider==='compatible'?row.base_url:''},row);return {row,apiKey,config:{apiKey,model:row.model,provider:target.provider,base:target.base,mode:target.mode}};}
 function suggestionView(row){return {id:row.id,kind:row.kind,sourceId:row.source_id,sourceHash:row.source_hash,synthetic:row.synthetic===1,providerResponseId:row.provider_response_id,model:row.model,result:JSON.parse(row.result_json),createdAt:row.created_at,actor:row.actor};}
 async function saveSettings(env,input){
-  const old=await env.DB.prepare('SELECT * FROM assistant_settings WHERE id=1').first(),model=text(input.model||old?.model||'gpt-6-astra',100),rawKey=text(input.apiKey,500);
-  need(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/.test(model),'Modellname ist ungültig.');
+  const old=await env.DB.prepare('SELECT * FROM assistant_settings WHERE id=1').first(),model=text(input.model||old?.model||'gpt-6-astra',100),rawKey=text(input.apiKey,500),target=providerTarget(input,old);
+  need(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$/.test(model),'Modellname ist ungültig.');
   const apiKey=rawKey?await protect(env,rawKey):old?.api_key??'';need(apiKey,'KI-Schlüssel fehlt.',400);
-  const changed=!old||old.model!==model||Boolean(rawKey),at=new Date().toISOString();
-  await env.DB.prepare(`INSERT INTO assistant_settings(id,api_key,model,data_approved,verified_at,last_error,updated_at) VALUES(1,?,?,?,?,NULL,?)
-    ON CONFLICT(id) DO UPDATE SET api_key=excluded.api_key,model=excluded.model,data_approved=excluded.data_approved,verified_at=excluded.verified_at,last_error=NULL,updated_at=excluded.updated_at`)
-    .bind(apiKey,model,input.dataApproved===true?1:0,changed?null:old.verified_at,at).run();
+  const changed=!old||old.model!==model||(old.provider||'openai')!==target.provider||(old.base_url??'')!==(target.stored??'')||Boolean(rawKey),at=new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO assistant_settings(id,api_key,model,data_approved,verified_at,last_error,updated_at,provider,base_url) VALUES(1,?,?,?,?,NULL,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET api_key=excluded.api_key,model=excluded.model,data_approved=excluded.data_approved,verified_at=excluded.verified_at,last_error=NULL,updated_at=excluded.updated_at,provider=excluded.provider,base_url=excluded.base_url`)
+    .bind(apiKey,model,input.dataApproved===true?1:0,changed?null:old.verified_at,at,target.provider,target.stored).run();
   return {ok:true,message:'KI-Verbindung geschützt gespeichert. Bitte Verbindung prüfen, bevor Inhalte analysiert werden.'};
 }
 async function check(env){
   const {row,config}=await assistantCredentials(env),at=new Date().toISOString();let error=null;
   try{
     if(env.ASSISTANT_ADAPTERS?.check)await env.ASSISTANT_ADAPTERS.check(config);
-    else{const result=await fetch('https://api.openai.com/v1/models/'+encodeURIComponent(row.model),{headers:{Authorization:'Bearer '+config.apiKey},redirect:'manual',signal:AbortSignal.timeout(15000)});need(result.ok,'KI-Verbindung fehlgeschlagen: HTTP '+result.status,502);}
+    else{const result=await fetch(config.base+'/models'+(config.mode==='responses'?'/'+encodeURIComponent(row.model):''),{headers:{Authorization:'Bearer '+config.apiKey},redirect:'manual',signal:AbortSignal.timeout(15000)});need(![301,302,303,307,308].includes(result.status),'Weiterleitung der KI-Adresse ist nicht erlaubt.',502);need(result.ok,'KI-Verbindung fehlgeschlagen: HTTP '+result.status,502);void result.body?.cancel().catch(()=>{});}
   }catch(cause){error=cause instanceof AppError?cause.message:'KI-Dienst ist nicht erreichbar. Die Verbindung wurde nicht bestätigt.';}
   await env.DB.prepare('UPDATE assistant_settings SET verified_at=?,last_error=?,updated_at=? WHERE id=1').bind(error?null:at,error,at).run();need(!error,error,502);
   return {ok:true,message:'KI-Modell erfolgreich lesend geprüft. Es wurden keine Inhalte zur Analyse übertragen.'};
@@ -106,8 +145,7 @@ async function analyze(env,input,synthetic){
   const previous=await env.DB.prepare('SELECT * FROM assistant_suggestions WHERE request_id=?').bind(input.requestId).first();if(previous){need(previous.request_hash===requestHash,'Diese Analyse-ID wurde bereits für andere Inhalte verwendet.',409);return {ok:true,duplicate:true,suggestion:suggestionView(previous)};}
   need(!synthetic||env.ASSISTANT_ADAPTERS?.analyze,'Im Testbereich werden keine echten Inhalte an einen KI-Anbieter übertragen.',409);
   const payload={model:row.model,store:false,input:[{role:'user',content:[...source.content,{type:'input_text',text:prompts[input.kind]}]}],text:{format:{type:'json_schema',name:'white_gloss_'+input.kind+'_review',strict:true,schema:schemas[input.kind]}},max_output_tokens:3000};
-  let data;if(env.ASSISTANT_ADAPTERS?.analyze)data=await env.ASSISTANT_ADAPTERS.analyze(config,payload);
-  else{const result=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+config.apiKey},body:JSON.stringify(payload),redirect:'manual',signal:AbortSignal.timeout(90000)});need(result.ok,'KI-Analyse fehlgeschlagen: HTTP '+result.status,502);const raw=await result.text();need(raw.length<=2000000,'KI-Antwort ist zu groß.',502);try{data=JSON.parse(raw);}catch{throw new AppError('KI-Antwort konnte nicht gelesen werden.',502);}}
+  let data;if(env.ASSISTANT_ADAPTERS?.analyze)data=await env.ASSISTANT_ADAPTERS.analyze(config,payload);else data=await completeAssistant({...env,ASSISTANT_ADAPTERS:null},config,payload);
   const result=validateResult(input.kind,outputJSON(data)),id=randomUUID(),at=new Date().toISOString();
   await env.DB.prepare('INSERT INTO assistant_suggestions(id,request_id,request_hash,kind,source_id,source_hash,synthetic,provider_response_id,model,result_json,created_at,actor) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
     .bind(id,input.requestId,requestHash,input.kind,source.sourceId,source.sourceHash,synthetic?1:0,text(data.id,180)||null,text(data.model||row.model,100),JSON.stringify(result),at,'owner').run();
