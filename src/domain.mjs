@@ -44,6 +44,7 @@ export function protocolValid(p,kind,assetIds) {
   if(p.customerAbsent===true)out.customerAbsent=true;
   for(const [key,max] of Object.entries({plate:80,location:600,condition:4000,notes:4000,customerName:180,operatorName:180,services:6000,openPoints:4000,checklistNote:1000,recipientName:180,recipientContact:180,keyMethod:80,keyLocation:600,handoverNote:1000,handoverAuthorizationHash:128}))out[key]=field(p[key],max,key);
   if(out.customerAbsent){
+    out.handoverOperatorOnly=p.handoverOperatorOnly===true;
     out.authorizationVersion=field(p.authorizationVersion,40,'Dokumentversion');
     out.authorizationText=field(p.authorizationText,2000,'Übergabeerklärung');
     need(out.recipientName,'Bitte die zur Fahrzeugübergabe berechtigte Person vollständig benennen.');

@@ -611,8 +611,8 @@ test('panel: accordion navigation preserves manual choices and opens the active 
 test('panel: navigation groups daily work, customers, finance subpages and administration without dead routes',async t=>{
   const env=environment();env.STANDALONE_AUTH='true';const ui=await boot(t,{page:'index.html',script:'app.js',env});
   const ids=[...ui.w.document.querySelectorAll('.sidebar [data-view]')].map(button=>button.dataset.view);
-  assert.deepEqual(ids.slice(0,12),['mailbox','calendar','overview','requests','active','orders','customers','chat','whatsapp','care','business','protocols']);
-  assert.deepEqual(ids.slice(12,19),['finance','finance-income','finance-expenses','finance-invoices','finance-receipts','finance-bank','finance-advisor']);
+  assert.deepEqual(ids.slice(0,13),['mailbox','prices','calendar','overview','requests','active','orders','customers','chat','whatsapp','care','business','protocols']);
+  assert.deepEqual(ids.slice(13,20),['finance','finance-income','finance-expenses','finance-invoices','finance-receipts','finance-bank','finance-advisor']);
   assert.equal(ids.at(-1),'settings');assert.equal(ids[0],'mailbox','Communication Center steht allein ganz oben');assert.ok(ui.$('.sidebar .nav-primary [data-view="mailbox"]'));
   const mobileIds=[...ui.w.document.querySelectorAll('.mobile-dock [data-view]')].map(button=>button.dataset.view);assert.equal(mobileIds[0],'calendar');assert.ok(mobileIds.includes('mailbox'),'Communication Center in der mobilen Leiste');assert.equal(ui.w.document.querySelectorAll('.mobile-dock > button').length,7);
   const agenda=ui.$('.overview-shell .action-center'),stats=ui.$('.overview-shell > .stats');
@@ -668,4 +668,16 @@ test('panel protects every edited form before navigation and keeps search return
   confirm.mock.mockImplementation(()=>true);await ui.click('[data-tab="price"]');assert.equal(ui.$('[role="tab"][aria-selected="true"]').dataset.tab,'price');
   const input=ui.$('#search');input.value='Schutz';input.dispatchEvent(new ui.w.Event('input',{bubbles:true}));await ui.settle();assert.ok(ui.$('[data-click="searchReturn"]'));
   await ui.click('[data-click="searchReturn"]');assert.equal(ui.$('[role="tab"][aria-selected="true"]').dataset.tab,'price');assert.deepEqual(ui.errors,[]);
+});
+
+test('panel: price calculator sits under the communication center and updates live without saving anything',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});
+  assert.ok(ui.$('.sidebar .nav-primary [data-view="prices"]'),'directly below the communication center');
+  await ui.click('.sidebar [data-view="prices"]');assert.match(ui.$('h1').textContent,/Preisrechner/);
+  const total=()=>ui.$('.pq-total strong').textContent.replace(/\s/g,' ');const first=total();assert.match(first,/€/);
+  const klass=[...ui.w.document.querySelectorAll('[name="classId"]')].at(-1);klass.checked=true;klass.dispatchEvent(new ui.w.Event('change',{bubbles:true}));
+  assert.notEqual(total(),first,'a larger class changes the price');
+  const pickup=ui.$('[name="pickup"]');pickup.checked=true;pickup.dispatchEvent(new ui.w.Event('change',{bubbles:true}));assert.equal(ui.$('[name="citySlug"]').closest('label').hidden,false);
+  ui.$('[name="pickupKm"]').value='1500';ui.$('[name="pickupKm"]').dispatchEvent(new ui.w.Event('input',{bubbles:true}));assert.match(ui.$('#price-quick').textContent,/auf Anfrage/);
+  assert.equal((await ui.env.DB.prepare('SELECT COUNT(*) n FROM orders').first()).n,0);assert.deepEqual(ui.errors,[]);
 });

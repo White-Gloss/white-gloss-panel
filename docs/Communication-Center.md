@@ -16,6 +16,12 @@ Roadmap-Bezug: V3 „Kommunikation bündeln“ (E-Mail-Teil). Release- und Live-
 - Seitenmenü: eigener Hauptzugang ganz oben, über allen Gruppen, mit Zahl ungelesener E-Mails.
 - Smartphone: Eintrag „Mail“ in der unteren Menüleiste, ebenfalls mit Zähler.
 
+## Preisrechner
+
+Direkt unter dem Communication Center im Menü: schnelle Preisauskunft am Telefon oder vor Ort (Fahrzeugklasse, Paket,
+Zusatzleistungen, Abholung). Er nutzt die geprüfte Katalogrechnung (`catalogQuote`), zeigt Gesamtpreis und Einzelposten und
+legt nichts an. Abholung außerhalb der Staffel wird als „auf Anfrage“ ausgewiesen.
+
 ## E-Mail
 
 - Liste mit Initialen-Avatar, Absender, Betreff, zweizeiliger Vorschau, Zeit, Anhang, Markierung, CRM-Hinweis.

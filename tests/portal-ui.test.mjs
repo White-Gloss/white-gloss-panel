@@ -220,6 +220,8 @@ test('customer plans and signs a contactless handover with a precise key locatio
   form.elements.keyMethod.value='deposit';form.elements.keyLocation.value='Briefkasten neben der Garage';form.elements.handoverNote.value='Fahrzeug steht in der Einfahrt';form.elements.confirmed.checked=true;
   const canvas=form.querySelector('canvas');for(const type of ['pointerdown','pointermove','pointerup'])canvas.dispatchEvent(new ui.w.Event(type,{bubbles:true}));
   form.requestSubmit();await ui.settle();
-  assert.match(ui.$('#toast').textContent,/Übergabeangaben sind unterschrieben/);assert.match(ui.$('.portal-handover').textContent,/Briefkasten neben der Garage/);assert.match(ui.$('.portal-handover').textContent,/Von Ihnen unterschrieben/);
+  assert.match(ui.$('.portal-handover .error')?.textContent??'',/nur White Gloss/,'without the confirmation nothing is signed');assert.equal(ui.$('#toast').textContent.includes('unterschrieben gespeichert'),false);
+  form.elements.operatorOnlyProtocol.checked=true;form.requestSubmit();await ui.settle();
+  assert.match(ui.$('#toast').textContent,/Übergabeangaben sind unterschrieben/);assert.match(ui.$('.portal-handover').textContent,/Nur White Gloss füllt es aus/);assert.match(ui.$('.portal-handover').textContent,/Briefkasten neben der Garage/);assert.match(ui.$('.portal-handover').textContent,/Von Ihnen unterschrieben/);
   assert.deepEqual(ui.errors,[]);
 });

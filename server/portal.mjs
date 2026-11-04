@@ -93,7 +93,7 @@ const RESCHEDULE=['Preise prüfen','Angebot offen','Angenommen','Termin verbindl
 const CONFIRMABLE=['Preise prüfen','Angebot offen','Angenommen'];
 const HANDOVER_METHODS={person:'Übergabe an eine benannte Person',deposit:'Schlüssel an einem vereinbarten Ort hinterlegen',vehicle:'Schlüssel im verschlossenen Fahrzeug belassen'};
 function handoverPlan(input){
-  const mode=input?.mode==='contactless'?'contactless':'present',plan={mode,keyMethod:'',keyLocation:'',recipientName:'',recipientContact:text(input?.recipientContact,180),handoverNote:text(input?.handoverNote,1000)};
+  const mode=input?.mode==='contactless'?'contactless':'present',plan={mode,keyMethod:'',keyLocation:'',recipientName:'',recipientContact:text(input?.recipientContact,180),handoverNote:text(input?.handoverNote,1000),operatorOnlyProtocol:mode==='contactless'&&input?.operatorOnlyProtocol===true};
   if(mode==='contactless'){
     plan.keyMethod=String(input?.keyMethod??'');need(Object.hasOwn(HANDOVER_METHODS,plan.keyMethod),'Bitte die Art der Schlüsselübergabe auswählen.');
     plan.keyLocation=text(input?.keyLocation,600);need(plan.keyLocation.length>=3,'Bitte den Ort der Schlüsselübergabe oder Schlüsselablage genau angeben.');
@@ -199,6 +199,8 @@ export async function handlePortal(env,request,identity,isOwner){
   }
   if(op==='uebergabe'){
     const kind=input.kind,plan=handoverPlan(input);need(['intake','return'].includes(kind),'Unbekannte Übergabe.',404);
+    // Ohne persönlichen Kontakt gilt die Regelung nur mit der ausdrücklichen Bestätigung, dass allein der Betrieb das Protokoll ausfüllt.
+    if(plan.mode==='contactless')need(plan.operatorOnlyProtocol,'Bitte bestätigen Sie, dass der Schlüssel bereitliegt und nur White Gloss das Übergabeprotokoll ausfüllt.');
     need(!CLOSED.includes(o.status)&&!o[kind]?.customerSignature&&!o.pending?.[kind]?.content?.operatorSignature,'Diese Übergabe ist bereits dokumentiert und kann hier nicht mehr geändert werden.',409);
     need(input.confirmed===true,'Bitte bestätigen Sie die angezeigten Übergabeangaben.');
     const snapshotHash=handoverHash(o,kind);need(input.snapshotHash===snapshotHash,'Termin oder Übergabeangaben wurden geändert. Bitte die Seite neu laden.',409);
