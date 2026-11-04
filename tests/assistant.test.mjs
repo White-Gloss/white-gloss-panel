@@ -54,3 +54,18 @@ test('vehicle analysis is limited to an owned image and validates provider outpu
   const response=await f.call('/api/assistant/analyze',{requestId:randomUUID(),kind:'vehicle',sourceId:assetId,confirmed:true}),raw=await response.text();assert.equal(response.status,200,raw);const result=JSON.parse(raw);assert.equal(result.suggestion.result.findings[0].area,'Tür');assert.equal(result.suggestion.sourceHash,sha256(image));
   fail=true;assert.equal((await f.call('/api/assistant/analyze',{requestId:randomUUID(),kind:'vehicle',sourceId:assetId,confirmed:true})).status,502);assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM assistant_suggestions').first()).n,1);
 });
+
+test('assistant can use another provider and rejects an unsafe address',async t=>{
+  const checks=[];const f=await fixture(t,{async check(config){checks.push(config);}});
+  assert.equal((await f.call('/api/assistant/settings',{provider:'compatible',baseUrl:'http://ki.example',apiKey:'synthetic-assistant-secret',model:'other-model',dataApproved:true})).status,400);
+  assert.equal((await f.call('/api/assistant/settings',{provider:'compatible',baseUrl:'https://user:secret@ki.example',apiKey:'synthetic-assistant-secret',model:'other-model',dataApproved:true})).status,400);
+  assert.equal((await f.call('/api/assistant/settings',{provider:'openai',baseUrl:'https://ki.example',apiKey:'synthetic-assistant-secret',model:'gpt-6-astra',dataApproved:true})).status,400);
+  const saved=await f.call('/api/assistant/settings',{provider:'xai',model:'grok-4',apiKey:'synthetic-assistant-secret',dataApproved:true});
+  assert.equal(saved.status,200);
+  const view=await (await f.call('/api/assistant')).json();
+  assert.equal(view.settings.provider,'xai');assert.equal(view.settings.baseUrl,'');
+  assert.equal(JSON.stringify(view).includes('synthetic-assistant-secret'),false);
+  assert.ok(view.settings.providers.some(item=>item.id==='compatible'));
+  assert.equal((await f.call('/api/assistant/check',{})).status,200);
+  assert.equal(checks[0].provider,'xai');assert.equal(checks[0].base,'https://api.x.ai/v1');assert.equal(checks[0].mode,'chat');
+});

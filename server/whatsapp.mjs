@@ -4,7 +4,7 @@ import {createHash,createHmac,randomUUID,timingSafeEqual} from 'node:crypto';
 import {protect,unprotect,createOrder,getOrder} from '../src/worker.mjs';
 import {AppError,need,text} from '../src/domain.mjs';
 import {phoneKey} from '../src/customers.mjs';
-import {assistantCredentials} from './assistant.mjs';
+import {assistantCredentials,completeAssistant} from './assistant.mjs';
 import {notifyOwner} from './push.mjs';
 import {readLimitedPhoto} from './booking-photos.mjs';
 import {assertRecordOperation} from '../src/record-compat.mjs';
@@ -185,11 +185,7 @@ async function analyze(env,input,synthetic){
   if(previous){need(previous.request_id===input.requestId&&previous.source_hash===source.sourceHash&&previous.conversation_key===key,'Diese Analyse-ID wurde bereits für andere Inhalte verwendet.',409);return {ok:true,duplicate:true,suggestion:suggestionView(previous)};}
   need(!synthetic||env.ASSISTANT_ADAPTERS?.analyze,'Im Testbereich werden keine echten Inhalte an einen KI-Anbieter übertragen.',409);
   const payload={model:row.model,store:false,input:[{role:'user',content:[{type:'input_text',text:prompt+'\n\nNachrichtenverlauf (JSON):\n'+JSON.stringify(source.messages)}]}],text:{format:{type:'json_schema',name:'white_gloss_whatsapp_review',strict:true,schema}},max_output_tokens:1800};
-  let data;if(env.ASSISTANT_ADAPTERS?.analyze)data=await env.ASSISTANT_ADAPTERS.analyze(config,payload);
-  else{
-    const fetched=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+config.apiKey},body:JSON.stringify(payload),redirect:'manual',signal:AbortSignal.timeout(90000)});
-    need(fetched.ok,'KI-Analyse fehlgeschlagen: HTTP '+fetched.status,502);const raw=await fetched.text();need(raw.length<=2000000,'KI-Antwort ist zu groß.',502);try{data=JSON.parse(raw);}catch{throw new AppError('KI-Antwort konnte nicht gelesen werden.',502);}
-  }
+  let data=await completeAssistant(env,config,payload);
   const result=validateSuggestion(outputJSON(data)),id=randomUUID(),at=new Date().toISOString();
   await env.DB.prepare('INSERT INTO whatsapp_suggestions(id,request_id,synthetic,conversation_key,source_hash,provider_response_id,model,result_json,created_at,actor) VALUES(?,?,?,?,?,?,?,?,?,?)')
     .bind(id,input.requestId,synthetic?1:0,key,source.sourceHash,text(data.id,180)||null,text(data.model||row.model,100),JSON.stringify(result),at,'owner').run();
