@@ -250,7 +250,10 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   let frameObserver=null;
   function fitFrame(frame){
     frameObserver?.disconnect();frameObserver=null;
-    try{const doc=frame.contentDocument;if(!doc?.documentElement)return;const fit=()=>{if(!frame.isConnected){frameObserver?.disconnect();return;}const height=Math.max(doc.documentElement.scrollHeight,doc.body?.scrollHeight??0);frame.style.height=Math.min(Math.max(height+2,160),40000)+'px';};fit();
+    try{const doc=frame.contentDocument;if(!doc?.documentElement)return;
+      // Höhe zuerst auf 0 setzen: Stile wie „min-height:100vh“ messen dann die Inhaltshöhe, nicht die bisherige Rahmenhöhe.
+      const fit=()=>{if(!frame.isConnected){frameObserver?.disconnect();return;}const before=frame.style.height;frame.style.height='0px';const height=Math.max(doc.documentElement.scrollHeight,doc.body?.scrollHeight??0),next=Math.min(Math.max(height+2,160),40000)+'px';frame.style.height=next===before?before:next;};
+      fit();
       for(const image of doc.images)if(!image.complete){image.addEventListener('load',fit,{once:true});image.addEventListener('error',fit,{once:true});}
       if(typeof window.ResizeObserver==='function'&&doc.body){frameObserver=new window.ResizeObserver(fit);frameObserver.observe(doc.body);}
       setTimeout(fit,400);setTimeout(fit,1500);}catch{/* Ohne Zugriff bleibt die feste Mindesthöhe mit eigenem Scrollbereich. */}

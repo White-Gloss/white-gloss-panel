@@ -90,7 +90,7 @@ export async function ingestMessage(env,raw,locator,{synthetic=false}={}){
   const messageIdHeader=/^<[^<>\s]{3,900}>$/.test(text(parsed.messageId,1000))?text(parsed.messageId,1000):null,referencesHeader=(Array.isArray(parsed.references)?parsed.references:parsed.references?[parsed.references]:[]).map(value=>text(value,900)).filter(value=>/^<[^<>\s]{3,900}>$/.test(value)).slice(-20).join(' ')||null;
   const attachments=(parsed.attachments??[]).map((part,index)=>{
     const content=Buffer.from(part.content??[]),mime=text(part.contentType,120).toLowerCase(),archived=validAttachment(content,mime),attachmentId=randomUUID();
-    return {id:attachmentId,filename:safeName(part.filename,'Anhang-'+(index+1)+(MIMES[mime]?'.'+MIMES[mime]:'')),mime,size:content.length,sha256:hash(content),archived,content,contentId:text(part.contentId,300),inline:Boolean(part.contentId&&(part.related||part.contentDisposition==='inline')),documentId:archived?attachmentId:null};
+    return {id:attachmentId,filename:safeName(part.filename,'Anhang-'+(index+1)+(MIMES[mime]?'.'+MIMES[mime]:'')),mime,size:content.length,sha256:hash(content),archived,content,contentId:text(part.contentId,300),inline:Boolean(part.contentId&&/^image\/(png|jpeg|gif|webp)$/.test(mime)&&content.length<=2*1024*1024&&typeof parsed.html==='string'&&parsed.html.includes('cid:'+String(part.contentId).replace(/^<|>$/g,''))),documentId:archived?attachmentId:null};
   });
   const stored=[];try{
     for(const attachment of attachments)if(attachment.archived){await env.BUCKET.put(attachment.id,attachment.content,{httpMetadata:{contentType:attachment.mime}});stored.push(attachment.id);}

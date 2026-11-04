@@ -65,6 +65,13 @@ test('photo attachments are listed for the gallery while embedded signature imag
   const summary=await (await f.call('/api/mailbox/summary')).json();assert.deepEqual(summary,{unread:1,inboxUnread:1});
 });
 
+test('only images that are really embedded count as inline; others stay downloadable',async t=>{
+  const f=await fixture(t),big=Buffer.concat([PNG,Buffer.alloc(2*1024*1024+10,5)]),b='big-boundary',r='big-related';
+  const mime=Buffer.from(`From: Kunde <kunde@example.invalid>\r\nTo: ${owner}\r\nSubject: Grosses Bild\r\nMessage-ID: <${randomUUID()}@example.invalid>\r\nDate: Tue, 20 Oct 2026 12:00:00 +0200\r\nMIME-Version: 1.0\r\nContent-Type: multipart/related; boundary="${r}"\r\n\r\n--${r}\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>Bild</p><img src="cid:big@example.invalid">\r\n--${r}\r\nContent-Type: image/png\r\nContent-ID: <big@example.invalid>\r\nContent-Disposition: inline; filename="gross.png"\r\nContent-Transfer-Encoding: base64\r\n\r\n${big.toString('base64')}\r\n--${r}--\r\n`);
+  const message=await ingestMessage(f.env,mime,{folder:'INBOX',uid:4,uidValidity:'big'}),detail=await (await f.call('/api/mailbox/message/'+message.id)).json();
+  assert.equal(detail.attachments[0].inline,false,'a picture that could not be embedded is listed as attachment');
+});
+
 async function boot(t,f){
   const html=readFileSync(new URL('../dist/client/index.html',import.meta.url),'utf8').replace(/<script[^>]*><\/script>/g,''),dom=new JSDOM(html,{url:origin,pretendToBeVisual:true}),w=dom.window;
   w.Element.prototype.scrollIntoView=()=>{};w.scrollTo=()=>{};w.HTMLDialogElement.prototype.showModal??=function(){this.setAttribute('open','');};
