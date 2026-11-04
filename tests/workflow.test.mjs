@@ -170,3 +170,19 @@ test('a customer acceptance after an owner release is rejected without leaving a
   const r=await req(e,route,{snapshotHash:createHash('sha256').update(JSON.stringify(displayed)).digest('hex'),signature:'data:image/png;base64,iVBORw0KGgo'+'A'.repeat(601),paymentObligation:true},'synthetisch@example.invalid');
   assert.equal(r.status,409);assert.deepEqual(puts,[],'no signature file is stored for a rejected acceptance');
 });
+test('follow-ups are completed once without changing the original note',()=>{
+  let o=transition(base(),'note',{kind:'Wiedervorlage',note:'Rückruf wegen Keramik',followUp:'2026-10-02'},now);
+  o=transition(o,'note',{note:'Nur eine Notiz'},'2026-10-01T12:05:00.000Z');
+  const before=structuredClone(o),at=o.notes[0].at;
+  const done=transition(o,'followUpDone',{index:0,at},'2026-10-02T08:00:00.000Z');
+  assert.deepEqual(o,before,'the previous version stays unchanged');
+  assert.equal(done.notes[0].doneAt,'2026-10-02T08:00:00.000Z');
+  assert.deepEqual({...done.notes[0],doneAt:undefined},{...before.notes[0],doneAt:undefined});
+  assert.deepEqual(done.notes[1],before.notes[1]);
+  assert.equal(done.status,before.status);
+  assert.throws(()=>transition(done,'followUpDone',{index:0,at},'2026-10-02T09:00:00.000Z'),/bereits erledigt/);
+  assert.throws(()=>transition(o,'followUpDone',{index:0,at:'2026-01-01T00:00:00.000Z'}),/nicht gefunden/);
+  assert.throws(()=>transition(o,'followUpDone',{index:5,at}),/nicht gefunden/);
+  assert.throws(()=>transition(o,'followUpDone',{index:'0',at}),/nicht gefunden/);
+  assert.throws(()=>transition(o,'followUpDone',{index:1,at:o.notes[1].at}),/keine Wiedervorlage/);
+});

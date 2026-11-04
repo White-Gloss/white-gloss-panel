@@ -44,9 +44,10 @@ function orderItems(order, now, today) {
     out.push(item(order, 'invoice-overdue', 'overdue', 'payment', 'Rechnung überfällig', `${invoice.number || 'Rechnung'} · ${money(invoice.totalCents)} · fällig seit ${germanDay(invoice.dueDate)}`, invoice.dueDate));
   }
   (order.notes ?? []).forEach((note, index) => {
-    if (!validDay(note?.followUp) || note.followUp > today) return;
+    if (!validDay(note?.followUp) || note.followUp > today || note.doneAt) return;
     const overdue = note.followUp < today;
-    out.push(item(order, 'followup', overdue ? 'overdue' : 'today', 'notes', overdue ? 'Wiedervorlage überfällig' : 'Wiedervorlage heute', note.note || 'Wiedervorlage ohne Notiz', note.followUp, String(index)));
+    // noteIndex and noteAt identify the note for „Erledigt“; the server checks both again.
+    out.push({...item(order, 'followup', overdue ? 'overdue' : 'today', 'notes', overdue ? 'Wiedervorlage überfällig' : 'Wiedervorlage heute', note.note || 'Wiedervorlage ohne Notiz', note.followUp, String(index)), noteIndex: index, noteAt: note.at ?? null});
   });
   if (closed) return out;
   const appointment = order.appointment, start = validTime(appointment?.start), startDay = start === null ? null : dayOf(appointment.start);

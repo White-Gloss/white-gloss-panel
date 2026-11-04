@@ -27,15 +27,20 @@ die Rollen bleiben Betreiber, Kunde und Steuerberater.
 | Nr. | Aufgabe | Priorität | Stand |
 | --- | --- | --- | --- |
 | V0 | Dokumentation an den belegten Hostinger-Releaseweg angleichen | Kritisch | veröffentlicht (PR #38) |
-| V1 | Handlungszentrale auf der Übersicht: alle fälligen Schritte in einer Liste, Monatszahlen statt Gesamtsumme, Arbeitsvorrat nach Dringlichkeit ([Details](Handlungszentrale.md)) | Hoch | in Arbeit |
+| V1 | Handlungszentrale auf der Übersicht: alle fälligen Schritte in einer Liste, Monatszahlen statt Gesamtsumme, Arbeitsvorrat nach Dringlichkeit, Wiedervorlagen abhaken ([Details](Handlungszentrale.md)) | Hoch | Liste veröffentlicht (PR #39); Abhaken in Prüfung |
 | V8 | „Nächster Schritt“ an einer Stelle führen, ungenutzte `premium.*`/`agency.css` entfernen | Mittel | offen |
 | V2 | Auftragsdetail mit einer statt zwei Navigationen (Ablaufschritte und Reiter zusammenführen) | Hoch | offen |
 | V3 | Kommunikation bündeln: gemeinsamer Posteingang, „Nachrichten“ in der mobilen Leiste. E-Mail-Teil: Communication Center ([Details](Communication-Center.md)) | Hoch | E-Mail-Teil in Prüfung (PR #41) |
 | V5 | Navigation straffen: gefilterte Auftragslisten zusammenführen | Mittel | offen |
 | V7 | Übersicht fälliger Mahnstufen | Mittel | offen |
 | V6 | Offene Angebote nachfassen (Liste, Erinnerung nur mit Versandfreigabe) | Mittel | offen |
+| V12 | Rechnungsregister zeigt Rohstatus „unpaid“ statt „Offen“ (`invoiceRegister()` in `public/app.js` nutzt die Bezeichnungen aus `public/invoice-ui.js` nicht) | Mittel | offen |
+| V13 | Externe Datensicherung prüfen: Panel-Backup liegt nur auf dem VPS (`/var/lib/white-gloss-panel`, Dienst ohne Netzwerk). Laut Betreiber sind Hostinger-Sicherungen aktiv; Umfang und Wiederherstellung sind ungeprüft | Mittel | offen, Betreiber |
 | V11 | Abhängigkeiten aktualisieren (`exceljs`-Kette, 8 mittlere Audit-Hinweise) | Niedrig | offen |
 | V9 | `public/app.js` in Module aufteilen | Niedrig | offen |
 | V10 | Weniger Daten pro Aktualisierung als das vollständige `/api/state` | Niedrig | offen |
 
-Entfallen: Mitarbeiterkonten und Rollen (V4). Der Betrieb hat keine Mitarbeiter.
+Entfallen: Mitarbeiterkonten und Rollen (V4). Der Betrieb hat keine Mitarbeiter
+(Betreiberantwort vom 03.11.2026 bestätigt).
+
+Grundlage und Belege aller Punkte: [Bestandsaufnahme](Bestandsaufnahme.md).

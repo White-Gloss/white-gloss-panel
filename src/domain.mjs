@@ -206,6 +206,14 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
   else if(action==='cancel') { need(status!=='Bezahlt','Ein bezahlter Auftrag wird nicht storniert.',409); history(o,'statusHistory',{from:status,to:'Storniert',at:now,reason:text(input.reason)}); o.status='Storniert';o.closeReason=text(input.reason); }
   else if(action==='expire') { need(status==='Angebot offen'&&Date.parse(o.offer.expiresAt)<=Date.parse(now),'Angebot ist noch nicht abgelaufen.',409); o.status='Abgelaufen'; }
   else if(action==='note') { need(text(input.note)||text(input.followUp),'Bitte eine Notiz oder ein Wiedervorlagedatum eingeben.'); o.notes=[...(o.notes??[]),{at:now,note:text(input.note),kind:text(input.kind,60)||'Notiz',followUp:text(input.followUp,40)}]; }
+  else if(action==='followUpDone') {
+    // The original note stays unchanged; only the completion time is added.
+    const notes=o.notes??[],index=input.index,note=Number.isInteger(index)?notes[index]:null;
+    need(note&&(note.at??null)===(input.at??null),'Wiedervorlage nicht gefunden. Bitte Auftrag neu öffnen.',404);
+    need(text(note.followUp),'Diese Notiz hat keine Wiedervorlage.',409);
+    need(!note.doneAt,'Diese Wiedervorlage ist bereits erledigt.',409);
+    o.notes=notes.map((item,i)=>i===index?{...item,doneAt:now}:item);
+  }
   else if(action==='editSource') {
     const changes={};const fields=input.source??input;
     for(const [key,max] of Object.entries(SOURCE_FIELDS))if(fields[key]!==undefined)changes[key]=text(fields[key],max);

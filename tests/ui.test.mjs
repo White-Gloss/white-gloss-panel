@@ -526,6 +526,30 @@ test('panel: operational agenda links existing appointments, follow-ups and unpa
   await ui.click('.agenda-item.invoice');assert.match(ui.text(),/Agenda Kunde/);assert.match(ui.text(),/Kunde & Anfrage/);assert.deepEqual(ui.errors,[]);
 });
 
+test('panel: due follow-ups are completed from the work list, the care queue and the order notes',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});await ui.click('[data-click="test"]');await ui.click('[data-click="create"]');
+  ui.fill(ui.$('#createform'),{name:'Wiedervorlage Kunde',vehicle:'Audi RS6'});await ui.submit('#createform');
+  const row=await ui.env.DB.prepare('SELECT id FROM orders').first(),current=await getOrder(ui.env,row.id);
+  const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  current.notes=[{at:'2026-10-01T08:00:00.000Z',kind:'Wiedervorlage',note:'Rückruf wegen Keramik',followUp:today},{at:'2026-10-02T08:00:00.000Z',kind:'Wiedervorlage',note:'Pflegeset anbieten',followUp:today}];
+  await saveOrder(ui.env,current,current.version,'Synthetischer Wiedervorlagetest');
+  await ui.click('[data-click="back"]');await ui.click('.sidebar [data-view="overview"]');await ui.click('[data-click="refresh"]');
+  const center=()=>ui.$('.overview-shell .action-center');
+  assert.equal(ui.w.document.querySelectorAll('.action-center .action-row [data-followup-done]').length,2);
+  assert.match(ui.$('.action-center .action-row [data-followup-done]').getAttribute('aria-label'),/Wiedervorlage erledigt: Rückruf wegen Keramik/);
+  await ui.click('.action-center .action-row [data-followup-done][data-note-index="0"]');
+  assert.doesNotMatch(center().textContent,/Rückruf wegen Keramik/);assert.match(center().textContent,/Pflegeset anbieten/);
+  let saved=await getOrder(ui.env,row.id);assert.ok(saved.notes[0].doneAt);assert.equal(saved.notes[0].note,'Rückruf wegen Keramik');assert.equal(saved.notes[0].followUp,today);assert.equal(saved.notes[1].doneAt,undefined);
+  await ui.click('.sidebar [data-view="care"]');assert.equal(ui.w.document.querySelectorAll('.care-queue-item').length,1);assert.match(ui.$('.care-queue').textContent,/Pflegeset anbieten/);
+  await ui.click('.care-queue-item');assert.equal(ui.$('#order-tab-notes').getAttribute('aria-selected'),'true','Wiedervorlage öffnet direkt die Kundenakte');
+  assert.match(ui.$('.timeline').textContent,/erledigt/);assert.equal(ui.w.document.querySelectorAll('.timeline [data-followup-done]').length,1);
+  await ui.click('.timeline [data-followup-done]');assert.equal(ui.w.document.querySelectorAll('.timeline [data-followup-done]').length,0);assert.equal(ui.$('#order-tab-notes').getAttribute('aria-selected'),'true');
+  saved=await getOrder(ui.env,row.id);assert.ok(saved.notes[1].doneAt);
+  await ui.click('.sidebar [data-view="care"]');assert.match(ui.$('.care-queue').textContent,/Keine Wiedervorlagen geplant/);
+  await ui.click('.sidebar [data-view="overview"]');assert.doesNotMatch(center().textContent,/Pflegeset anbieten/);
+  assert.deepEqual(ui.errors,[]);
+});
+
 test('panel: overview work list starts empty, counts monthly payments and sorts the work queue by urgency',async t=>{
   const ui=await boot(t,{page:'index.html',script:'app.js'});await ui.click('[data-click="test"]');
   assert.match(ui.$('.action-center').textContent,/Alles erledigt/);assert.equal(ui.w.document.querySelectorAll('.action-center .action-item').length,0);
