@@ -66,6 +66,7 @@ test('assistant can use another provider and rejects an unsafe address',async t=
   assert.equal(view.settings.provider,'xai');assert.equal(view.settings.baseUrl,'');
   assert.equal(JSON.stringify(view).includes('synthetic-assistant-secret'),false);
   assert.ok(view.settings.providers.some(item=>item.id==='compatible'));
+  assert.deepEqual(view.settings.providers.find(item=>item.id==='xai').models,['grok-4','grok-3']);
   assert.equal((await f.call('/api/assistant/check',{})).status,200);
   assert.equal(checks[0].provider,'xai');assert.equal(checks[0].base,'https://api.x.ai/v1');assert.equal(checks[0].mode,'chat');
 });
