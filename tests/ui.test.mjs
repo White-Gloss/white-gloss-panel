@@ -681,3 +681,9 @@ test('panel: price calculator sits under the communication center and updates li
   ui.$('[name="pickupKm"]').value='1500';ui.$('[name="pickupKm"]').dispatchEvent(new ui.w.Event('input',{bubbles:true}));assert.match(ui.$('#price-quick').textContent,/auf Anfrage/);
   assert.equal((await ui.env.DB.prepare('SELECT COUNT(*) n FROM orders').first()).n,0);assert.deepEqual(ui.errors,[]);
 });
+
+test('panel: typing in the top search while the price calculator is open leaves it for the order list',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});
+  await ui.click('.sidebar [data-view="prices"]');const search=ui.$('#search');search.value='Golf';search.dispatchEvent(new ui.w.Event('input',{bubbles:true}));
+  assert.equal(ui.$('#price-quick'),null,'no half-dead calculator after the search');assert.match(ui.$('h1').textContent,/Alle Aufträge/);assert.deepEqual(ui.errors,[]);
+});
