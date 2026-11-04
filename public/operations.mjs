@@ -39,7 +39,7 @@ export function buildOperations(orders, now = new Date(), horizonDays = 7) {
       });
     }
     for (const note of Array.isArray(order.notes) ? order.notes : []) {
-      if (!validDay(note?.followUp) || note.followUp > lastDay) continue;
+      if (!validDay(note?.followUp) || note.followUp > lastDay || note.doneAt) continue;
       const item = {kind: 'followup', day: note.followUp, sortAt: note.at ?? note.followUp, order, note};
       (note.followUp < today ? overdue : upcoming).push(item);
     }

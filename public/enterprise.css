@@ -498,3 +498,17 @@ dialog{box-shadow:0 20px 60px #0e12182b}
 .operations-note.attention{color:var(--wg-error);background:var(--wg-error-bg)}
 .operations-note.attention .smallbtn{margin-left:8px}
 @media(max-width:760px){.action-center .action-summary{padding:var(--space-sm) 15px}.action-more>summary{padding:12px 15px}.action-item{min-height:64px}}
+/* Wiedervorlagen abhaken: eigener Knopf neben dem Eintrag, keine verschachtelten Buttons. */
+.action-row{display:flex;align-items:center;gap:12px;padding-right:16px;border-bottom:1px solid var(--wg-rule)}
+.action-row>.action-item{flex:1 1 auto;min-width:0;border-bottom:0}
+.action-center .action-row:last-child{border-bottom:0}
+.action-done{flex:none;display:inline-flex;align-items:center;gap:6px;min-height:40px;white-space:nowrap}
+.care-queue-row{display:flex;align-items:center;gap:12px;padding-right:16px;border-bottom:1px solid var(--line)}
+.care-queue-row:last-child{border-bottom:0}
+.care-queue-row .care-queue-item{flex:1 1 auto;min-width:0;border-bottom:0}
+.timeline .action-done{margin-top:8px}
+@media(max-width:760px){
+  .action-row,.care-queue-row{flex-wrap:wrap;gap:0;padding-right:0}
+  .action-row>.action-item,.care-queue-row .care-queue-item{flex:1 1 100%}
+  .action-row .action-done,.care-queue-row .action-done{min-height:44px;margin:0 16px 14px auto}
+}

@@ -25,6 +25,7 @@ Jede Änderung benötigt einen eigenen geprüften Release und einen Live-Nachwei
 - [Kundenportal mit B2B-Firmenbereich](docs/Kundenportal.md)
 - [Buchhaltung: genauer Implementierungsstand](docs/Buchhaltung-Implementierungsstand.md)
 - [Handlungszentrale auf der Übersicht](docs/Handlungszentrale.md)
+- [Bestandsaufnahme mit Stärken und Schwächen](docs/Bestandsaufnahme.md)
 
 ## Aufbau
 

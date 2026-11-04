@@ -56,10 +56,25 @@ Einträge. Testbereich und Live-Bereich bleiben getrennt. Gelöschte Aufträge e
   `GET /api/portal-admin/requests` und `GET /api/chats/summary`. Schlägt einer fehl, zeigt
   die Liste „konnte nicht geladen werden“ mit „Erneut laden“.
 - Unmögliche Datumsangaben (z. B. `2026-13-01`) werden ignoriert und brechen die Übersicht nicht.
-- Wiedervorlagen lassen sich bisher nicht als erledigt markieren. Eine überfällige
-  Wiedervorlage bleibt deshalb sichtbar, wie in der Kundenbetreuung.
 - WhatsApp, E-Mail und abgelehnte Website-Anfragen sind noch nicht enthalten. Sie folgen mit
   der Roadmap-Aufgabe „Kommunikation bündeln“, nachdem ihre Bedeutung geprüft ist.
+
+## Wiedervorlage erledigen
+
+Seit 03.11.2026 lässt sich jede fällige Wiedervorlage abhaken. Vorher blieb sie für immer
+„überfällig“, und der Zähler wuchs mit jeder alten Notiz.
+
+- **Wo:** Knopf **„Erledigt“** neben dem Eintrag in der Handlungszentrale und in der
+  Kundenbetreuung, dazu **„Wiedervorlage erledigt“** im Auftrag unter *Kundenakte & Status*.
+- **Wirkung:** Die Wiedervorlage verschwindet aus Handlungszentrale, Kundenbetreuung und
+  7-Tage-Agenda. Im Betreuungsverlauf steht danach „erledigt“ mit Datum und Uhrzeit.
+- **Nichts geht verloren:** Text, Art und Datum der Notiz bleiben unverändert. Gespeichert wird
+  nur zusätzlich der Erledigt-Zeitpunkt (`notes[].doneAt`), mit neuer Auftragsversion und
+  Eintrag `followUpDone` im Änderungsprotokoll.
+- **Schutz:** Der Server prüft Auftragsversion, Position und Zeitstempel der Notiz erneut.
+  Doppelt abhaken ist gesperrt. Im Papierkorb ist es gesperrt, bei gesperrten Kundenakten
+  erlaubt (wie Notizen).
+- Es wird nichts versendet und kein Status geändert.
 
 ## Technik und Tests
 
@@ -69,4 +84,8 @@ Einträge. Testbereich und Live-Bereich bleiben getrennt. Gelöschte Aufträge e
 - Tests: `tests/action-center.test.mjs` (Regeln, Sortierung, Berliner Tagesgrenze,
   Monatssumme), `tests/ui.test.mjs` (Übersicht, Klickziele, Sortierung),
   `browser-tests/navigation.test.mjs` (Layout von 320 bis 1440 px, nur auf dem GitHub-Runner)
-- Keine Datenbankänderung. Ein Rückfall per Revert ist ohne Datenverlust möglich.
+- Wiedervorlage erledigen: Aktion `followUpDone` in `src/domain.mjs`, Tests in
+  `tests/workflow.test.mjs`, `tests/action-center.test.mjs`, `tests/operations.test.mjs`,
+  `tests/order-trash.test.mjs` und `tests/ui.test.mjs`
+- Keine Schemaänderung. `doneAt` ist ein Zusatzfeld im Auftrags-JSON. Ein Rückfall per Revert
+  ist ohne Datenverlust möglich; erledigte Wiedervorlagen würden dann wieder angezeigt.

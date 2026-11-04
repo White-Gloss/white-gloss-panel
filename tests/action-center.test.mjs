@@ -180,3 +180,18 @@ test('signature requests are ordered by the age of the request, not by the last 
   ], now);
   assert.deepEqual(model.items.map(item => item.orderId), ['1', '2']);
 });
+
+test('completed follow-ups disappear while open ones carry their note reference for completion', () => {
+  const model = buildActionCenter([
+    order('1', {status: 'Bezahlt', notes: [
+      {at: '2026-10-01T08:00:00.000Z', note: 'Schon erledigt', followUp: '2026-10-20', doneAt: '2026-10-20T09:00:00.000Z'},
+      {at: '2026-10-02T08:00:00.000Z', note: 'Pflegetermin anbieten', followUp: '2026-11-02'},
+      {note: 'Alt ohne Zeitstempel', followUp: '2026-11-03'},
+    ]}),
+  ], now);
+  assert.deepEqual(model.items.map(item => [item.kind, item.detail, item.noteIndex, item.noteAt]), [
+    ['followup', 'Pflegetermin anbieten', 1, '2026-10-02T08:00:00.000Z'],
+    ['followup', 'Alt ohne Zeitstempel', 2, null],
+  ]);
+  assert.deepEqual(model.counts, {overdue: 1, today: 1, waiting: 0});
+});

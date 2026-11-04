@@ -43,3 +43,11 @@ test('operations ignores invalid or out-of-range dates and derives missing durat
   assert.equal(model.summary.todayMinutes, 60);
   assert.equal(model.overdue.length, 0);
 });
+
+test('completed follow-ups leave the agenda and the due counter', () => {
+  const model = buildOperations([
+    order('1', {status: 'Erledigt', notes: [{note: 'Erledigt', followUp: '2026-10-25', doneAt: '2026-10-25T10:00:00.000Z'}]}),
+  ], now);
+  assert.equal(model.overdue.length, 0);
+  assert.equal(model.summary.followUpsDue, 0);
+});

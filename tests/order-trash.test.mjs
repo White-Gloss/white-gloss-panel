@@ -50,7 +50,7 @@ test('trash preserves originals, hides working lists, revokes customer links and
   assert.equal((await f.get('/api/state',f.customerCookie)).status,403);
   assert.equal((await f.get('/api/chats/t/'+f.chatId)).status,200,'owner can still read retained chat');
   assert.equal((await f.post('/api/chats/t/'+f.chatId+'/message',{text:'Forbidden'},f.ownerCookie)).status,409);
-  for(const action of ['note','payment','sendOffer','invoice','invoiceMail'])assert.equal((await f.action(action,2,{})).status,409,action+' is blocked');
+  for(const action of ['note','followUpDone','payment','sendOffer','invoice','invoiceMail'])assert.equal((await f.action(action,2,{})).status,409,action+' is blocked');
   await assert.rejects(claimJob(f.env,deleted,'reminder'),/Papierkorb/);
   await setting(f.env,'resendKey',await protect(f.env,'synthetic-key'));await setting(f.env,'emailVerified',true);await setting(f.env,'sendApproved',true);await setting(f.env,'backgroundApproved',true);
   assert.equal((await maintenance(f.env)).ok,true);assert.equal(outbound,0);
