@@ -76,3 +76,8 @@ test('customer area uses larger radii and calmer line height', () => {
   assert.match(surface, /html\[data-area="customer"\] \.portal-card\s*\{[^}]*border-radius:\s*var\(--radius-l\)/);
   assert.match(surface, /html\[data-area="customer"\] \.portal-card p\s*\{[^}]*line-height:\s*1\.6/);
 });
+
+test('advisor area sets calm tables with tabular figures', () => {
+  assert.match(surface, /html\[data-area="advisor"\] table\s*\{[^}]*font-variant-numeric:\s*tabular-nums/);
+  assert.match(surface, /html\[data-area="advisor"\] \.advisor-shell\s*\{[^}]*max-width/);
+});

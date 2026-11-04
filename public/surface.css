@@ -103,3 +103,7 @@ html[data-area="operator"] .books-shell{font-variant-numeric:tabular-nums}
 /* Kundenportal und Kundenchat (customer) */
 html[data-area="customer"] .portal-card{border-radius:var(--radius-l)}
 html[data-area="customer"] .portal-card p{line-height:1.6}
+
+/* Steuerberaterzugang (advisor) */
+html[data-area="advisor"] table{font-variant-numeric:tabular-nums}
+html[data-area="advisor"] .advisor-shell{max-width:1160px}
