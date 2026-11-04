@@ -22,14 +22,14 @@ const prompts={
   vehicle:'Analysiere nur sichtbare Fahrzeugmerkmale für eine interne Detailing-Kalkulation. Beschreibe Beobachtungen ohne Schadensdiagnose und ohne Preis. Nenne Unsicherheiten durch Licht, Bildqualität und fehlende Perspektiven. Keine Kundenbotschaft formulieren und keinen Festpreis vorschlagen.'
 };
 const PROVIDERS={
-  openai:{label:'OpenAI / ChatGPT',base:'https://api.openai.com/v1',mode:'responses'},
-  xai:{label:'xAI / Grok',base:'https://api.x.ai/v1',mode:'chat'},
-  openrouter:{label:'OpenRouter',base:'https://openrouter.ai/api/v1',mode:'chat'},
-  groq:{label:'Groq',base:'https://api.groq.com/openai/v1',mode:'chat'},
-  mistral:{label:'Mistral',base:'https://api.mistral.ai/v1',mode:'chat'},
-  compatible:{label:'Andere KI',base:null,mode:'chat'}
+  openai:{label:'OpenAI / ChatGPT',base:'https://api.openai.com/v1',mode:'responses',models:['gpt-6-astra','gpt-4o','gpt-4o-mini']},
+  xai:{label:'xAI / Grok',base:'https://api.x.ai/v1',mode:'chat',models:['grok-4','grok-3']},
+  openrouter:{label:'OpenRouter',base:'https://openrouter.ai/api/v1',mode:'chat',models:['openai/gpt-4o-mini','x-ai/grok-4']},
+  groq:{label:'Groq',base:'https://api.groq.com/openai/v1',mode:'chat',models:['llama-3.3-70b-versatile']},
+  mistral:{label:'Mistral',base:'https://api.mistral.ai/v1',mode:'chat',models:['mistral-large-latest','pixtral-large-latest']},
+  compatible:{label:'Andere KI',base:null,mode:'chat',models:[]}
 };
-export function assistantProviderChoices(){return Object.entries(PROVIDERS).map(([id,item])=>({id,label:item.label}));}
+export function assistantProviderChoices(){return Object.entries(PROVIDERS).map(([id,item])=>({id,label:item.label,models:item.models}));}
 function providerTarget(input,old){
   const provider=text(input.provider||old?.provider||'openai',40);need(PROVIDERS[provider],'Unbekannter KI-Anbieter.',400);
   if(provider!=='compatible'){need(!text(input.baseUrl,300),'Diese KI hat eine feste Adresse.',400);return {provider,base:PROVIDERS[provider].base,mode:PROVIDERS[provider].mode,stored:null};}
