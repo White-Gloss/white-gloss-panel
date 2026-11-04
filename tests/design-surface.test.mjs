@@ -61,3 +61,9 @@ test('uses safe-area insets and tabular numbers', () => {
   assert.match(surface, /env\(safe-area-inset-bottom/);
   assert.match(surface, /font-variant-numeric:\s*tabular-nums/);
 });
+
+test('operator area styles the sidebar, mobile dock and action centre', () => {
+  assert.match(surface, /html\[data-area="operator"\] \.sidebar\s*\{[^}]*background:\s*var\(--bg\)/);
+  assert.match(surface, /html\[data-area="operator"\] \.mobile-dock [^{]*\{[^}]*var\(--gold\)/);
+  assert.match(surface, /html\[data-area="operator"\] \.action-center[^{]*\{[^}]*border-radius:\s*var\(--radius-m\)/);
+});

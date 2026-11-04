@@ -2,9 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {tokenize} from '../scripts/tokenize-colors.mjs';
+import {MIGRATED} from './helpers/design.mjs';
 
-// Dateien, in denen keine festen Farben mehr stehen dürfen. Jede Migrations-Aufgabe ergänzt ihre Dateien.
-export const MIGRATED = ['style.css'];
 
 const t = css => tokenize(css).css;
 

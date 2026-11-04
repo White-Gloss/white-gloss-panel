@@ -90,3 +90,11 @@ html[data-area="field"] .signature{min-height:180px;border:1px dashed var(--line
 html[data-area="field"] #toast.visible{animation:toast-in 260ms cubic-bezier(.2,.8,.2,1)}
 @keyframes toast-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 html[data-area="field"] [data-photo-count]{display:inline-block;margin-top:6px;font-variant-numeric:tabular-nums;color:var(--muted)}
+
+/* Panel und Monatsbuchhaltung (operator) */
+html[data-area="operator"] .sidebar{background:var(--bg);border-color:var(--line)}
+html[data-area="operator"] .mobile-dock button[aria-current=page],html[data-area="operator"] .mobile-dock button.active{
+  background:var(--elevated);color:var(--accent);box-shadow:inset 0 2px 0 var(--gold)
+}
+html[data-area="operator"] .action-center,html[data-area="operator"] .operations-panel{border-radius:var(--radius-m);background:var(--surface)}
+html[data-area="operator"] .action-item{border-radius:var(--radius-s)}

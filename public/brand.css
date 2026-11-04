@@ -3,13 +3,13 @@
 @font-face{font-family:Barlow;font-style:normal;font-weight:400;font-display:swap;src:url('/barlow-latin.woff2') format('woff2')}
 @font-face{font-family:Barlow;font-style:normal;font-weight:500;font-display:swap;src:url('/barlow-latin-medium.woff2') format('woff2')}
 @font-face{font-family:Barlow;font-style:normal;font-weight:600;font-display:swap;src:url('/barlow-latin-semibold.woff2') format('woff2')}
-:root{--wg-bg:#0e1218;--wg-surface:#151d27;--wg-elevated:#202c3a;--wg-fg:#f4f3ed;--wg-muted:#bbc5d1;--wg-accent:#bfcee0;--wg-line:#bfd1e540;font-family:Barlow,ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
+:root{font-family:Barlow,ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
 body,button,input,select,textarea{font-family:Barlow,ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
 .heading h1,.detail-header h2,.appoff h1,.portal-hello{font-weight:400;letter-spacing:-.025em}
 button,a.button{border-radius:4px}
 input:not([type=checkbox]):not([type=radio]),select,textarea{border-radius:4px}
 button.primary,a.button.primary,.chat-gate a.button.primary{color:var(--wg-bg);background:var(--wg-accent);border-color:var(--wg-accent)}
-button.primary:hover,a.button.primary:hover,.chat-gate a.button.primary:hover{color:var(--wg-bg);background:#d5e0ed;border-color:#d5e0ed}
+button.primary:hover,a.button.primary:hover,.chat-gate a.button.primary:hover{color:var(--on-accent);background:var(--accent);border-color:var(--accent);filter:brightness(1.08)}
 .card,.portal-card,.portal-orders button,.signaturebox,.protocolreview,.offer-document,.offer-appointment,.portal-confirm{border-radius:6px}
 .sidebar{background:var(--wg-bg);border-color:var(--wg-line)}
 .sidebar .brand strong,.sidebar footer strong,.sidebar .private{color:var(--wg-fg)}
@@ -23,7 +23,7 @@ button.primary:hover,a.button.primary:hover,.chat-gate a.button.primary:hover{co
 .crumb,.headerdate,.vo-title>small,.portal-brand small{color:var(--wg-muted)}
 .crumb strong,.vo-title h1,.portal-brand,.portal-brand strong,.chat-title strong{color:var(--wg-fg)}
 .topbar .mobile-menu,.topbar .testswitch,.top-actions .smallbtn,.vo-top>.button,.portal-logout{background:var(--wg-surface);color:var(--wg-fg);border-color:var(--wg-line)}
-.topbar .testswitch.on{background:#eadac0;color:#4c3b24;border-color:#d7bf99}
+.topbar .testswitch.on{background:var(--warn-bg);color:var(--warn);border-color:var(--warn)}
 .topbar .search input{background:var(--wg-surface);color:var(--wg-fg);border-color:var(--wg-line)}
 .topbar .search input::placeholder{color:var(--wg-muted);opacity:1}
 .topbar .avatar{background:var(--wg-elevated);color:var(--wg-accent)}
@@ -44,7 +44,7 @@ button.primary:hover,a.button.primary:hover,.chat-gate a.button.primary:hover{co
 .appoff:has(#auth-form)>h1,.appoff:has(#password-form)>h1{color:var(--wg-fg);line-height:1.2}
 .appoff:has(#auth-form)>p,.appoff:has(#password-form)>p{color:var(--wg-muted)}
 .appoff:has(#auth-form)>p a,.appoff:has(#password-form)>p a{color:var(--wg-accent)}
-#auth-form,#password-form{background:#fff;color:#263142;border:1px solid #dfe5eb;border-radius:4px;padding:22px}
+#auth-form,#password-form{background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:22px}
 .appoff #auth-recovery{background:var(--wg-surface);color:var(--wg-fg);border-color:var(--wg-line)}
 .sidebar-close:hover,.topbar .mobile-menu:hover,.topbar .testswitch:not(.on):hover,.top-actions .smallbtn:hover,.vo-top>.button:hover,.portal-logout:hover,.appoff #auth-recovery:hover{background:var(--wg-elevated);color:var(--wg-fg)}
 @media(hover:hover) and (pointer:fine){
