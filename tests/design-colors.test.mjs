@@ -35,6 +35,10 @@ test('shadow colours keep their strength through color-mix', () => {
 test('translucent light backgrounds keep their opacity', () => {
   assert.equal(t('.a{background:#ffffffed}'), '.a{background:color-mix(in srgb,var(--surface) 93%,transparent)}');
 });
+test('faint white overlays become a hairline of the text colour, not of the surface', () => {
+  assert.equal(t('.a{background:#ffffff14}'), '.a{background:color-mix(in srgb,var(--fg) 8%,transparent)}');
+  assert.equal(t('.a{background:rgba(255,255,255,.9)}'), '.a{background:color-mix(in srgb,var(--surface) 90%,transparent)}');
+});
 test('selectors that look like hex colours are left alone', () => {
   assert.equal(t('#add-form:hover{color:#fff}'), '#add-form:hover{color:var(--on-accent)}');
   assert.equal(t('a:hover #fab{margin:0}'), 'a:hover #fab{margin:0}');

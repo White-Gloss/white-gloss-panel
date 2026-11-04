@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 
 // Dateien, in denen keine festen Farben stehen dürfen und deren Farbpaare geprüft werden.
 // Jede Migrations-Aufgabe ergänzt ihre Dateien.
-export const MIGRATED = ['style.css', 'enterprise.css', 'brand.css', 'communication.css', 'business.css', 'accounting.css', 'bookkeeping.css'];
+export const MIGRATED = ['style.css', 'enterprise.css', 'brand.css', 'communication.css', 'business.css', 'accounting.css', 'bookkeeping.css', 'kunde.css', 'chat.css'];
 
 export const read = name => readFileSync(new URL('../../public/' + name, import.meta.url), 'utf8');
 
@@ -17,7 +17,9 @@ export function tokenMap(mode) {
   const tokens = read('tokens.css'), cut = tokens.indexOf('@media (prefers-color-scheme: light)');
   const dark = pairs(tokens.slice(0, cut)), light = {...dark, ...pairs(tokens.slice(cut))};
   const surface = read('surface.css'), aliasPart = surface.slice(surface.indexOf(':root{'), surface.indexOf('}', surface.indexOf(':root{')));
-  return {...(mode === 'light' ? light : dark), ...Object.fromEntries(Object.entries(pairs(aliasPart)).filter(([, v]) => v.startsWith('var(')))};
+  const scoped = {};
+  for (const file of MIGRATED) Object.assign(scoped, Object.fromEntries(Object.entries(pairs(read(file))).filter(([k, v]) => /^var\(--[a-z0-9-]+\)$/.test(v) && k !== v.slice(6, -1) && !(k in dark))));
+  return {...(mode === 'light' ? light : dark), ...scoped, ...Object.fromEntries(Object.entries(pairs(aliasPart)).filter(([, v]) => v.startsWith('var(')))};
 }
 
 // Löst var(--name) über Aliase bis zu einem Hex-Wert auf; null, wenn nicht eindeutig (rgba, color-mix ...).

@@ -342,8 +342,8 @@ dialog{box-shadow:0 20px 60px color-mix(in srgb,var(--shadow-ink) 17%,transparen
 
 /* Unterbereiche bleiben als zusammengehörige Arbeitsgruppe erkennbar. */
 .sidebar .nav button.navchild{position:relative;padding-left:31px;color:var(--muted);font-size:12px}
-.sidebar .nav button.navchild::before{content:"";position:absolute;left:15px;top:0;bottom:0;width:1px;background:color-mix(in srgb,var(--surface) 8%,transparent)}
-.sidebar .nav button.navchild.active{color:var(--on-accent)}
+.sidebar .nav button.navchild::before{content:"";position:absolute;left:15px;top:0;bottom:0;width:1px;background:color-mix(in srgb,var(--fg) 8%,transparent)}
+.sidebar .nav button.navchild.active{color:var(--accent)}
 .finance-subnav{display:flex;gap:4px;overflow-x:auto;margin:-8px 0 24px;padding:4px;border:1px solid var(--wg-rule);border-radius:6px;background:var(--wg-paper);scrollbar-width:thin}
 .finance-subnav button{flex:0 0 auto;min-height:36px;padding:7px 12px;border:1px solid transparent;background:transparent;color:var(--wg-subtle);font-size:12px;font-weight:500;white-space:nowrap}
 .finance-subnav button[aria-current=page]{border-color:var(--line);background:var(--wg-chrome-soft);color:var(--wg-ink)}
@@ -435,7 +435,7 @@ dialog{box-shadow:0 20px 60px color-mix(in srgb,var(--shadow-ink) 17%,transparen
 /* Aufklappbare Bereiche: präzise, ruhige Navigation mit vollständiger Tastaturbedienung. */
 .sidebar>.navgroup{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:34px;margin:18px 0 5px;padding:7px 11px;border:0;border-radius:3px;background:transparent;color:var(--muted);text-align:left;font-size:9px;font-weight:500;line-height:1.4;letter-spacing:.14em}
 .sidebar>.navgroup[data-nav-group="0"]{margin-top:0}
-.sidebar>.navgroup:hover{background:color-mix(in srgb,var(--surface) 3%,transparent);color:var(--muted)}
+.sidebar>.navgroup:hover{background:color-mix(in srgb,var(--fg) 3%,transparent);color:var(--muted)}
 .sidebar>.navgroup[data-active="true"]{color:var(--muted)}
 .sidebar .navgroup-chevron{flex:0 0 14px;width:14px;height:14px;transform:rotate(-90deg);transition:transform .16s ease;stroke-width:1.7}
 .sidebar>.navgroup[aria-expanded="true"] .navgroup-chevron{transform:rotate(0deg)}

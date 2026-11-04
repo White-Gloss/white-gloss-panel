@@ -59,6 +59,7 @@ function pick(prop, c) {
     if (k === 'text') return mix(colorful ? f : L > 0.5 ? 'on-accent' : 'fg', c.a);
     if (colorful) return mix(f === 'accent' ? 'accent' : f, c.a);
     if (L < 0.1) return 'var(--scrim)';
+    if (L > 0.9 && c.a <= 0.35) return mix('fg', c.a); // zarte Aufhellung = Haarlinie in der Textfarbe
     return mix(L > 0.9 ? 'surface' : 'elevated', c.a);
   }
   if (k === 'text') {

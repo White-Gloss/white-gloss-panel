@@ -71,3 +71,8 @@ test('operator area styles the sidebar, mobile dock and action centre', () => {
 test('bookkeeping shows all amounts with tabular figures', () => {
   assert.match(surface, /html\[data-area="operator"\] \.books-shell\s*\{[^}]*font-variant-numeric:\s*tabular-nums/);
 });
+
+test('customer area uses larger radii and calmer line height', () => {
+  assert.match(surface, /html\[data-area="customer"\] \.portal-card\s*\{[^}]*border-radius:\s*var\(--radius-l\)/);
+  assert.match(surface, /html\[data-area="customer"\] \.portal-card p\s*\{[^}]*line-height:\s*1\.6/);
+});

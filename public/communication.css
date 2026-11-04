@@ -365,7 +365,7 @@
 
 /* Preisrechner direkt unter dem Communication Center. */
 .sidebar .nav .nav-primary-sub{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;margin-top:4px;padding:8px 12px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--wg-muted);text-align:left;font-size:13px}
-.sidebar .nav .nav-primary-sub:hover{background:color-mix(in srgb,var(--surface) 5%,transparent);color:var(--wg-fg)}
+.sidebar .nav .nav-primary-sub:hover{background:color-mix(in srgb,var(--fg) 5%,transparent);color:var(--wg-fg)}
 .sidebar .nav .nav-primary-sub.active{border-color:var(--line);background:var(--wg-elevated);color:var(--wg-fg);box-shadow:inset 3px 0 var(--wg-accent)}
 .sidebar .nav .nav-primary-sub .icon{width:17px;height:17px;flex:none}
 .pq{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(300px,1fr);gap:16px;align-items:start}
