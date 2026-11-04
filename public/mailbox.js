@@ -46,10 +46,24 @@ const NEXT_STEP={'Angenommen':'Termin festlegen','Termin verbindlich':'Annahmepr
 
 // Ansicht bleibt beim erneuten Öffnen des Bereichs erhalten (z. B. nach einem geöffneten Auftrag).
 const memory=new Map();let keyHandler=null;
+const IMAGE_KEY='wg-cc-images';
+function imagesAuto(){try{return localStorage.getItem(IMAGE_KEY)!=='off';}catch{return true;}}
+function setImagesAuto(on){try{localStorage.setItem(IMAGE_KEY,on?'on':'off');}catch{/* Ohne lokalen Speicher gilt die Standardeinstellung. */}}
+// Links in reinen Textmails anklickbar machen; nur http(s), www und E-Mail-Adressen.
+const LINK=/(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/gi;
+export function linkify(value){
+  let output='',index=0;const source=String(value??'');
+  for(const match of source.matchAll(LINK)){
+    let found=match[0];const trail=/[.,;:!?)\]]+$/.exec(found)?.[0]??'';if(trail)found=found.slice(0,-trail.length);
+    output+=esc(source.slice(index,match.index));const href=found.includes('@')&&!/^https?:|^www\./i.test(found)?'mailto:'+found:/^www\./i.test(found)?'https://'+found:found;
+    output+=`<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(found)}</a>`;index=match.index+found.length;
+  }
+  return output+esc(source.slice(index));
+}
 function remembered(synthetic){
   let value=memory.get(synthetic);if(value)return value;let section='home';
   try{const stored=localStorage.getItem('wg-cc-section');if(SECTIONS.some(([id])=>id===stored))section=stored;}catch{/* Ohne lokalen Speicher startet die Übersicht. */}
-  value={section,folder:'INBOX',query:'',filter:'all',sort:'newest',openId:null,images:new Set(),noteQuery:'',noteFilter:'all',orderQuery:'',calendarDay:null};memory.set(synthetic,value);return value;
+  value={section,folder:'INBOX',query:'',filter:'all',sort:'newest',openId:null,images:new Set(),hiddenImages:new Set(),noteQuery:'',noteFilter:'all',orderQuery:'',calendarDay:null};memory.set(synthetic,value);return value;
 }
 
 export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],markSaved=()=>{}}={}){
@@ -80,7 +94,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   }
   async function load({append=false}={}){
     const token=++loadToken;if(!append){listState='loading';listError='';}
-    try{const result=await api('',undefined,listParams(append));if(token!==loadToken)return false;data=result;if(append){const known=new Set(list.map(mail=>mail.id));list=[...list,...result.messages.filter(mail=>!known.has(mail.id))];total=result.total+stale.size;}else{stale=new Set();list=result.messages;total=result.total;}listState='ready';return true;}
+    try{const result=await api('',undefined,listParams(append));if(token!==loadToken)return false;data=result;if(append){const known=new Set(list.map(mail=>mail.id));list=[...list,...result.messages.filter(mail=>!known.has(mail.id))];total=result.total+stale.size;}else{stale=new Set();list=result.messages;total=result.total;}listState='ready';announce();return true;}
     catch(error){if(token!==loadToken)return false;listState='error';listError=error.message;if(!data)throw error;return true;}
   }
   // Lokale Statuswechsel können eine sichtbare Nachricht aus dem Serverfilter nehmen (z. B. gelesen in „Ungelesen“).
@@ -90,7 +104,8 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
     const leavesFlag=patch.flagged===false&&(ui.folder==='Flagged'||ui.filter==='flagged'),backFlag=patch.flagged===true&&(ui.folder==='Flagged'||ui.filter==='flagged');
     if(leavesUnread||leavesFlag)stale.add(id);if(backUnread||backFlag)stale.delete(id);
   }
-  async function refreshMeta(){const result=await api('',undefined,{folder:'INBOX',limit:'1'}).catch(()=>null);if(result){const keep={messages:data?.messages,total:data?.total};data={...result,...keep};drawRail();drawStatus();}}
+  async function refreshMeta(){const result=await api('',undefined,{folder:'INBOX',limit:'1'}).catch(()=>null);if(result){const keep={messages:data?.messages,total:data?.total};data={...result,...keep};drawRail();drawStatus();announce();}}
+  function announce(){const unread=data?.counts?.Unread?.total;if(Number.isFinite(unread))window.dispatchEvent(new window.CustomEvent('wg-mail-count',{detail:{unread}}));}
 
   // ---------- Gerüst ----------
   function sectionTitle(){if(ui.section!=='mail')return SECTIONS.find(([id])=>id===ui.section)?.[1]??'Übersicht';return FOLDER_LABEL[ui.folder]??ui.folder;}
@@ -102,11 +117,10 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
     drawStatus();drawRail();drawMain();drawCompose();drawSettings();
   }
   function drawStatus(){
-    const element=region('status');if(!element)return;const account=data?.account;
-    element.innerHTML=`<div class="cc-account"><strong>${esc(account?.email||'Postfach nicht eingerichtet')}</strong><small>${account?.lastSyncAt?'Abgerufen '+esc(when(account.lastSyncAt)):account?'Noch nicht abgerufen':'IMAP & SMTP verbinden'}</small></div>
-      <span class="cc-pill ${account?.imapVerifiedAt?'good':'warn'}" title="Empfang">IMAP ${account?.imapVerifiedAt?'verbunden':'offen'}</span><span class="cc-pill ${account?.smtpVerifiedAt?'good':'warn'}" title="Versand">SMTP ${account?.smtpVerifiedAt?'bereit':'offen'}</span>
+    const element=region('status');if(!element)return;const account=data?.account,ready=Boolean(account?.imapVerifiedAt&&account?.smtpVerifiedAt);
+    const state=!account?['warn','Postfach einrichten']:ready?['good','Verbunden']:!account.imapVerifiedAt?['warn','Empfang prüfen']:['warn','Versand prüfen'];
+    element.innerHTML=`<button type="button" class="cc-connection ${state[0]}" data-mail-settings title="${esc(account?.email||'Postfach-Einstellungen')}"><span class="cc-connection-dot"></span><span><strong>${esc(state[1])}</strong><small>${esc(account?.email||'IMAP & SMTP')}${account?.lastSyncAt?' · '+esc(when(account.lastSyncAt)):''}</small></span></button>
       <button type="button" class="cc-icon-btn" data-mail-sync ${synthetic||!account?.imapVerifiedAt?'disabled':''} aria-label="Neue E-Mails abrufen" title="Neue E-Mails abrufen">${icon('sync')}</button>
-      <button type="button" class="cc-icon-btn" data-mail-refresh aria-label="Ansicht aktualisieren" title="Aktualisieren">${icon('arrow')}</button>
       <button type="button" class="cc-icon-btn" data-mail-settings aria-label="Postfach-Einstellungen" title="Postfach-Einstellungen">${icon('settings')}</button>`;
   }
   function navButton({id,label,iconName,count=0,unread=0,active=false,attrs=''}){
@@ -197,28 +211,54 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   function moveSelect(attribute){return `<select ${attribute} aria-label="In Ordner verschieben"><option value="">Verschieben …</option>${MOVE_TARGETS.map(([id,label])=>`<option value="${id}">${label}</option>`).join('')}${(data?.folders??[]).map(item=>`<option value="${esc(item.name)}">${esc(item.name)}</option>`).join('')}</select>`;}
 
   // ---------- Lesebereich ----------
+  function imagesShown(mail){return ui.images.has(mail.id)||(imagesAuto()&&!ui.hiddenImages.has(mail.id));}
+  function moreMenu(mail){
+    const item=(attrs,iconName,label)=>`<button type="button" role="menuitem" ${attrs}>${icon(iconName)}<span>${label}</span></button>`;
+    return `<details class="cc-more-menu"><summary class="cc-icon-btn" aria-label="Weitere Aktionen" title="Mehr">${icon('menu')}</summary><div class="cc-menu" role="menu">
+      ${item('data-mail-state="read"','unread',mail.read?'Als ungelesen markieren':'Als gelesen markieren')}
+      ${item('data-mail-note-here','note','Notiz zu dieser E-Mail')}
+      ${mail.hasHtml?item('data-mail-images-toggle',imagesShown(mail)?'eye':'eye',imagesShown(mail)?'Bilder ausblenden':'Bilder anzeigen'):''}
+      <span class="cc-menu-label">Verschieben nach</span>
+      ${[...MOVE_TARGETS,...(data?.folders??[]).map(folder=>[folder.name,folder.name])].filter(([id])=>id!==mail.folder).map(([id,label])=>item(`data-mail-move-to="${esc(id)}"`,id==='Trash'?'trash':id==='Archive'?'archive':id==='Spam'?'spam':id==='INBOX'?'inbox':'folder',esc(label))).join('')}
+    </div></details>`;
+  }
   function drawReader(){
     const element=region('reader');if(!element)return;$('.cc-mail')?.classList.toggle('has-detail',Boolean(ui.openId));
     if(!ui.openId){element.innerHTML=empty('Keine Nachricht ausgewählt','Wählen Sie eine E-Mail. Verlauf, Anhänge und passende CRM-Vorgänge erscheinen hier.','unread');return;}
     if(detailState==='loading'||!detail){element.innerHTML=detailState==='error'?`<div class="cc-reader-bar"><button type="button" class="cc-icon-btn cc-back" data-mail-close aria-label="Zurück zur Liste">${icon('back')}</button></div>${empty('E-Mail konnte nicht geöffnet werden',detailError,'spam','<button type="button" class="smallbtn" data-mail-retry>Erneut versuchen</button>')}`:`<div class="cc-reader-loading" aria-hidden="true"><i></i><i></i><i></i><i></i></div><p class="visually-hidden">E-Mail wird geladen …</p>`;return;}
-    const mail=detail.message,inbound=mail.direction==='INBOUND',sender=inbound?{name:mail.fromName,address:mail.fromAddress}:{name:data?.account?.displayName||'White Gloss',address:mail.fromAddress},imagesAllowed=ui.images.has(mail.id);
+    const mail=detail.message,inbound=mail.direction==='INBOUND',sender=inbound?{name:mail.fromName,address:mail.fromAddress}:{name:data?.account?.displayName||'White Gloss',address:mail.fromAddress},imagesAllowed=imagesShown(mail);
     const recipients=(label,items)=>items?.length?`<div><dt>${label}</dt><dd>${items.map(item=>esc(item.name?`${item.name} <${item.address}>`:item.address)).join(', ')}</dd></div>`:'';
-    const frame=mail.hasHtml?`${mail.blockedImages&&!imagesAllowed?`<div class="cc-images-blocked">${icon('lock')}<span>${plural(mail.blockedImages,'externes Bild wurde','externe Bilder wurden')} zum Schutz blockiert. Beim Anzeigen erfährt der Absender, dass die E-Mail geöffnet wurde.</span><button type="button" class="smallbtn" data-mail-images>Bilder anzeigen</button></div>`:''}<iframe class="cc-frame" data-mail-frame title="Inhalt der E-Mail" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" src="/api/mailbox/message/${mail.id}/view?images=${imagesAllowed?'1':'0'}${synthetic?'&amp;test=true':''}"></iframe>`:`<div class="mail-plaintext cc-plaintext">${esc(mail.textBody||'Diese E-Mail enthält keinen lesbaren Text.')}</div>`;
+    const blocked=mail.hasHtml&&mail.blockedImages&&!imagesAllowed?`<div class="cc-images-blocked">${icon('eye')}<span>${plural(mail.blockedImages,'Bild ist','Bilder sind')} ausgeblendet.</span><button type="button" class="smallbtn" data-mail-images>Bilder anzeigen</button></div>`:'';
+    const frame=mail.hasHtml?`${blocked}<iframe class="cc-frame" data-mail-frame title="Inhalt der E-Mail" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" src="/api/mailbox/message/${mail.id}/view?images=${imagesAllowed?'1':'0'}${synthetic?'&amp;test=true':''}"></iframe>`:`<div class="mail-plaintext cc-plaintext">${mail.textBody?linkify(mail.textBody):'Diese E-Mail enthält keinen lesbaren Text.'}</div>`;
+    const archived=mail.folder==='Archive',trashed=mail.folder==='Trash';
     element.innerHTML=`<article class="cc-reader-inner">
       <div class="cc-reader-bar"><button type="button" class="cc-icon-btn cc-back" data-mail-close aria-label="Zurück zur Liste">${icon('back')}</button>
-        <div class="cc-reader-actions">${inbound?`<button type="button" class="primary" data-mail-reply>${icon('reply')}<span>Antworten</span></button><button type="button" data-mail-reply-all>${icon('replyAll')}<span>Allen antworten</span></button>`:''}<button type="button" data-mail-forward>${icon('forward')}<span>Weiterleiten</span></button></div>
-        <div class="cc-reader-tools"><button type="button" class="cc-icon-btn ${mail.flagged?'active':''}" data-mail-state="flagged" aria-pressed="${mail.flagged}" aria-label="${mail.flagged?'Markierung entfernen':'Als wichtig markieren'}" title="Wichtig">${icon('star')}</button><button type="button" class="cc-icon-btn" data-mail-state="read" aria-label="${mail.read?'Als ungelesen markieren':'Als gelesen markieren'}" title="${mail.read?'Als ungelesen markieren':'Als gelesen markieren'}">${icon('unread')}</button><button type="button" class="cc-icon-btn" data-mail-move-to="Archive" aria-label="Archivieren" title="Archivieren">${icon('archive')}</button><button type="button" class="cc-icon-btn" data-mail-move-to="${mail.folder==='Trash'?'':'Trash'}" aria-label="${mail.folder==='Trash'?'Wiederherstellen':'In den Papierkorb'}" title="${mail.folder==='Trash'?'Wiederherstellen':'Löschen'}">${icon(mail.folder==='Trash'?'inbox':'trash')}</button>${moveSelect('data-mail-move')}<button type="button" class="cc-icon-btn" data-mail-note-here aria-label="Notiz zu dieser E-Mail" title="Notiz">${icon('note')}</button></div></div>
-      <header class="cc-message-head"><div class="cc-message-tags"><span class="cc-tag">${esc(FOLDER_LABEL[mail.folder]??mail.folder)}</span>${mail.flagged?'<span class="cc-tag warn">Wichtig</span>':''}${inbound?'':'<span class="cc-tag">Ausgehend</span>'}</div><h2>${esc(mail.subject)}</h2>
-        <div class="cc-sender-block">${avatar(sender.name,sender.address,'large')}<div><strong>${esc(sender.name||sender.address)}</strong>${sender.name?`<span>&lt;${esc(sender.address)}&gt;</span>`:''}<dl class="cc-recipients">${recipients('An',mail.to)}${recipients('Cc',mail.cc)}${recipients('Bcc',mail.bcc)}${mail.replyTo?.length&&mail.replyTo[0].address!==mail.fromAddress?recipients('Antwort an',mail.replyTo):''}</dl></div><time datetime="${esc(mail.receivedAt)}">${esc(full(mail.receivedAt))}</time></div></header>
+        <div class="cc-reader-actions">${inbound?`<button type="button" class="primary" data-mail-reply>${icon('reply')}<span>Antworten</span></button><button type="button" class="cc-icon-btn" data-mail-reply-all aria-label="Allen antworten" title="Allen antworten">${icon('replyAll')}</button>`:''}<button type="button" class="cc-icon-btn" data-mail-forward aria-label="Weiterleiten" title="Weiterleiten">${icon('forward')}</button></div>
+        <div class="cc-reader-tools"><button type="button" class="cc-icon-btn ${mail.flagged?'active':''}" data-mail-state="flagged" aria-pressed="${mail.flagged}" aria-label="${mail.flagged?'Markierung entfernen':'Als wichtig markieren'}" title="Wichtig">${icon('star')}</button>${archived?'':`<button type="button" class="cc-icon-btn" data-mail-move-to="Archive" aria-label="Archivieren" title="Archivieren">${icon('archive')}</button>`}<button type="button" class="cc-icon-btn" data-mail-move-to="${trashed?'':'Trash'}" aria-label="${trashed?'Wiederherstellen':'In den Papierkorb'}" title="${trashed?'Wiederherstellen':'Löschen'}">${icon(trashed?'inbox':'trash')}</button>${moreMenu(mail)}</div></div>
+      <header class="cc-message-head"><h2>${esc(mail.subject)}</h2>
+        <div class="cc-sender-block">${avatar(sender.name,sender.address,'large')}<div><strong>${esc(sender.name||sender.address)}</strong>${sender.name?`<span>&lt;${esc(sender.address)}&gt;</span>`:''}<details class="cc-recipients-toggle"><summary>an ${esc(mail.to.map(item=>item.name||item.address).join(', ')||'—')}${mail.cc?.length?' · Cc '+mail.cc.length:''}</summary><dl class="cc-recipients">${recipients('An',mail.to)}${recipients('Cc',mail.cc)}${recipients('Bcc',mail.bcc)}${mail.replyTo?.length&&mail.replyTo[0].address!==mail.fromAddress?recipients('Antwort an',mail.replyTo):''}</dl></details></div><time datetime="${esc(mail.receivedAt)}">${esc(full(mail.receivedAt))}</time></div>
+        ${mail.flagged||!inbound||mail.folder!=='INBOX'?`<div class="cc-message-tags">${mail.folder!=='INBOX'?`<span class="cc-tag">${esc(FOLDER_LABEL[mail.folder]??mail.folder)}</span>`:''}${mail.flagged?'<span class="cc-tag warn">Wichtig</span>':''}${inbound?'':'<span class="cc-tag">Ausgehend</span>'}</div>`:''}</header>
       ${crmHTML()}
-      <div class="cc-body">${frame}</div>
+      ${photosHTML()}
+      <div class="cc-body">${frame}${mail.restoreError&&mail.hasHtml?`<p class="cc-restore-note">Originaldarstellung derzeit nicht abrufbar (${esc(mail.restoreError)}). Angezeigt wird der beim Empfang gespeicherte Stand.</p>`:''}</div>
       ${attachmentsHTML()}${threadHTML()}
-      ${inbound?`<div class="mail-ai-replies cc-ai"><div><strong>KI-Antwortvorschlag</strong><small>Der Nachrichtentext wird erst nach Ihrem Klick übertragen. Es wird nichts versendet; der Entwurf öffnet sich im Editor.</small></div><div>${STYLES.map(([id,label])=>`<button type="button" class="smallbtn" data-mail-ai="${id}">${label}</button>`).join('')}</div></div>`:''}
+      ${inbound?`<details class="cc-ai"><summary>${icon('chat')}<span>KI-Antwortvorschlag</span></summary><div class="mail-ai-replies"><small>Der Nachrichtentext wird erst nach Ihrem Klick übertragen. Es wird nichts versendet; der Entwurf öffnet sich im Editor.</small><div>${STYLES.map(([id,label])=>`<button type="button" class="smallbtn" data-mail-ai="${id}">${label}</button>`).join('')}</div></div></details>`:''}
     </article>`;
     const iframe=element.querySelector('[data-mail-frame]');if(iframe)iframe.addEventListener('load',()=>fitFrame(iframe));
   }
+  // Volle Höhe: der Inhalt erscheint komplett ohne eigenen Scrollbereich, auch wenn Bilder später laden.
+  let frameObserver=null;
   function fitFrame(frame){
-    try{const doc=frame.contentDocument;if(!doc?.documentElement)return;const fit=()=>{const height=Math.max(doc.documentElement.scrollHeight,doc.body?.scrollHeight??0);frame.style.height=Math.min(Math.max(height+4,180),30000)+'px';};fit();for(const image of doc.images)if(!image.complete)image.addEventListener('load',fit,{once:true});setTimeout(fit,400);}catch{/* Ohne Zugriff bleibt die feste Mindesthöhe mit eigenem Scrollbereich. */}
+    frameObserver?.disconnect();frameObserver=null;
+    try{const doc=frame.contentDocument;if(!doc?.documentElement)return;const fit=()=>{if(!frame.isConnected){frameObserver?.disconnect();return;}const height=Math.max(doc.documentElement.scrollHeight,doc.body?.scrollHeight??0);frame.style.height=Math.min(Math.max(height+2,160),40000)+'px';};fit();
+      for(const image of doc.images)if(!image.complete){image.addEventListener('load',fit,{once:true});image.addEventListener('error',fit,{once:true});}
+      if(typeof window.ResizeObserver==='function'&&doc.body){frameObserver=new window.ResizeObserver(fit);frameObserver.observe(doc.body);}
+      setTimeout(fit,400);setTimeout(fit,1500);}catch{/* Ohne Zugriff bleibt die feste Mindesthöhe mit eigenem Scrollbereich. */}
+  }
+  // Fotos aus Anhängen direkt sichtbar; eingebettete Signaturbilder bleiben in der Nachricht.
+  function photosHTML(){
+    const photos=detail.attachments.filter(item=>item.archived&&!item.inline&&/^image\/(jpeg|png|webp)$/.test(item.mime));if(!photos.length)return '';
+    return `<section class="cc-photos" aria-label="Fotos"><div class="cc-photo-grid ${photos.length===1?'single':''}">${photos.map(item=>`<a href="/api/mailbox/attachment/${item.id}${synthetic?'?test=true':''}" target="_blank" rel="noopener noreferrer" class="cc-photo"><img src="/api/mailbox/attachment/${item.id}${synthetic?'?test=true':''}" alt="${esc(item.filename)}" loading="lazy" decoding="async"></a>`).join('')}</div></section>`;
   }
   function crmHTML(){
     const {customers=[],orders:linked=[]}=detail.crm??{};
@@ -229,7 +269,8 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   }
   function attachmentsHTML(){
     if(!detail.attachments.length)return '';
-    return `<section class="cc-attachments"><h3>${icon('clip')}${plural(detail.attachments.length,'Anhang','Anhänge')}</h3><div class="cc-attachment-grid">${detail.attachments.map(item=>`<div class="cc-attachment"><span class="cc-file-icon ${item.mime==='application/pdf'?'pdf':'img'}">${esc(UPLOAD_TYPES[item.mime]??'DATEI')}</span><div><strong title="${esc(item.filename)}">${esc(item.filename)}</strong><small>${esc(size(item.size))}${item.documentId?' · ungeklärter Beleg':item.archived?'':' · Format nicht unterstützt'}</small></div>${item.archived?`<a class="smallbtn button" href="/api/mailbox/attachment/${item.id}${synthetic?'?test=true':''}" target="_blank" rel="noopener noreferrer">Öffnen</a><a class="smallbtn button" href="/api/mailbox/attachment/${item.id}?download=1${synthetic?'&amp;test=true':''}" download>Laden</a>`:''}${item.documentId?'<button type="button" class="smallbtn" data-view="finance-receipts">Belegprüfung</button>':''}</div>`).join('')}</div></section>`;
+    const files=detail.attachments.filter(item=>!item.inline);if(!files.length)return '';
+    return `<section class="cc-attachments"><h3>${icon('clip')}${plural(files.length,'Anhang','Anhänge')}</h3><div class="cc-attachment-grid">${files.map(item=>`<div class="cc-attachment"><span class="cc-file-icon ${item.mime==='application/pdf'?'pdf':'img'}">${esc(UPLOAD_TYPES[item.mime]??'DATEI')}</span><div><strong title="${esc(item.filename)}">${esc(item.filename)}</strong><small>${esc(size(item.size))}${item.documentId?' · ungeklärter Beleg':item.archived?'':' · Format nicht unterstützt'}</small></div>${item.archived?`<a class="smallbtn button" href="/api/mailbox/attachment/${item.id}${synthetic?'?test=true':''}" target="_blank" rel="noopener noreferrer">Öffnen</a><a class="smallbtn button" href="/api/mailbox/attachment/${item.id}?download=1${synthetic?'&amp;test=true':''}" download>Laden</a>`:''}${item.documentId?'<button type="button" class="smallbtn" data-view="finance-receipts">Belegprüfung</button>':''}</div>`).join('')}</div></section>`;
   }
   function threadHTML(){
     if(detail.thread.length<2)return '';
@@ -383,6 +424,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   function drawSettings(){
     const element=region('settings');if(!element)return;if(!settingsOpen){element.innerHTML='';return;}const account=data?.account;
     element.innerHTML=`<div class="cc-drawer-layer"><section class="cc-drawer" role="dialog" aria-modal="true" aria-labelledby="cc-settings-title"><header><div><span class="eyebrow">POSTFACH</span><h2 id="cc-settings-title">Verbindung & Versandprotokoll</h2></div><button type="button" class="cc-icon-btn" data-mail-settings-close aria-label="Einstellungen schließen">${icon('close')}</button></header>
+      <section class="cc-setting"><label class="check"><input type="checkbox" data-cc-images-auto ${imagesAuto()?'checked':''}>Bilder und Fotos in E-Mails automatisch anzeigen</label><p class="hint">Gilt für dieses Gerät. Beim Laden externer Bilder kann der Absender erkennen, dass die E-Mail geöffnet wurde. Skripte aus E-Mails werden nie ausgeführt.</p></section>
       <p class="hint">IMAP und SMTP werden getrennt geprüft. Zugangsdaten bleiben verschlüsselt auf dem Server. Eine Prüfung versendet keine E-Mail.</p>
       <form id="mailbox-account"><div class="grid2"><label>Absenderadresse<input type="email" name="email" maxlength="320" required value="${esc(account?.email??'')}"></label><label>Anzeigename<input name="displayName" maxlength="180" value="${esc(account?.displayName??'White Gloss')}"></label></div><div class="grid2"><label>IMAP-Server<input name="imapHost" required value="${esc(account?.imapHost??'')}"></label><label>IMAP-Port<input type="number" name="imapPort" min="1" max="65535" required value="${account?.imapPort??993}"></label></div><label class="check"><input type="checkbox" name="imapSecure" ${account?.imapSecure!==false?'checked':''}>Direkte TLS-Verbindung für IMAP</label><div class="grid2"><label>SMTP-Server<input name="smtpHost" required value="${esc(account?.smtpHost??'')}"></label><label>SMTP-Port<input type="number" name="smtpPort" min="1" max="65535" required value="${account?.smtpPort??465}"></label></div><label class="check"><input type="checkbox" name="smtpSecure" ${account?.smtpSecure!==false?'checked':''}>Direkte TLS-Verbindung für SMTP</label><div class="grid2"><label>Benutzername<input name="username" autocomplete="username" required value="${esc(account?.username??'')}"></label><label>Passwort<input type="password" name="password" autocomplete="new-password" maxlength="500" ${account?'':'required'} placeholder="${account?.passwordConfigured?'Geschützt gespeichert · leer lassen zum Behalten':'Postfachpasswort'}"></label></div><label class="check"><input type="checkbox" name="syncApproved" ${account?.syncApproved?'checked':''}>Geplanten lesenden Hintergrundabruf erlauben</label><div class="actions"><button class="primary" type="submit">Zugang speichern</button><button type="button" data-mail-check="imap" ${account?'':'disabled'}>IMAP prüfen</button><button type="button" data-mail-check="smtp" ${account?'':'disabled'}>SMTP prüfen</button></div></form>
       ${account?.lastSyncError?`<p class="notice">Letzter Abruffehler: ${esc(account.lastSyncError)}</p>`:''}
@@ -477,7 +519,8 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
       if(target.closest('[data-mail-forward]')){openCompose(forwardValues());return;}
       const state=target.closest('[data-mail-state]');if(state)return run(()=>changeState([detail.message.id],state.dataset.mailState==='read'?{read:!detail.message.read}:{flagged:!detail.message.flagged}));
       const moveTo=target.closest('[data-mail-move-to]');if(moveTo){const value=moveTo.dataset.mailMoveTo||null;return run(()=>changeState([detail.message.id],{folder:value},moveNote(value)));}
-      if(target.closest('[data-mail-images]')){ui.images.add(detail.message.id);drawReader();return;}
+      if(target.closest('[data-mail-images]')){ui.images.add(detail.message.id);ui.hiddenImages.delete(detail.message.id);drawReader();return;}
+      if(target.closest('[data-mail-images-toggle]')){const id=detail.message.id;if(imagesShown(detail.message)){ui.hiddenImages.add(id);ui.images.delete(id);}else{ui.images.add(id);ui.hiddenImages.delete(id);}drawReader();return;}
       if(target.closest('[data-mail-note-here]')){openNotes({messageId:detail.message.id,orderId:detail.crm.orders.find(order=>order.running)?.id??''});return;}
       const ai=target.closest('[data-mail-ai]');if(ai)return run(async()=>{const result=await api('/reply-suggestion',{messageId:detail.message.id,style:ai.dataset.mailAi,confirmed:true});openCompose(replyValues('reply',result.draft));markComposeDirty();message('KI-Entwurf in den Editor übernommen. Bitte vor dem Versand prüfen.');});
     }
@@ -530,6 +573,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   root.addEventListener('change',event=>{
     const target=event.target;
     if(target.matches('[data-mail-select]')){toggleSelect(target.dataset.mailSelect);return;}
+    if(target.matches('[data-cc-images-auto]')){setImagesAuto(target.checked);ui.images.clear();ui.hiddenImages.clear();drawReader();message(target.checked?'Bilder werden automatisch angezeigt.':'Bilder werden erst nach Klick angezeigt.');return;}
     if(target.matches('[data-mail-sort]')){ui.sort=target.value;listState='loading';drawItems();run(async()=>{await load();drawItems();});return;}
     if(target.matches('[data-mail-move]')&&target.value&&detail){const value=target.value;run(()=>changeState([detail.message.id],{folder:value},moveNote(value)));return;}
     if(target.matches('[data-mail-bulk-move]')&&target.value&&selection.size){const value=target.value,ids=[...selection];run(()=>changeState(ids,{folder:value},moveNote(value)));return;}

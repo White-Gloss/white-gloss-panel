@@ -16,6 +16,8 @@ async function openRail(page,width){if(width<1400&&!(await page.locator('.cc').e
 
 for(const viewport of viewports)test(`communication center layout and mail workflow at ${viewport.width}x${viewport.height}`,async t=>{
   const f=await browserFixture(t,{viewport}),{page}=f,tag=viewport.width+'x'+viewport.height;
+  // Bilder sind standardmäßig an; der Browsertest prüft den gesperrten Modus, weil externe Anfragen hier verboten sind.
+  await page.addInitScript(()=>{try{localStorage.setItem('wg-cc-images','off');}catch{/* optional */}});
   // Kurze Schrittzeit: ein hängender Schritt darf die übrigen Bildschirmbreiten nicht abbrechen.
   page.setDefaultTimeout(10000);
   await f.seedOrder({status:'In Arbeit'});

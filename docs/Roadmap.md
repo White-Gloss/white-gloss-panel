@@ -30,7 +30,7 @@ die Rollen bleiben Betreiber, Kunde und Steuerberater.
 | V1 | Handlungszentrale auf der Übersicht: alle fälligen Schritte in einer Liste, Monatszahlen statt Gesamtsumme, Arbeitsvorrat nach Dringlichkeit ([Details](Handlungszentrale.md)) | Hoch | in Arbeit |
 | V8 | „Nächster Schritt“ an einer Stelle führen, ungenutzte `premium.*`/`agency.css` entfernen | Mittel | offen |
 | V2 | Auftragsdetail mit einer statt zwei Navigationen (Ablaufschritte und Reiter zusammenführen) | Hoch | offen |
-| V3 | Kommunikation bündeln: gemeinsamer Posteingang, „Nachrichten“ in der mobilen Leiste. E-Mail-Teil: Communication Center ([Details](Communication-Center.md)) | Hoch | E-Mail-Teil in Prüfung (PR #41) |
+| V3 | Kommunikation bündeln: gemeinsamer Posteingang, „Nachrichten“ in der mobilen Leiste. E-Mail-Teil: Communication Center ([Details](Communication-Center.md)) | Hoch | E-Mail-Teil veröffentlicht (PR #41, live mit 999a667); Menü/Darstellung in Prüfung |
 | V5 | Navigation straffen: gefilterte Auftragslisten zusammenführen | Mittel | offen |
 | V7 | Übersicht fälliger Mahnstufen | Mittel | offen |
 | V6 | Offene Angebote nachfassen (Liste, Erinnerung nur mit Versandfreigabe) | Mittel | offen |
