@@ -121,10 +121,16 @@ html[data-area="advisor"] .advisor-shell{max-width:1160px}
 /* App-Fläche: Systemschrift, Glasleiste, die Arbeit zuerst. */
 body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:-.011em}
 .layout{height:100dvh;overflow:hidden}
-.sidebar{overflow-y:auto;scrollbar-width:none}
+.sidebar{overflow-y:auto;scrollbar-width:none;scrollbar-gutter:auto}
 .sidebar::-webkit-scrollbar{display:none}
 .workspace{overflow:auto}
-.workspace .topbar{height:64px;background:color-mix(in srgb,var(--wg-bg) 72%,transparent);backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid color-mix(in srgb,var(--wg-line) 55%,transparent)}
+@media (min-width:761px){
+  .workspace .topbar{height:64px;background:color-mix(in srgb,var(--wg-bg) 72%,transparent);backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid color-mix(in srgb,var(--wg-line) 55%,transparent)}
+}
+@media (max-width:760px){
+  .layout{height:auto;min-height:100dvh;overflow:visible}
+  .workspace{overflow:visible;height:auto}
+}
 .headerdate{display:none}
 .top-create{min-height:36px;border-radius:980px;padding:0 16px}
 .sidebar .nav-primary-item{min-height:44px;background:transparent;border-color:transparent;border-radius:10px}

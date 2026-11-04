@@ -97,6 +97,13 @@ test('48px inputs and 16px text apply to touch devices and the field app only', 
   assert.match(surface, /html\[data-area="field"\] input:not\(\[type=checkbox\]\):not\(\[type=radio\]\),[^{]*\{[^}]*min-height:\s*48px/);
 });
 
+test('the phone page is not clipped inside a locked screen', () => {
+  const phone = /@media \(max-width:\s*760px\)\s*\{([\s\S]*?)\n\}/.exec(surface)[1];
+  assert.match(phone, /\.layout\s*\{[^}]*height:\s*auto/);
+  assert.match(phone, /\.layout\s*\{[^}]*overflow:\s*visible/);
+  assert.match(phone, /\.workspace\s*\{[^}]*overflow:\s*visible/);
+});
+
 test('print block restores light status tokens, no shadow ink and light colour scheme', () => {
   const print = /@media print\s*\{([\s\S]*?)\n\}/.exec(surface)[1].toLowerCase();
   for (const hex of ['#2f6b53', '#7d5a12', '#a63d38']) assert.ok(print.includes(hex), hex);
