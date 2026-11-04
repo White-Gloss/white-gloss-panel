@@ -27,7 +27,7 @@ export function contrast(a, b) {
 }
 
 const required = ['bg', 'surface', 'elevated', 'fg', 'muted', 'accent', 'gold', 'good', 'warn', 'danger', 'line', 'on-accent',
-  'radius-s', 'radius-m', 'radius-l', 'shadow-1', 'shadow-2', 'glass', 'scrim', 'good-bg', 'warn-bg', 'danger-bg'];
+  'radius-s', 'radius-m', 'radius-l', 'shadow-1', 'shadow-2', 'glass', 'scrim', 'shadow-ink', 'good-bg', 'warn-bg', 'danger-bg'];
 const textTokens = ['fg', 'muted', 'accent', 'gold', 'good', 'warn', 'danger'];
 const grounds = ['bg', 'surface', 'elevated'];
 
