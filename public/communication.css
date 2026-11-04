@@ -295,3 +295,70 @@
   .cc-nav-item{min-height:44px}.cc-icon-btn{width:40px;height:40px;min-height:40px}
   .cc-week{grid-template-columns:repeat(14,56px)}
 }
+
+/* Hauptzugang im Seitenmenü: allein ganz oben, klar hervorgehoben. */
+.sidebar .nav.nav-primary{margin:0 0 14px;gap:0}
+.sidebar .nav .nav-primary-item{display:flex;align-items:center;gap:12px;width:100%;min-height:60px;padding:11px 12px;border:1px solid #ffffff1f;border-radius:6px;background:linear-gradient(135deg,#1d2a39 0%,#151e29 100%);color:var(--wg-fg);text-align:left;font-weight:400}
+.sidebar .nav .nav-primary-item:hover{border-color:#ffffff3d;background:linear-gradient(135deg,#223244 0%,#18222e 100%)}
+.sidebar .nav .nav-primary-item.active{border-color:var(--wg-accent);background:linear-gradient(135deg,#253649 0%,#1a2531 100%);box-shadow:inset 3px 0 var(--wg-accent);color:var(--wg-fg)}
+.sidebar .nav .nav-primary-item .icon{width:20px;height:20px;flex:none;color:var(--wg-accent)}
+.nav-primary-label{display:grid;gap:2px;flex:1;min-width:0}
+.nav-primary-label strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px;font-weight:600;color:var(--wg-fg)}
+.nav-primary-label small{font-size:10.5px;letter-spacing:.02em;color:var(--wg-muted)}
+.sidebar .nav-primary .navcount[hidden],.dock-count[hidden]{display:none!important}
+
+/* Mobile Leiste: Ungelesen-Zähler am Mail-Symbol. */
+.mobile-dock button{position:relative}
+.dock-count{position:absolute;top:3px;left:calc(50% + 5px);display:grid;place-items:center;min-width:17px;height:17px;padding:0 4px;border-radius:999px;background:var(--wg-accent,#bfcee0);color:var(--wg-bg,#0e1218);font-size:10px;font-weight:700;line-height:1}
+
+/* Verbindungsstatus: ein Chip statt technischer Einzelanzeigen. */
+.cc-connection{display:inline-flex!important;align-items:center;gap:9px!important;min-height:40px;padding:5px 12px 5px 10px!important;border:1px solid var(--wg-rule)!important;border-radius:999px!important;background:var(--wg-paper)!important;color:var(--wg-copy)!important;text-align:left;font-weight:400!important}
+.cc-connection>span:last-child{display:grid;gap:0;min-width:0}.cc-connection strong{font-size:12.5px;font-weight:600;color:var(--wg-ink)}.cc-connection small{max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--wg-subtle)}
+.cc-connection-dot{flex:none;width:9px;height:9px;border-radius:50%;background:#c08a3e;box-shadow:0 0 0 3px #c08a3e26}.cc-connection.good .cc-connection-dot{background:#2f7a55;box-shadow:0 0 0 3px #2f7a5526}
+
+/* Leseleiste: Hauptaktion deutlich, alles Weitere ruhig im Menü „Mehr“. */
+.cc-reader-actions{align-items:center}.cc-reader-actions .primary{min-height:38px!important;padding:7px 16px!important;border-radius:999px!important}
+.cc-more-menu{position:relative}
+.cc-more-menu>summary{list-style:none;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}.cc-more-menu>summary::-webkit-details-marker{display:none}
+.cc-more-menu[open]>summary{background:var(--cc-hover)!important;border-color:var(--wg-rule)!important}
+.cc-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:5;display:grid;min-width:230px;padding:6px;border:1px solid var(--wg-rule);border-radius:8px;background:var(--wg-paper);box-shadow:0 16px 40px #141f2a26}
+.cc-menu button{justify-content:flex-start!important;gap:10px!important;width:100%;min-height:38px;padding:8px 10px!important;border:0!important;border-radius:5px!important;background:transparent!important;color:var(--wg-ink)!important;font-size:13px!important;font-weight:400!important;text-align:left}
+.cc-menu button:hover{background:var(--cc-hover)!important}.cc-menu button .cc-icon{width:16px;height:16px;color:var(--wg-subtle)}
+.cc-menu-label{padding:8px 10px 4px;border-top:1px solid var(--wg-rule);margin-top:4px;font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--wg-subtle)}
+
+/* Nachrichtenkopf: Betreff groß, Empfänger bei Bedarf aufklappbar. */
+.cc-message-head{gap:14px}
+.cc-message-head h2{font-size:24px}
+.cc-recipients-toggle{margin-top:2px}.cc-recipients-toggle>summary{cursor:pointer;list-style:none;font-size:12.5px;color:var(--wg-subtle)}.cc-recipients-toggle>summary::-webkit-details-marker{display:none}.cc-recipients-toggle>summary::after{content:' ▾';font-size:10px}.cc-recipients-toggle[open]>summary::after{content:' ▴'}
+.cc-recipients-toggle .cc-recipients{margin-top:6px}
+
+/* Inhalt: komplett, randlos, gut lesbar. */
+.cc-body{padding:2px 24px 10px}
+.cc-frame{border:0!important;border-radius:0!important;min-height:160px}
+.cc-plaintext{font-size:15px;line-height:1.75}.cc-plaintext a{color:var(--cc-accent);text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}
+.cc-images-blocked{border-color:var(--wg-rule)!important;background:#f6f8fa!important;color:var(--wg-copy)!important}
+.cc-restore-note{margin:8px 0 0;font-size:11.5px;color:var(--wg-subtle)}
+
+/* Fotos aus Anhängen: direkt sichtbar, Antippen öffnet die volle Größe. */
+.cc-photos{margin:0 24px 14px}
+.cc-photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.cc-photo-grid.single{grid-template-columns:minmax(0,520px)}
+.cc-photo{display:block;overflow:hidden;border-radius:6px;background:#eef1f3;aspect-ratio:4/3}
+.cc-photo-grid.single .cc-photo{aspect-ratio:auto}
+.cc-photo img{display:block;width:100%;height:100%;object-fit:cover;transition:transform .2s ease}.cc-photo-grid.single .cc-photo img{height:auto;max-height:520px;object-fit:contain}
+.cc-photo:hover img{transform:scale(1.02)}
+@media(prefers-reduced-motion:reduce){.cc-photo img{transition:none}}
+
+/* KI-Vorschläge ruhig eingeklappt. */
+.cc-ai{margin:16px 24px 0;border:1px solid var(--wg-rule);border-radius:var(--cc-radius);background:#fafbfb}
+.cc-ai>summary{display:flex;align-items:center;gap:8px;padding:11px 14px;cursor:pointer;list-style:none;font-size:13px;font-weight:600;color:var(--wg-ink)}.cc-ai>summary::-webkit-details-marker{display:none}.cc-ai>summary .cc-icon{width:16px;height:16px;color:var(--cc-accent)}
+.cc-ai .mail-ai-replies{border:0;border-top:1px solid var(--wg-rule);border-radius:0;background:transparent}
+
+@media(max-width:760px){
+  .cc-connection small{max-width:150px}
+  .cc-message-head h2{font-size:20px}
+  .cc-body{padding:2px 12px 10px}.cc-photos{margin:0 16px 12px}.cc-photo-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.cc-photo-grid.single{grid-template-columns:1fr}
+  .cc-ai{margin-left:16px;margin-right:16px}
+  .cc-menu{position:fixed;left:12px;right:12px;top:auto;bottom:calc(var(--dock-height,76px) + 12px + env(safe-area-inset-bottom,0px));min-width:0}
+  .cc-reader-tools{width:auto;margin-left:auto;justify-content:flex-end}
+}

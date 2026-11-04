@@ -11,6 +11,11 @@ Roadmap-Bezug: V3 „Kommunikation bündeln“ (E-Mail-Teil). Release- und Live-
 - **CRM in der linken Navigation:** Laufende Aufträge, Kalender, Notizen; Absprung zu WhatsApp und Kunden.
 - Die zuletzt genutzte Ansicht bleibt beim Wechsel in einen Auftrag und zurück erhalten.
 
+## Zugang
+
+- Seitenmenü: eigener Hauptzugang ganz oben, über allen Gruppen, mit Zahl ungelesener E-Mails.
+- Smartphone: Eintrag „Mail“ in der unteren Menüleiste, ebenfalls mit Zähler.
+
 ## E-Mail
 
 - Liste mit Initialen-Avatar, Absender, Betreff, zweizeiliger Vorschau, Zeit, Anhang, Markierung, CRM-Hinweis.
@@ -30,9 +35,12 @@ Roadmap-Bezug: V3 „Kommunikation bündeln“ (E-Mail-Teil). Release- und Live-
   `sandbox` ohne Skripte, `default-src 'none'`, nur Inline-Styles, Rahmen nur im eigenen Panel.
 - Zusätzlich entfernt `server/mail-html.mjs` Skripte, Formulare, Fremdobjekte, Event-Handler und
   `javascript:`-Adressen. Links öffnen in einem neuen Tab mit `noopener noreferrer`.
-- **Externe Bilder sind blockiert**, bis „Bilder anzeigen“ gewählt wird (Schutz vor Lesebestätigungs-Pixeln).
-  Eingebettete Bilder (`cid:`) werden direkt angezeigt.
-- Ältere Nachrichten wurden beim Empfang strenger bereinigt; dort fehlen externe Bilder dauerhaft.
+- **Bilder und Fotos werden standardmäßig angezeigt.** Abschaltbar je Nachricht (Menü „Mehr“) und je Gerät
+  (Postfach-Einstellungen). Beim Laden externer Bilder kann der Absender das Öffnen erkennen.
+- Foto-Anhänge (JPG, PNG, WebP) erscheinen als Galerie über dem Text; Antippen öffnet die volle Größe.
+- Links in reinen Textmails sind anklickbar (http/https, www, E-Mail-Adressen).
+- Ältere Nachrichten verloren beim Empfang Links und Bilder. Beim ersten Öffnen werden sie einmalig **lesend**
+  aus dem Postfach neu aufbereitet (inkl. Cc, Antwort-an, Threading). Der ursprüngliche Nachweis bleibt unverändert.
 
 ## Antworten, Weiterleiten, Editor
 
