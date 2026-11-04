@@ -29,3 +29,12 @@ test('invalid input shows a clear message instead of a price',()=>{
 test('quote output escapes markup and always carries the price note',()=>{
   const view=quoteView(base);assert.match(view.html,/kann sich der Preis nach Absprache mit dem Kunden noch ändern/);assert.doesNotMatch(view.html,/<script/i);
 });
+
+// jsdom rechnet kein Layout; die Desktop-Regeln werden deshalb im Stylesheet gesichert.
+import {readFileSync} from 'node:fs';
+test('price calculator CSS keeps radio buttons small, hides pickup fields and clears the sticky top bar',()=>{
+  const css=readFileSync(new URL('../public/communication.css',import.meta.url),'utf8');
+  assert.match(css,/\.pq input\[type=radio\],\.pq input\[type=checkbox\]\{[^}]*width:18px/,'panel base style would make them 100 % wide');
+  assert.match(css,/\.pq-km\[hidden\]\{display:none\}/,'display:grid must not override the hidden attribute');
+  assert.match(css,/\.pq-result\{position:sticky;top:calc\(var\(--desktop-topbar,68px\) \+ 16px\)/,'result must sit below the 68 px top bar');
+});
