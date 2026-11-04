@@ -8,6 +8,20 @@ Der bestehende Vor-Ort-Ablauf bleibt erhalten. Eine fehlende Kundenunterschrift 
 4. Der zugeordnete Kunde öffnet seinen persönlichen Zugang, sieht Protokoll, Fotos und Betriebsunterschrift und unterschreibt selbst. Bis dahin lautet der Zustand **Vom Betrieb unterschrieben – Kundenunterschrift ausstehend**.
 5. Nach der Kundenunterschrift steht das abgeschlossene PDF mit beiden Unterschriften zur Verfügung. Die bestehende automatische PDF-Zustellung bleibt an die vorhandenen Versandfreigaben gebunden.
 
+## Vorab im Kundenportal (vor dem Termin)
+
+Im Kundenportal unter **Übergabe & Schlüssel** legt der Kunde vor dem Termin fest, wie die Übergabe läuft. Wählt er
+**Ohne persönlichen Kontakt**, ist Pflicht:
+
+- Art der Schlüsselübergabe und der **genaue Ort** (z. B. Briefkasten, Hinterlegung bei einer Person, Fahrzeug).
+- Die ausdrückliche Bestätigung: Der Schlüssel liegt wie angegeben bereit, und **das Übergabeprotokoll füllt allein
+  White Gloss aus**. Ohne diese Bestätigung wird nichts gespeichert.
+- Seine Unterschrift. Die Angaben sind an den aktuellen Termin gebunden; bei Terminänderung ist eine neue Unterschrift nötig.
+
+Im Annahmeprotokoll („Kunde nicht vor Ort“) sieht der Betrieb diese Vorab-Unterschrift samt Bestätigung. Fehlt sie, erscheint ein
+deutlicher Hinweis, sie vor dem Termin einzuholen. Die Bestätigung steht auch im Protokoll-PDF. Der Hinweis blockiert das
+Speichern nicht, damit ein telefonisch geklärter Fall nicht scheitert.
+
 ## Fassungen und Nachweise
 
 - Die Betriebsunterschrift ist an den angezeigten Entwurf und dessen Inhalts-Hash gebunden. Sie wird nicht als Kundenunterschrift verwendet.
