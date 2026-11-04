@@ -47,3 +47,10 @@ for (const page of pages) {
 test('links inside own chat bubbles use the on-accent colour', () => {
   assert.match(read('chat.css'), /\.chat-msg\.mine \.chat-text a\{[^}]*color:var\(--on-accent\)/);
 });
+
+test('no focus-visible rule paints its outline with the faint --line token', () => {
+  const bad = [];
+  for (const file of MIGRATED) for (const m of read(file).matchAll(/([^{}]*:focus-visible[^{}]*)\{([^{}]*)\}/g))
+    if (/outline[^;]*var\(--line\)/.test(m[2])) bad.push(file + ': ' + m[1].trim().slice(0, 60));
+  assert.deepEqual(bad, []);
+});

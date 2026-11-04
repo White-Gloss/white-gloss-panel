@@ -41,7 +41,7 @@ function family(c) {
 
 const TEXT = new Set(['color', 'fill', 'stroke', 'caret-color', 'text-decoration-color', '-webkit-text-fill-color']);
 const SHADOW = new Set(['box-shadow', 'text-shadow', 'filter', 'drop-shadow']);
-const kind = prop => TEXT.has(prop) ? 'text' : prop.startsWith('background') ? 'bg' : /^(border|outline|column-rule)/.test(prop) ? 'line'
+const kind = prop => /^outline/.test(prop) ? 'focus' : TEXT.has(prop) ? 'text' : prop.startsWith('background') ? 'bg' : /^(border|column-rule)/.test(prop) ? 'line'
   : SHADOW.has(prop) ? 'shadow' : null;
 const pct = a => Math.round(a * 100);
 const mix = (token, a) => `color-mix(in srgb,var(--${token}) ${pct(a)}%,transparent)`;
@@ -53,6 +53,7 @@ function pick(prop, c) {
   const L = lum(c), fam = family(c);
   // Kräftige Farben (Chroma > 0,15) und zart getönte Hellflächen in Status-Tönen zählen als farbig.
   const colorful = chroma(c) > 0.15 || (L > 0.8 && chroma(c) >= 0.03 && fam !== 'accent'), f = colorful ? fam : null;
+  if (k === 'focus') return 'var(--accent)'; // Fokusrahmen immer gut sichtbar
   if (k === 'shadow') return c.a < 1 ? mix('shadow-ink', c.a) : 'var(--shadow-ink)';
   if (c.a < 1) {
     if (k === 'line') return 'var(--line)';

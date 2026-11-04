@@ -10,7 +10,7 @@ button,a.button,input:not([type=checkbox]):not([type=radio]),select,textarea{bor
 button,a.button{letter-spacing:0;box-shadow:none;transition:background-color .16s ease,border-color .16s ease,color .16s ease}
 button.primary,a.button.primary{font-weight:600}
 button:disabled{opacity:.5}
-button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--line);outline-offset:3px}
+button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 a{text-underline-offset:3px}
 .layout{grid-template-columns:244px minmax(0,1fr)}
 .sidebar{width:244px;padding:28px 18px 22px;background:var(--wg-bg);border-right:1px solid var(--line);box-shadow:none;scrollbar-gutter:auto}

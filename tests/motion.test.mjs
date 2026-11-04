@@ -141,3 +141,11 @@ test('a flick closes the sheet when canClose agrees', () => {
   s.run();
   assert.equal(s.closed(), 1);
 });
+
+test('a drag that is held still before release springs back (stale velocity expires)', () => {
+  const s = setup();
+  s.ev('pointerdown', 0, 0); s.ev('pointermove', 40, 20); s.ev('pointerup', 40, 2020);
+  s.run();
+  assert.equal(s.closed(), 0);
+  assert.ok(Math.abs(s.y()) < 0.5, 'back at rest: ' + s.y());
+});
