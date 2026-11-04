@@ -1,47 +1,45 @@
-# Betreiberbereich: High-End-Optik „Obsidian & Platin“
+# High-End-Optik „Obsidian & Platin“ für alle Oberflächen
 
-Stand: 04.11.2026. Status: Entwurf zur Prüfung durch den Betreiber. Es wird nichts umgesetzt und nichts
-veröffentlicht, bevor dieser Entwurf freigegeben ist.
+Stand: 04.11.2026. Status: vom Betreiber freigegeben (04.11.2026), Umfang auf alle Oberflächen erweitert.
+Die Veröffentlichung ist davon nicht erfasst und braucht eine eigene ausdrückliche Freigabe.
 
 ## Ziel
 
-Der Betreiberbereich soll sich auf Smartphone, Mac, Windows, iOS und Android wie eine hochwertige,
+Alle Oberflächen sollen sich auf Smartphone, Mac, Windows, iOS und Android wie eine hochwertige,
 native App anfühlen. Die Werkstatt-Nutzung am Smartphone (Übergabe, Fotos, Unterschrift) hat Vorrang.
 Grundlage sind die Regeln des Skills `apple-design` (Reaktion ohne Verzögerung, 1:1-Berührung,
 unterbrechbare Federbewegung, Materialien mit Tiefe, größenabhängige Typografie, Bewegungsreduktion).
 
 ## Geltungsbereich
 
-**Enthalten (Betreiberbereich):**
+Betreiberentscheidung vom 04.11.2026: Die neue Optik gilt **überall**. Die Vor-Ort-App hat die höchste
+Priorität und kommt zuerst.
 
+**Enthalten (alle sechs Seiten):**
+
+- `public/vor-ort.html` (Vor-Ort-App unter `/vor-ort`), zuerst
 - `public/index.html` (Panel unter `/`)
-- `public/vor-ort.html` (Vor-Ort-App unter `/vor-ort`)
 - `public/bookkeeping.html` (Monatsbuchhaltung)
-
-**Nicht enthalten, bleibt optisch unverändert:**
-
-- `public/kunde.html` und `public/chat.html` (Kundenportal und Kundenchat; echte Kunden sehen sie)
+- `public/kunde.html` (Kundenportal) und `public/chat.html` (Kundenchat), beide sehen echte Kunden
 - `public/advisor.html` (Steuerberaterzugang)
 
-Annahme des Entwurfs: „mein Bereich“ des Betreibers bedeutet genau diese drei Seiten. Abweichungen
-bitte bei der Prüfung nennen.
-
-**Warum eine technische Begrenzung nötig ist:** `style.css`, `brand.css`, `chat.css`, `business.css`
-und `enterprise.css` werden vom Betreiberbereich und vom Kundenportal gemeinsam geladen. Würden diese
-Dateien global umgefärbt, änderte sich das Kundenportal mit.
+**Warum Vorsicht trotzdem nötig ist:** `style.css`, `brand.css`, `chat.css`, `business.css` und
+`enterprise.css` werden von mehreren Bereichen gemeinsam geladen. Eine Änderung dort wirkt in allen
+Bereichen. Darum wird jede dieser Dateien gegen alle sie ladenden Seiten geprüft.
 
 ## Technische Lösung
 
-1. **`public/tokens.css`** (neu). Enthält alle Designwerte als CSS-Variablen. Alle Regeln gelten nur
-   unterhalb von `html[data-area="operator"]`.
-2. **`public/operator.css`** (neu). Enthält die Komponentenregeln der neuen Optik, ebenfalls nur
-   unterhalb von `html[data-area="operator"]`. Es wird nach den bestehenden Dateien geladen.
-3. **`<html data-area="operator">`** in `index.html`, `vor-ort.html` und `bookkeeping.html`. Das
-   Kundenportal und der Steuerberaterzugang setzen das Attribut nicht und laden die neuen Dateien nicht.
-4. **Bestehende Dateien bleiben gültig.** Die alten Variablen (`--ink`, `--blue`, `--wg-*`) werden im
-   Betreiberbereich auf die neuen Tokens umgeleitet. Feste Farbwerte in den Dateien des Betreiberbereichs
-   werden durch Tokens ersetzt, soweit sie nur dort wirken. Gemeinsam genutzte Dateien werden nicht
-   verändert, sondern im Betreiberbereich überschrieben.
+1. **`public/tokens.css`** (neu). Enthält alle Designwerte als CSS-Variablen auf `:root`. Sie wird als
+   erste Stylesheet-Datei in allen sechs Seiten geladen.
+2. **`public/surface.css`** (neu). Enthält die gemeinsamen Komponentenregeln der neuen Optik
+   (Karten, Leisten, Schaltflächen, Felder, Plaketten, Bewegung). Sie wird als letzte Datei geladen.
+3. **Seitenbereich über `<html data-area="…">`** mit den Werten `field` (Vor-Ort), `operator`
+   (Panel, Buchhaltung), `customer` (Kundenportal, Kundenchat) und `advisor`. Bereichsspezifische
+   Abweichungen stehen unter dem jeweiligen Attribut.
+4. **Bestehende Dateien bleiben gültig.** Die alten Variablen (`--ink`, `--blue`, `--wg-*`, `--line`,
+   `--muted` und weitere) zeigen auf die neuen Tokens. Feste Farbwerte werden durch Tokens ersetzt.
+   Dateien, die nur ein Bereich lädt, werden direkt umgestellt; gemeinsame Dateien werden
+   umgestellt und danach in jedem Bereich geprüft.
 5. **Vor-Ort-Service-Worker.** `public/sw.js` erhält die neuen Dateien in `SHELL` und einen neuen
    Cache-Namen (`wg-vor-ort-v5`), damit die App auch offline vollständig startet.
 6. **`theme-color`** passt sich dem Modus an (zwei `meta`-Einträge mit `media`).
@@ -120,13 +118,13 @@ reduce` ersetzt Glasflächen durch geschlossene Flächen.
 ## Prüfung
 
 - `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`.
-- Neuer Test: Der Betreiberbereich lädt `tokens.css` und `operator.css`; Kundenportal, Kundenchat und
-  Steuerberater laden sie **nicht** und setzen `data-area` nicht.
+- Neuer Test: Alle sechs Seiten laden `tokens.css` zuerst und `surface.css` zuletzt und setzen ein
+  gültiges `data-area`.
 - Neuer Test: Jedes Textpaar der Token-Tabelle erreicht mindestens 4,5 : 1.
 - Service-Worker-Test: `SHELL` enthält die neuen Dateien, der Cache-Name ist erhöht.
 - Vorhandene Tests, die Pfade und Dateien prüfen, bleiben grün.
 - Browserprüfung: `npm run test:browser` läuft nur auf dem Linux-GitHub-Runner (siehe `AGENTS.md`).
-  Screenshots der Betreiberseiten werden mit synthetischen Daten dort erzeugt.
+  Screenshots aller sechs Seiten werden mit synthetischen Daten dort erzeugt.
 - Es wird kein Website-Server auf dem Rechner des Betreibers gestartet.
 
 ## Veröffentlichung
@@ -139,7 +137,6 @@ erfolgen nur nach ausdrücklicher Freigabe des Betreibers. Ich arbeite auf dem B
 ## Nicht-Ziele
 
 - Keine Änderung der Geschäftslogik, der Preise, der Texte, der Rechtsabläufe oder der Datenbank.
-- Keine Änderung am Kundenportal, am Kundenchat und am Steuerberaterzugang.
 - Kein neues Framework, keine neue Schriftart-Datei.
 - Keine Entfernung von `premium.*`/`agency.css` (Roadmap V8, eigenes Vorhaben).
 
@@ -149,6 +146,8 @@ erfolgen nur nach ausdrücklicher Freigabe des Betreibers. Ich arbeite auf dem B
 2. Vor-Ort-App komplett (Buchung, Fotos, Unterschrift, Leiste).
 3. Panel (Übersicht, Listen, Auftragsdetail, Kommunikation).
 4. Monatsbuchhaltung.
-5. Bewegung, Barrierefreiheit, Service Worker, Gesamtprüfung.
+5. Kundenportal und Kundenchat.
+6. Steuerberaterzugang.
+7. Bewegung, Barrierefreiheit, Service Worker, Gesamtprüfung.
 
 Jeder Schritt wird einzeln geprüft, bevor der nächste beginnt.
