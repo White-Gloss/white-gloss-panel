@@ -117,3 +117,27 @@ html[data-area="advisor"] .advisor-shell{max-width:1160px}
   dialog .modalhead{touch-action:none}
   dialog .modalhead::before{content:"";position:absolute;top:6px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:999px;background:color-mix(in srgb,var(--fg) 35%,transparent)}
 }
+
+/* App-Fläche: Systemschrift, Glasleiste, die Arbeit zuerst. */
+body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:-.011em}
+.layout{height:100dvh;overflow:hidden}
+.sidebar{overflow-y:auto;scrollbar-width:none}
+.sidebar::-webkit-scrollbar{display:none}
+.workspace{overflow:auto}
+.workspace .topbar{height:64px;background:color-mix(in srgb,var(--wg-bg) 72%,transparent);backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid color-mix(in srgb,var(--wg-line) 55%,transparent)}
+.headerdate{display:none}
+.top-create{min-height:36px;border-radius:980px;padding:0 16px}
+.sidebar .nav-primary-item{min-height:44px;background:transparent;border-color:transparent;border-radius:10px}
+.sidebar .nav-primary-label strong{white-space:normal}
+.sidebar .nav button,.sidebar .nav .navlink{border-radius:10px;font-size:15px;min-height:40px}
+.sidebar .navgroup{font-size:12px;letter-spacing:.04em;text-transform:none;font-weight:600}
+.sidebar .quiet-test{display:block;margin:10px 0 0;padding:0;border:0;background:transparent;color:var(--wg-muted);font-size:12px;text-align:left}
+.overview-shell{display:flex;flex-direction:column;gap:22px}
+.overview-shell>.heading{position:absolute;width:1px;height:1px;overflow:hidden}
+.overview-shell .action-center{border:0;background:transparent;box-shadow:none;padding:0}
+.overview-shell .action-center .card-title{border:0;padding:0 2px 8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.overview-shell .action-center .card-title .primary,.overview-shell .action-center .card-title .smallbtn{white-space:nowrap}
+.overview-shell .action-center h2{font-size:34px;font-weight:600;letter-spacing:-.03em}
+.overview-shell .action-item,.overview-shell .agenda-item{border-radius:14px;background:var(--wg-paper)}
+.overview-shell .overview-orders,.card,.operations-panel,.stat{border-radius:16px}
+button.primary,a.button.primary{border-radius:980px}
