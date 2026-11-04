@@ -37,6 +37,7 @@ export function protocolFormHTML({kind,protocol={},order,company,submitLabel='Sp
   <div class="sectiontitle">Fotos</div>
   ${photos.length?`<div class="photos keep-photos">${photos.map(photo=>`<label class="keep-photo"><img src="/api/asset/${esc(photo)}" alt="Gespeichertes Zustandsfoto"><span><input type="checkbox" name="keepPhoto" value="${esc(photo)}" checked> behalten</span></label>`).join('')}</div>`:''}
   <div class="grid2"><label>Foto aufnehmen<input type="file" data-photo-input accept="image/*" capture="environment" multiple></label><label>Aus Galerie wählen<input type="file" data-photo-input accept="image/jpeg,image/png,image/webp" multiple></label></div>
+  <p class="hint">Fotos: <output data-photo-count>${photos.length}/20</output></p>
   <div class="actions sectiongap">${submitLabel?`<button class="primary" type="submit" data-submit="save">${submitLabel}</button>`:''}${signLabel?`<button type="submit" data-submit="sign">${signLabel}</button>`:''}${remoteLabel?`<button type="submit" data-submit="remote">${remoteLabel}</button>`:''}</div>
   <div class="error" id="form-error"></div></form>`;
 }
@@ -54,7 +55,10 @@ export function mountProtocolForm(form){
   });
   form.addEventListener('keydown',e=>{const zone=e.target.closest?.('[data-zone]');if(zone&&(e.key==='Enter'||e.key===' ')){e.preventDefault();addDamage(zone.dataset.zone);}});
   form.addEventListener('input',e=>{const row=e.target.closest('[data-paint-row]');if(row)row.querySelector('[data-paint-summary]').textContent=paintHint(paintValues(row));});
-  form.addEventListener('change',e=>{if(e.target.matches('[data-damage-area]'))mark();});
+  // Zähler der Zustandsfotos: neu gewählte plus behaltene Fotos, höchstens 20 pro Protokoll.
+  const counter=form.querySelector('[data-photo-count]');
+  const countPhotos=()=>{if(!counter)return;let total=form.querySelectorAll('[name=keepPhoto]:checked').length;for(const input of form.querySelectorAll('[data-photo-input]'))total+=input.files?.length??0;counter.textContent=total+'/20';};
+  form.addEventListener('change',e=>{if(e.target.matches('[data-damage-area]'))mark();if(e.target.matches('[data-photo-input],[name=keepPhoto]'))countPhotos();});
 }
 function paintValues(row){return [...row.querySelectorAll('[data-paint-value]')].map(i=>i.value.trim()).filter(Boolean).map(Number).filter(Number.isFinite).map(Math.round);}
 async function shrink(file){
