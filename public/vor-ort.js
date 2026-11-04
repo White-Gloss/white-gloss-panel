@@ -5,6 +5,7 @@ import {protocolFormHTML,mountProtocolForm,collectProtocol,protocolSummaryHTML,b
 import {signatureBox,mountSignatures} from './signature.js';
 import {dilutionCalculatorHTML,mountDilutionCalculator} from './dilution.js';
 import {mountDeviceCenter} from './device.js';
+import {enableSheet} from './motion.js';
 // White Gloss Vor-Ort: mobile web app for on-site bookings, vehicle protocols and payments. No field is required.
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -16,7 +17,7 @@ try{test=localStorage.getItem('wg-vo-test')==='1';}catch{/* Private mode keeps t
 function toast(message){$('#toast').textContent=message;$('#toast').classList.add('visible');setTimeout(()=>$('#toast').classList.remove('visible'),6000);}
 async function api(path,data){const r=await fetch('/api/'+path,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data),credentials:'same-origin'});if(r.status===401){location.assign('/auth/login?returnTo=%2Fvor-ort');throw Error('Bitte anmelden.');}const d=await r.json().catch(()=>({error:r.status===413?'Datei ist zu groß.':'Verbindung nicht lesbar.'}));if(!r.ok)throw Error(d.error??'Verbindung fehlgeschlagen.');return d;}
 async function upload(file,kind='photo'){const r=await fetch('/api/upload/'+encodeURIComponent(order.id)+'?kind='+kind+(kind==='signature'?'&draft='+protocolDraft.id+'&hash='+protocolDraft.hash:''),{method:'POST',headers:{'Content-Type':file.type},body:file});const d=await r.json().catch(()=>({error:r.status===413?'Datei ist zu groß (höchstens 15 MB).':'Upload nicht bestätigt.'}));if(!r.ok)throw Error(d.error??'Upload fehlgeschlagen.');return d.id;}
-function modal(title,body){const m=$('#modal');m.innerHTML=`<div class="modalhead"><h2>${title}</h2><button data-close aria-label="Schließen">×</button></div><div class="modalbody">${body}</div>`;if(!m.open)m.showModal();m.querySelector('[data-close]').onclick=()=>m.close();return m;}
+function modal(title,body){const m=$('#modal');m.innerHTML=`<div class="modalhead"><h2>${title}</h2><button data-close aria-label="Schließen">×</button></div><div class="modalbody">${body}</div>`;if(!m.open)m.showModal();enableSheet(m);m.querySelector('[data-close]').onclick=()=>m.close();return m;}
 const digits=v=>String(v??'').replace(/[^0-9+]/g,'');
 const whatsapp=phone=>{let d=digits(phone).replace(/^\+/,'');if(d.startsWith('00'))d=d.slice(2);else if(d.startsWith('0'))d='49'+d.slice(1);return d.length>=8?'https://wa.me/'+d:'';};
 function contacts(c){const wa=whatsapp(c.phone),address=[c.address,c.city].filter(Boolean).join(', ');return `<div class="actions">${c.phone?`<a class="button" href="tel:${esc(digits(c.phone))}">Anrufen</a>`:''}${wa?`<a class="button" href="${esc(wa)}" target="_blank" rel="noreferrer">WhatsApp</a>`:''}${address?`<a class="button" href="${esc('https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(address))}" target="_blank" rel="noreferrer">Navigation</a>`:''}</div>`;}

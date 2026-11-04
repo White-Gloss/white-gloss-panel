@@ -107,3 +107,9 @@ html[data-area="customer"] .portal-card p{line-height:1.6}
 /* Steuerberaterzugang (advisor) */
 html[data-area="advisor"] table{font-variant-numeric:tabular-nums}
 html[data-area="advisor"] .advisor-shell{max-width:1160px}
+
+/* Sheets: Kopfbereich als Griff mit Anfasser (nur kleine Bildschirme) */
+@media (max-width:720px){
+  dialog .modalhead{touch-action:none;position:relative}
+  dialog .modalhead::before{content:"";position:absolute;top:6px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:999px;background:color-mix(in srgb,var(--fg) 35%,transparent)}
+}

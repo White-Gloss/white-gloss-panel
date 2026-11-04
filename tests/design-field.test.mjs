@@ -63,3 +63,11 @@ test('photo counter shows new and kept photos out of 20', () => {
   form.querySelector('[name=keepPhoto]').dispatchEvent(new dom.window.Event('change', {bubbles: true}));
   assert.equal(out.textContent, '4/20');
 });
+
+test('both dialog helpers enable the sheet gesture', () => {
+  for (const file of ['vor-ort.js', 'app.js']) {
+    const source = read(file);
+    assert.match(source, /import \{[^}]*enableSheet[^}]*\} from '\.\/motion\.js'/, file);
+    assert.match(source, /enableSheet\(m\)/, file);
+  }
+});

@@ -81,3 +81,8 @@ test('advisor area sets calm tables with tabular figures', () => {
   assert.match(surface, /html\[data-area="advisor"\] table\s*\{[^}]*font-variant-numeric:\s*tabular-nums/);
   assert.match(surface, /html\[data-area="advisor"\] \.advisor-shell\s*\{[^}]*max-width/);
 });
+
+test('sheet header is a touch handle with a grabber on small screens', () => {
+  assert.match(surface, /@media \(max-width:\s*720px\)\s*\{[\s\S]*?dialog \.modalhead\s*\{[^}]*touch-action:\s*none/);
+  assert.match(surface, /dialog \.modalhead::before\s*\{[^}]*border-radius:\s*999px/);
+});
