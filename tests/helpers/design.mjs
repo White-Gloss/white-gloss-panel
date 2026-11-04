@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 
 // Dateien, in denen keine festen Farben stehen dürfen und deren Farbpaare geprüft werden.
 // Jede Migrations-Aufgabe ergänzt ihre Dateien.
-export const MIGRATED = ['style.css', 'enterprise.css', 'brand.css', 'communication.css', 'business.css', 'accounting.css'];
+export const MIGRATED = ['style.css', 'enterprise.css', 'brand.css', 'communication.css', 'business.css', 'accounting.css', 'bookkeeping.css'];
 
 export const read = name => readFileSync(new URL('../../public/' + name, import.meta.url), 'utf8');
 

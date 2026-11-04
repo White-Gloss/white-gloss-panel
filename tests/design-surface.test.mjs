@@ -67,3 +67,7 @@ test('operator area styles the sidebar, mobile dock and action centre', () => {
   assert.match(surface, /html\[data-area="operator"\] \.mobile-dock [^{]*\{[^}]*var\(--gold\)/);
   assert.match(surface, /html\[data-area="operator"\] \.action-center[^{]*\{[^}]*border-radius:\s*var\(--radius-m\)/);
 });
+
+test('bookkeeping shows all amounts with tabular figures', () => {
+  assert.match(surface, /html\[data-area="operator"\] \.books-shell\s*\{[^}]*font-variant-numeric:\s*tabular-nums/);
+});

@@ -98,3 +98,4 @@ html[data-area="operator"] .mobile-dock button[aria-current=page],html[data-area
 }
 html[data-area="operator"] .action-center,html[data-area="operator"] .operations-panel{border-radius:var(--radius-m);background:var(--surface)}
 html[data-area="operator"] .action-item{border-radius:var(--radius-s)}
+html[data-area="operator"] .books-shell{font-variant-numeric:tabular-nums}
