@@ -9,13 +9,13 @@ import {digest} from '../server/auth.mjs';
 import {chatNotificationsSettled} from '../server/chat.mjs';
 
 export const origin='https://panel.example.invalid',owner='owner@example.invalid',customer='customer@example.invalid';
-export async function browserFixture(t,{viewport={width:1280,height:720},identity=owner}={}){
+export async function browserFixture(t,{viewport={width:1280,height:720},identity=owner,colorScheme}={}){
   if(process.platform!=='linux'||process.env.GITHUB_ACTIONS!=='true'||process.env.RUNNER_OS!=='Linux')throw Error('Browserregressionen ausschließlich auf dem echten Linux-GitHub-Runner ausführen. Lokal nur veröffentlichte IONOS-Seiten prüfen.');
   t.mock.method(globalThis,'fetch',async()=>{throw Error('External provider requests are forbidden in browser fixtures.');});
   const files=new Map(),env={PANEL_ORIGIN:origin,OWNER_EMAIL_SHA256:digest(owner),CONFIG_KEY:Buffer.alloc(32,7).toString('base64'),DB:new PanelDatabase(':memory:'),ASSETS:new StaticAssets(resolve('dist/client')),BUCKET:{async put(id,bytes,options){files.set(id,{body:new Uint8Array(bytes),httpMetadata:options?.httpMetadata??{}});},async get(id){return files.get(id)??null;},async delete(id){files.delete(id);}}};
   const app=await createApplication(env),raw=randomBytes(32).toString('hex');
   await env.DB.prepare('INSERT INTO auth_sessions VALUES(?,?,?,?)').bind(digest(raw),identity,Date.now()+3600000,Date.now()).run();
-  const browser=await chromium.launch({headless:true}),context=await browser.newContext({viewport,serviceWorkers:'block',reducedMotion:'reduce'}),errors=[],requests=[];
+  const browser=await chromium.launch({headless:true}),context=await browser.newContext({viewport,serviceWorkers:'block',reducedMotion:'reduce',...(colorScheme?{colorScheme}:{})}),errors=[],requests=[];
   await context.addCookies([{name:'__Host-wg-session',value:raw,url:origin,secure:true,httpOnly:true,sameSite:'Lax'}]);
   await context.route('**/*',async route=>{
     const request=route.request(),url=new URL(request.url());

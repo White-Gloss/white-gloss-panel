@@ -37,6 +37,7 @@ die Rollen bleiben Betreiber, Kunde und Steuerberater.
 | V12 | Rechnungsregister zeigt Rohstatus „unpaid“ statt „Offen“ (`invoiceRegister()` in `public/app.js` nutzt die Bezeichnungen aus `public/invoice-ui.js` nicht) | Mittel | offen |
 | V13 | Externe Datensicherung prüfen: Panel-Backup liegt nur auf dem VPS (`/var/lib/white-gloss-panel`, Dienst ohne Netzwerk). Laut Betreiber sind Hostinger-Sicherungen aktiv; Umfang und Wiederherstellung sind ungeprüft | Mittel | offen, Betreiber |
 | V11 | Abhängigkeiten aktualisieren (`exceljs`-Kette, 8 mittlere Audit-Hinweise) | Niedrig | offen |
+| V14 | Optik „Obsidian & Platin“ für alle Oberflächen, Vor-Ort-App zuerst ([Details](Obsidian-und-Platin.md)) | Hoch | umgesetzt (PR #48), Prüfung offen |
 | V9 | `public/app.js` in Module aufteilen | Niedrig | offen |
 | V10 | Weniger Daten pro Aktualisierung als das vollständige `/api/state` | Niedrig | offen |
 

@@ -62,7 +62,7 @@ test('manifest and offline shell contain the installable app assets without cust
   assert.equal(manifest.start_url,'/vor-ort');assert.equal(manifest.scope,'/');assert.equal(manifest.display,'standalone');
   for(const icon of manifest.icons)assert.equal(existsSync(new URL('../public'+icon.src,import.meta.url)),true,icon.src);
   const source=readFileSync(new URL('../public/sw.js',import.meta.url),'utf8'),literal=/const SHELL=(\[[^;]+\]);/.exec(source)[1],shell=vm.runInNewContext(literal);
-  for(const path of ['/vor-ort','/device.js','/vor-ort.js','/style.css','/brand.css','/manifest.webmanifest','/icon-192.png'])assert.ok(shell.includes(path),path);
+  for(const path of ['/vor-ort','/device.js','/vor-ort.js','/tokens.css','/style.css','/brand.css','/surface.css','/motion.js','/manifest.webmanifest','/icon-192.png'])assert.ok(shell.includes(path),path);
   assert.equal(shell.some(path=>path.startsWith('/api/')||path.startsWith('/auth/')),false);
 });
 

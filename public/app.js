@@ -1,4 +1,5 @@
 import {showOffer} from './offer.js';
+import {enableSheet} from './motion.js';
 import {dilutionCalculatorHTML,mountDilutionCalculator} from './dilution.js';
 import {showDocument} from './document.js';
 // Customer pages share this entry point; the path decides which page is shown.
@@ -176,7 +177,7 @@ const formObserver=new window.MutationObserver(records=>{for(const record of rec
 for(const id of ['app','modal']){const root=document.getElementById(id);if(root)formObserver.observe(root,{childList:true,subtree:true});}
 function confirmDiscard(scope=document){return !hasUnsavedForms(scope)||window.confirm('Es gibt ungespeicherte Änderungen. Wirklich verwerfen und fortfahren?');}
 function closeModal(){const m=$('#modal');if(!m.open||confirmDiscard(m))m.close();}
-function modal(title,content,footer=''){const m=$('#modal');m.innerHTML=`<div class="modalhead"><h2>${title}</h2><button data-click="close" aria-label="Schließen">×</button></div><div class="modalbody">${content}</div>${footer?`<div class="modalfooter">${footer}</div>`:''}`;if(!m.open)m.showModal();markFormsSaved(m);return m;}
+function modal(title,content,footer=''){const m=$('#modal');m.innerHTML=`<div class="modalhead"><h2>${title}</h2><button data-click="close" aria-label="Schließen">×</button></div><div class="modalbody">${content}</div>${footer?`<div class="modalfooter">${footer}</div>`:''}`;if(!m.open)m.showModal();enableSheet(m,{canClose:()=>confirmDiscard(m)});markFormsSaved(m);return m;}
 function createModal(quick=false){quickBooking=quick;manualCreateModal({synthetic,modal,quickBooking:quick});}
 function requireSavedBooking(){for(const [id,message] of [['priceform','Bitte geänderte Leistungen und Preise zuerst speichern.'],['appointmentform','Bitte den geänderten Termin zuerst speichern.']]){const form=document.getElementById(id);if(bookingFormDirty(form))throw Object.assign(Error(message),{formError:form.querySelector('.error')});}}
 async function action(name,input={}){const sibling=name==='price'?$('#appointmentform'):name==='appointment'?$('#priceform'):null;const keepSibling=bookingFormDirty(sibling)?sibling:null;const o=await api('action',{id:selected.id,version:selected.version,action:name,input});selected=o;state=await api('state');render();if(keepSibling)document.getElementById(keepSibling.id)?.replaceWith(keepSibling);return o;}

@@ -19,6 +19,7 @@ Jede Änderung benötigt einen eigenen geprüften Release und einen Live-Nachwei
 - [Passwort, Kunden-PIN und Protokoll-PDF](docs/Passwort-PIN-und-Protokoll-PDF.md)
 - [Qonto: Rechnungen, Quittungen und Mahnwesen](docs/Qonto-Rechnungen-und-Mahnwesen.md)
 - [Vor-Ort-App, Kundenstamm und Bearbeitung](docs/Vor-Ort-App-und-Bearbeitung.md)
+- [Optik „Obsidian & Platin“](docs/Obsidian-und-Platin.md)
 - [Communication Center: E-Mail, Kalender, Aufträge, Notizen](docs/Communication-Center.md)
 - [Kundenchat mit Fotos, Videos und PDFs](docs/Kundenchat.md)
 - [Angebot, Termin, Mischrechner und mobile Bedienung](docs/Angebot-Termin-und-Mischrechner.md)

@@ -1,0 +1,119 @@
+/* White Gloss Oberfläche „Obsidian & Platin“. Wird als letzte Stylesheet-Datei geladen.
+   1) Alte Variablen zeigen auf die Tokens aus tokens.css.
+   2) Gemeinsame Komponentenregeln.
+   3) Bereichsregeln über html[data-area="field|operator|customer|advisor"]. */
+
+/* 1) Alias-Schicht: alte Namen -> Tokens */
+:root{
+  background:var(--bg);color:var(--fg);
+  --ink:var(--fg);--blue:var(--accent);--pale:var(--elevated);--red:var(--danger);--app-shadow:var(--shadow-1);
+  --wg-bg:var(--bg);--wg-canvas:var(--bg);--wg-surface:var(--surface);--wg-paper:var(--surface);
+  --wg-elevated:var(--elevated);--wg-fg:var(--fg);--wg-ink:var(--fg);--wg-copy:var(--fg);
+  --wg-muted:var(--muted);--wg-subtle:var(--muted);--wg-line:var(--line);--wg-rule:var(--line);
+  --wg-rule-strong:var(--line);--wg-accent:var(--accent);--wg-chrome:var(--accent);--wg-chrome-soft:var(--elevated);
+  --wg-success:var(--good);--wg-success-bg:var(--good-bg);--wg-warning:var(--warn);--wg-warning-bg:var(--warn-bg);
+  --wg-error:var(--danger);--wg-error-bg:var(--danger-bg);
+}
+@supports (color:color-mix(in srgb,red,blue)){
+  :root{--wg-rule-strong:color-mix(in srgb,var(--fg) 26%,transparent)}
+}
+body{background:var(--bg);color:var(--fg);line-height:1.5}
+html{scroll-padding-bottom:env(safe-area-inset-bottom,0px)}
+
+/* 2) Typografie: Überschriften eng, Fließtext ruhig, Zahlen tabellarisch */
+h1,h2{letter-spacing:-.02em;line-height:1.1}
+h3{letter-spacing:-.01em;line-height:1.2}
+small,.eyebrow{letter-spacing:.02em}
+.money,.vo-total,td.num,.num{font-variant-numeric:tabular-nums}
+
+/* Komponenten */
+button,a.button{border-radius:var(--radius-s)}
+input:not([type=checkbox]):not([type=radio]),select,textarea{
+  border-radius:var(--radius-s);background:var(--surface);color:var(--fg);border-color:var(--line)
+}
+input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
+button.primary,a.button.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+button.primary:hover,a.button.primary:hover{background:var(--accent);color:var(--on-accent);filter:brightness(1.08)}
+.card,.portal-card,.signaturebox,.protocolreview,.offer-document,.offer-appointment,.portal-confirm{
+  border-radius:var(--radius-m);background:var(--surface);border-color:var(--line);box-shadow:var(--shadow-1)
+}
+dialog{background:var(--surface);color:var(--fg);border:1px solid var(--line);box-shadow:var(--shadow-2)}
+dialog::backdrop{background:var(--scrim)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:active,a.button:active{transform:scale(.97);transition:transform 100ms ease-out}
+
+/* Glasleisten: Inhalt scrollt darunter, Rückfall auf geschlossene Fläche */
+.topbar,.vo-top,.mobile-dock,.vo-dock,.portal-top,.chat-head{
+  background:var(--glass);-webkit-backdrop-filter:blur(20px) saturate(160%);backdrop-filter:blur(20px) saturate(160%);
+  border-color:var(--line)
+}
+@supports not (backdrop-filter:blur(1px)){
+  .topbar,.vo-top,.mobile-dock,.vo-dock,.portal-top,.chat-head{background:var(--surface)}
+}
+
+/* Touch: großzügige Trefferflächen */
+@media (pointer:coarse){
+  button,a.button{min-height:48px}
+  input:not([type=checkbox]):not([type=radio]),select,textarea{min-height:48px;font-size:16px}
+}
+
+/* Zugänglichkeit */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important}
+  button:active,a.button:active{transform:none}
+}
+@media (prefers-contrast: more){
+  .card,dialog,input,select,textarea,button,a.button{border:1px solid currentColor}
+}
+
+/* Druck und PDF-Ansichten immer hell auf Weiß */
+@media print{
+  :root{
+    --bg:#ffffff;--surface:#ffffff;--elevated:#f1f1ef;--fg:#14181d;--muted:#4a525c;
+    --accent:#1b2530;--on-accent:#ffffff;--gold:#7a5f26;--line:rgba(20,24,29,.25);
+    --glass:#ffffff;--shadow-1:none;--shadow-2:none;--shadow-ink:transparent;
+    --good:#2f6b53;--warn:#7d5a12;--danger:#a63d38;
+    --good-bg:rgba(47,107,83,.12);--warn-bg:rgba(125,90,18,.12);--danger-bg:rgba(166,61,56,.12);
+    color-scheme:light
+  }
+  body{background:#ffffff;color:#14181d}
+  .card,dialog{box-shadow:none}
+}
+
+/* 3) Bereichsregeln (werden in den Folge-Aufgaben ergänzt) */
+html[data-area="field"] button,html[data-area="field"] a.button{min-height:48px}
+html[data-area="field"] input:not([type=checkbox]):not([type=radio]),html[data-area="field"] select,html[data-area="field"] textarea{min-height:48px;font-size:16px}
+
+/* Vor-Ort-App (field): Smartphone in der Werkstatt */
+html[data-area="field"] .vo-dock a[aria-current=page],html[data-area="field"] .vo-dock a.active{
+  background:var(--elevated);color:var(--accent);box-shadow:inset 0 2px 0 var(--gold)
+}
+html[data-area="field"] .vo-booking-steps li.current::after{background:var(--gold)}
+html[data-area="field"] .photos img{min-width:96px;min-height:96px;object-fit:cover;border-radius:var(--radius-s)}
+html[data-area="field"] .signature{min-height:180px;border:1px dashed var(--line);touch-action:none}
+html[data-area="field"] #toast.visible{animation:toast-in 260ms cubic-bezier(.2,.8,.2,1)}
+@keyframes toast-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+html[data-area="field"] [data-photo-count]{display:inline-block;margin-top:6px;font-variant-numeric:tabular-nums;color:var(--muted)}
+
+/* Panel und Monatsbuchhaltung (operator) */
+html[data-area="operator"] .sidebar{background:var(--bg);border-color:var(--line)}
+html[data-area="operator"] .mobile-dock button[aria-current=page],html[data-area="operator"] .mobile-dock button.active{
+  background:var(--elevated);color:var(--accent);box-shadow:inset 0 2px 0 var(--gold)
+}
+html[data-area="operator"] .action-center,html[data-area="operator"] .operations-panel{border-radius:var(--radius-m);background:var(--surface)}
+html[data-area="operator"] .action-item{border-radius:var(--radius-s)}
+html[data-area="operator"] .books-shell{font-variant-numeric:tabular-nums}
+
+/* Kundenportal und Kundenchat (customer) */
+html[data-area="customer"] .portal-card{border-radius:var(--radius-l)}
+html[data-area="customer"] .portal-card p{line-height:1.6}
+
+/* Steuerberaterzugang (advisor) */
+html[data-area="advisor"] table{font-variant-numeric:tabular-nums}
+html[data-area="advisor"] .advisor-shell{max-width:1160px}
+
+/* Sheets: Kopfbereich als Griff mit Anfasser (nur kleine Bildschirme) */
+@media (max-width:720px){
+  dialog .modalhead{touch-action:none}
+  dialog .modalhead::before{content:"";position:absolute;top:6px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:999px;background:color-mix(in srgb,var(--fg) 35%,transparent)}
+}

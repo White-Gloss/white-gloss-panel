@@ -1,0 +1,34 @@
+/* White Gloss Design-Tokens „Obsidian & Platin“. Dunkel ist Standard, Hell folgt dem Gerät.
+   Neue Farben nur hier eintragen; surface.css leitet die alten Variablen auf diese Tokens um. */
+:root{
+  color-scheme:dark light;
+  --bg:#0b0d10;--surface:#12161b;--elevated:#1a2027;
+  --fg:#eef0f3;--muted:#9aa4b0;
+  --accent:#d9dee5;--on-accent:#0b0d10;--gold:#c9a96b;
+  --good:#6fc3a0;--warn:#e0b45c;--danger:#ef8a84;
+  --line:rgba(217,222,229,.14);
+  --good-bg:rgba(111,195,160,.14);--warn-bg:rgba(224,180,92,.14);--danger-bg:rgba(239,138,132,.14);
+  --glass:rgba(11,13,16,.72);--scrim:rgba(0,0,0,.55);--shadow-ink:#000000;
+  --shadow-1:0 1px 2px rgba(0,0,0,.4),0 4px 16px rgba(0,0,0,.28);
+  --shadow-2:0 2px 4px rgba(0,0,0,.45),0 18px 48px rgba(0,0,0,.45);
+  --radius-s:10px;--radius-m:14px;--radius-l:20px;
+}
+@media (prefers-color-scheme: light){
+  :root{
+    --bg:#f5f3ee;--surface:#ffffff;--elevated:#ece9e2;
+    --fg:#14181d;--muted:#5b6470;
+    --accent:#1b2530;--on-accent:#f5f3ee;--gold:#7a5f26;
+    --good:#2f6b53;--warn:#7d5a12;--danger:#a63d38;
+    --line:rgba(20,24,29,.12);
+    --good-bg:rgba(47,107,83,.12);--warn-bg:rgba(125,90,18,.12);--danger-bg:rgba(166,61,56,.12);
+    --glass:rgba(245,243,238,.78);--scrim:rgba(20,24,29,.4);--shadow-ink:#14181d;
+    --shadow-1:0 1px 2px rgba(20,24,29,.08),0 4px 16px rgba(20,24,29,.06);
+    --shadow-2:0 2px 4px rgba(20,24,29,.1),0 18px 48px rgba(20,24,29,.16);
+  }
+}
+@media (prefers-reduced-transparency: reduce){
+  :root{--glass:var(--surface)}
+}
+@media (prefers-contrast: more){
+  :root{--line:currentColor}
+}
