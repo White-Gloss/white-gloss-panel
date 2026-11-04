@@ -125,3 +125,19 @@ test('the gesture stays off when the enabled check says no (desktop)', () => {
   s.ev('pointerdown', 0, 0); s.ev('pointermove', 100, 50);
   assert.equal(s.dialog.style.transform, '');
 });
+
+test('a flick that would close the sheet snaps back when canClose says no', () => {
+  let asked = 0;
+  const s = setup({canClose: () => { asked++; return false; }});
+  s.ev('pointerdown', 0, 0); s.ev('pointermove', 100, 50); s.ev('pointermove', 300, 100); s.ev('pointerup', 300, 100);
+  s.run();
+  assert.equal(asked, 1);
+  assert.equal(s.closed(), 0);
+  assert.ok(Math.abs(s.y()) < 0.5, 'back at rest: ' + s.y());
+});
+test('a flick closes the sheet when canClose agrees', () => {
+  const s = setup({canClose: () => true});
+  s.ev('pointerdown', 0, 0); s.ev('pointermove', 100, 50); s.ev('pointermove', 300, 100); s.ev('pointerup', 300, 100);
+  s.run();
+  assert.equal(s.closed(), 1);
+});

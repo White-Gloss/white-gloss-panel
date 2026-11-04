@@ -38,7 +38,7 @@ export function springStep(state, target, dt, {damping = 1, response = 0.35} = {
  * Macht aus einem <dialog> ein Bottom-Sheet, das am Kopfbereich nach unten gezogen und weggewischt werden kann.
  * Rückgabe: Funktion zum Abmelden. Bei `reduceMotion` bleibt nur der Schließen-Knopf.
  */
-export function attachSheet(dialog, {onClose, reduceMotion = false, handle = '.modalhead', enabled = () => true, raf, caf} = {}) {
+export function attachSheet(dialog, {onClose, reduceMotion = false, handle = '.modalhead', enabled = () => true, canClose = () => true, raf, caf} = {}) {
   if (reduceMotion) return () => {};
   const request = raf ?? (cb => window.requestAnimationFrame(cb)), cancel = caf ?? (id => window.cancelAnimationFrame(id));
   let pos = 0, drag = null, animation = null;
@@ -88,7 +88,9 @@ export function attachSheet(dialog, {onClose, reduceMotion = false, handle = '.m
     const first = samples.find(s => s.t >= last.t - 100) ?? last;
     const velocity = last.t > first.t ? ((last.y - first.y) / (last.t - first.t)) * 1000 : 0;
     drag = null;
-    animateTo(nearestSnap(pos + project(velocity), [0, height()]), velocity);
+    let target = nearestSnap(pos + project(velocity), [0, height()]);
+    if (target !== 0 && !canClose()) target = 0; // z. B. ungespeicherte Eingaben: erst nachfragen, sonst zurückfedern
+    animateTo(target, velocity);
   };
 
   dialog.addEventListener('pointerdown', down);
@@ -108,9 +110,9 @@ export function attachSheet(dialog, {onClose, reduceMotion = false, handle = '.m
 
 const attached = new WeakSet();
 /** Aktiviert die Sheet-Geste einmal pro Dialog; wirksam nur auf kleinen Bildschirmen und ohne Bewegungsreduktion. */
-export function enableSheet(dialog) {
+export function enableSheet(dialog, {canClose} = {}) {
   if (attached.has(dialog) || typeof window.matchMedia !== 'function') return;
   attached.add(dialog);
   const small = window.matchMedia('(max-width:720px)'), calm = window.matchMedia('(prefers-reduced-motion: reduce)');
-  attachSheet(dialog, {onClose: () => dialog.close(), enabled: () => small.matches && !calm.matches});
+  attachSheet(dialog, {onClose: () => dialog.close(), canClose, enabled: () => small.matches && !calm.matches});
 }

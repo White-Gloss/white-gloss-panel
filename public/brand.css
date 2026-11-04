@@ -30,7 +30,7 @@ button.primary:hover,a.button.primary:hover,.chat-gate a.button.primary:hover{co
 .mobile-dock,.vo-dock{background:var(--wg-bg);border-color:var(--wg-line)}
 .mobile-dock button,.vo-dock a{color:var(--wg-muted);border-radius:3px}
 .mobile-dock button.active,.mobile-dock button[aria-current=page],.vo-dock a.active,.vo-dock a[aria-current=page]{background:var(--wg-elevated);color:var(--wg-accent)}
-.vo .vo-intro{background:var(--wg-bg);border-color:var(--wg-bg);border-radius:6px}
+.vo .vo-intro{background:var(--wg-bg);color:var(--fg);border-color:var(--wg-bg);border-radius:6px}
 .vo-intro .eyebrow,.vo-intro p{color:var(--wg-muted)}
 .vo-intro a.button.primary{background:var(--wg-accent);color:var(--wg-bg);border-color:var(--wg-accent)}
 .portal-hero{background:linear-gradient(145deg,var(--wg-elevated),var(--wg-bg) 70%);border:1px solid var(--wg-line);border-radius:6px}

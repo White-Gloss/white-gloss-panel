@@ -68,6 +68,18 @@ test('both dialog helpers enable the sheet gesture', () => {
   for (const file of ['vor-ort.js', 'app.js']) {
     const source = read(file);
     assert.match(source, /import \{[^}]*enableSheet[^}]*\} from '\.\/motion\.js'/, file);
-    assert.match(source, /enableSheet\(m\)/, file);
+    assert.match(source, /enableSheet\(m,\{canClose:/, file);
   }
+});
+
+test('service worker shell contains every module the field app imports (offline start)', () => {
+  const shell = vm.runInNewContext(/const SHELL=(\[[^;]+\]);/.exec(read('sw.js'))[1]);
+  const dir = new URL('../dist/client/', import.meta.url), seen = new Set(), queue = ['vor-ort.js'];
+  while (queue.length) {
+    const file = queue.pop(); if (seen.has(file)) continue; seen.add(file);
+    const source = readFileSync(new URL(file, dir), 'utf8');
+    for (const m of source.matchAll(/(?:from|import)\s*\(?\s*['"]\.\/([^'"]+)['"]/g)) queue.push(m[1]);
+  }
+  const missing = [...seen].filter(file => !shell.includes('/' + file));
+  assert.deepEqual(missing, []);
 });

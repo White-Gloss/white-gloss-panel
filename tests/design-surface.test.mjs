@@ -49,12 +49,8 @@ test('glass bars fall back to a closed surface without backdrop-filter', () => {
   assert.match(surface, /backdrop-filter:\s*blur\(/);
 });
 
-test('inputs use 16px text and controls keep 48px touch height', () => {
-  const rule = /input:not\(\[type=checkbox\]\):not\(\[type=radio\]\),\s*select,\s*textarea\s*\{([^}]*)\}/.exec(surface);
-  assert.ok(rule, 'input rule');
-  assert.match(rule[1], /font-size:\s*16px/);
-  assert.match(rule[1], /min-height:\s*48px/);
-  assert.match(surface, /button,\s*a\.button\s*\{[^}]*min-height:\s*48px/);
+test('controls keep 48px touch height on touch devices', () => {
+  assert.match(surface, /@media \(pointer:\s*coarse\)\s*\{\s*button,\s*a\.button\s*\{[^}]*min-height:\s*48px/);
 });
 
 test('uses safe-area insets and tabular numbers', () => {
@@ -85,4 +81,25 @@ test('advisor area sets calm tables with tabular figures', () => {
 test('sheet header is a touch handle with a grabber on small screens', () => {
   assert.match(surface, /@media \(max-width:\s*720px\)\s*\{[\s\S]*?dialog \.modalhead\s*\{[^}]*touch-action:\s*none/);
   assert.match(surface, /dialog \.modalhead::before\s*\{[^}]*border-radius:\s*999px/);
+});
+
+test('the sheet header stays sticky: surface.css does not make it relative', () => {
+  const block = /@media \(max-width:\s*720px\)\s*\{([\s\S]*?)\n\}/.exec(surface)[1];
+  assert.doesNotMatch(block, /\.modalhead\s*\{[^}]*position:\s*relative/);
+});
+
+test('48px inputs and 16px text apply to touch devices and the field app only', () => {
+  const coarse = /@media \(pointer:\s*coarse\)\s*\{([\s\S]*?)\n\}/.exec(surface)[1];
+  assert.match(coarse, /input:not\(\[type=checkbox\]\):not\(\[type=radio\]\),\s*select,\s*textarea\s*\{[^}]*min-height:\s*48px/);
+  assert.match(coarse, /font-size:\s*16px/);
+  const base = /(?:^|\n)input:not\(\[type=checkbox\]\):not\(\[type=radio\]\),\s*select,\s*textarea\s*\{([^}]*)\}/.exec(surface)[1];
+  assert.doesNotMatch(base, /min-height|font-size/);
+  assert.match(surface, /html\[data-area="field"\] input:not\(\[type=checkbox\]\):not\(\[type=radio\]\),[^{]*\{[^}]*min-height:\s*48px/);
+});
+
+test('print block restores light status tokens, no shadow ink and light colour scheme', () => {
+  const print = /@media print\s*\{([\s\S]*?)\n\}/.exec(surface)[1].toLowerCase();
+  for (const hex of ['#2f6b53', '#7d5a12', '#a63d38']) assert.ok(print.includes(hex), hex);
+  assert.match(print, /--shadow-ink:\s*transparent/);
+  assert.match(print, /color-scheme:\s*light/);
 });

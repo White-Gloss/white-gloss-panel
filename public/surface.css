@@ -29,8 +29,7 @@ small,.eyebrow{letter-spacing:.02em}
 /* Komponenten */
 button,a.button{border-radius:var(--radius-s)}
 input:not([type=checkbox]):not([type=radio]),select,textarea{
-  border-radius:var(--radius-s);font-size:16px;min-height:48px;
-  background:var(--surface);color:var(--fg);border-color:var(--line)
+  border-radius:var(--radius-s);background:var(--surface);color:var(--fg);border-color:var(--line)
 }
 input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
 button.primary,a.button.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
@@ -55,6 +54,7 @@ button:active,a.button:active{transform:scale(.97);transition:transform 100ms ea
 /* Touch: großzügige Trefferflächen */
 @media (pointer:coarse){
   button,a.button{min-height:48px}
+  input:not([type=checkbox]):not([type=radio]),select,textarea{min-height:48px;font-size:16px}
 }
 
 /* Zugänglichkeit */
@@ -71,7 +71,10 @@ button:active,a.button:active{transform:scale(.97);transition:transform 100ms ea
   :root{
     --bg:#ffffff;--surface:#ffffff;--elevated:#f1f1ef;--fg:#14181d;--muted:#4a525c;
     --accent:#1b2530;--on-accent:#ffffff;--gold:#7a5f26;--line:rgba(20,24,29,.25);
-    --glass:#ffffff;--shadow-1:none;--shadow-2:none
+    --glass:#ffffff;--shadow-1:none;--shadow-2:none;--shadow-ink:transparent;
+    --good:#2f6b53;--warn:#7d5a12;--danger:#a63d38;
+    --good-bg:rgba(47,107,83,.12);--warn-bg:rgba(125,90,18,.12);--danger-bg:rgba(166,61,56,.12);
+    color-scheme:light
   }
   body{background:#ffffff;color:#14181d}
   .card,dialog{box-shadow:none}
@@ -79,6 +82,7 @@ button:active,a.button:active{transform:scale(.97);transition:transform 100ms ea
 
 /* 3) Bereichsregeln (werden in den Folge-Aufgaben ergänzt) */
 html[data-area="field"] button,html[data-area="field"] a.button{min-height:48px}
+html[data-area="field"] input:not([type=checkbox]):not([type=radio]),html[data-area="field"] select,html[data-area="field"] textarea{min-height:48px;font-size:16px}
 
 /* Vor-Ort-App (field): Smartphone in der Werkstatt */
 html[data-area="field"] .vo-dock a[aria-current=page],html[data-area="field"] .vo-dock a.active{
@@ -110,6 +114,6 @@ html[data-area="advisor"] .advisor-shell{max-width:1160px}
 
 /* Sheets: Kopfbereich als Griff mit Anfasser (nur kleine Bildschirme) */
 @media (max-width:720px){
-  dialog .modalhead{touch-action:none;position:relative}
+  dialog .modalhead{touch-action:none}
   dialog .modalhead::before{content:"";position:absolute;top:6px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:999px;background:color-mix(in srgb,var(--fg) 35%,transparent)}
 }

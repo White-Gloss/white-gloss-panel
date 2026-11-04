@@ -30,7 +30,7 @@
 .chat-msg.mine .chat-bubble{background:var(--chat-mine);color:var(--on-accent);border-bottom-right-radius:5px}
 .chat-msg.theirs .chat-bubble{background:var(--chat-theirs);color:var(--ink);border-bottom-left-radius:5px}
 .chat-text{margin:0;white-space:pre-wrap;user-select:text;-webkit-user-select:text}
-.chat-msg.mine .chat-text a{color:var(--accent)}
+.chat-msg.mine .chat-text a{color:var(--on-accent);text-decoration:underline}
 .chat-meta{display:flex;justify-content:flex-end;align-items:center;gap:4px;margin-top:2px;font-size:11px;line-height:1;opacity:.72;font-variant-numeric:tabular-nums}
 .chat-msg.mine .chat-meta{opacity:.8}
 .chat-tick{display:inline-flex}
@@ -50,7 +50,7 @@
 .chat-media.grid .chat-image img{height:150px;max-height:none}
 .chat-video{display:block;width:100%;max-width:300px;max-height:340px;border-radius:10px;background:#000}/* keep: Videofläche bleibt schwarz */
 .chat-file{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:10px;background:var(--scrim);color:inherit;text-decoration:none;min-width:200px}
-.chat-msg.mine .chat-file{background:color-mix(in srgb,var(--fg) 12%,transparent)}
+.chat-msg.mine .chat-file{background:color-mix(in srgb,var(--on-accent) 14%,transparent)}
 .chat-file span{display:grid;gap:2px;min-width:0}
 .chat-file strong{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chat-file small{font-size:11.5px;opacity:.75}
