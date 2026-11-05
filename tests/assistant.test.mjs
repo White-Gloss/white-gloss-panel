@@ -67,6 +67,30 @@ test('assistant can use another provider and rejects an unsafe address',async t=
   assert.equal(JSON.stringify(view).includes('synthetic-assistant-secret'),false);
   assert.ok(view.settings.providers.some(item=>item.id==='compatible'));
   assert.deepEqual(view.settings.providers.find(item=>item.id==='xai').models,['grok-4','grok-3']);
+  assert.deepEqual(view.settings.providers.find(item=>item.id==='gemini').models,['gemini-3.8-flash','gemini-2.5-flash-lite']);
   assert.equal((await f.call('/api/assistant/check',{})).status,200);
   assert.equal(checks[0].provider,'xai');assert.equal(checks[0].base,'https://api.x.ai/v1');assert.equal(checks[0].mode,'chat');
+});
+
+test('gemini reads one pdf receipt and other chat providers still refuse it',async()=>{
+  const {completeAssistant}=await import('../server/assistant.mjs');
+  const file='data:application/pdf;base64,'+Buffer.from('%PDF-1.7 synthetic').toString('base64');
+  const payload={model:'gemini-3.8-flash',input:[{role:'user',content:[{type:'input_file',filename:'beleg.pdf',file_data:file},{type:'input_text',text:'Lies den Beleg'}]}]};
+  const calls=[];
+  const original=globalThis.fetch;
+  globalThis.fetch=async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify({id:'ix_1',steps:[{content:[{text:'{"ok":true}'}]}]}),{status:200});};
+  try{
+    const data=await completeAssistant({},{provider:'gemini',mode:'chat',base:'https://generativelanguage.googleapis.com/v1beta/openai',apiKey:'gemini-test-key'},payload);
+    assert.equal(data.status,'completed');
+    assert.equal(data.output[0].content[0].text,'{"ok":true}');
+    assert.equal(calls.length,1);
+    assert.equal(calls[0].url,'https://generativelanguage.googleapis.com/v1beta/interactions');
+    assert.equal(calls[0].url.includes('key='),false);
+    assert.equal(calls[0].options.headers['x-goog-api-key'],'gemini-test-key');
+    assert.equal(calls[0].options.headers.Authorization,undefined);
+    const body=JSON.parse(calls[0].options.body);
+    assert.equal(body.input[0].mime_type,'application/pdf');
+    assert.equal(body.input[0].data.startsWith('data:'),false);
+    await assert.rejects(()=>completeAssistant({},{provider:'xai',mode:'chat',base:'https://api.x.ai/v1',apiKey:'x'},payload),/OpenAI oder Google Gemini/);
+  }finally{globalThis.fetch=original;}
 });
