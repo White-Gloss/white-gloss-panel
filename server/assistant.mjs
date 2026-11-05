@@ -27,6 +27,7 @@ const PROVIDERS={
   openrouter:{label:'OpenRouter',base:'https://openrouter.ai/api/v1',mode:'chat',models:['openai/gpt-4o-mini','x-ai/grok-4']},
   groq:{label:'Groq',base:'https://api.groq.com/openai/v1',mode:'chat',models:['llama-3.3-70b-versatile']},
   mistral:{label:'Mistral',base:'https://api.mistral.ai/v1',mode:'chat',models:['mistral-large-latest','pixtral-large-latest']},
+  gemini:{label:'Google / Gemini',base:'https://generativelanguage.googleapis.com/v1beta/openai',mode:'chat',models:['gemini-3.8-flash','gemini-2.5-flash-lite']},
   compatible:{label:'Andere KI',base:null,mode:'chat',models:[]}
 };
 export function assistantProviderChoices(){return Object.entries(PROVIDERS).map(([id,item])=>({id,label:item.label,models:item.models}));}
