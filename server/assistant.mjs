@@ -43,7 +43,7 @@ function chatBody(payload){
   for(const part of payload.input?.[0]?.content??[]){
     if(part.type==='input_text')content.push({type:'text',text:part.text});
     else if(part.type==='input_image')content.push({type:'image_url',image_url:{url:part.image_url}});
-    else if(part.type==='input_file')throw new AppError('PDF-Belege kann diese KI nicht direkt lesen. Dafür OpenAI nutzen oder ein Foto senden.',409);
+    else if(part.type==='input_file')throw new AppError('PDF-Belege kann diese KI nicht direkt lesen. Dafür OpenAI oder Google Gemini nutzen oder ein Foto senden.',409);
     else throw new AppError('Diese KI unterstützt den Inhalt nicht.',409);
   }
   return {model:payload.model,messages:[{role:'user',content}],response_format:{type:'json_object'},max_tokens:payload.max_output_tokens??2000};
@@ -52,8 +52,33 @@ function asResponses(data){
   const message=data.choices?.[0]?.message?.content,textValue=typeof message==='string'?message:JSON.stringify(message??'');
   return {id:data.id,status:data.choices?.[0]?.finish_reason==='stop'?'completed':'incomplete',model:data.model,output:[{type:'message',content:[{type:'output_text',text:textValue}]}]};
 }
+function geminiOutputText(data){
+  if(typeof data?.output_text==='string'&&data.output_text.trim())return data.output_text;
+  const steps=Array.isArray(data?.steps)?data.steps:[];
+  const content=steps.at(-1)?.content??[];
+  return (Array.isArray(content)?content:[]).map(item=>typeof item?.text==='string'?item.text:'').filter(Boolean).join('');
+}
+async function geminiDocument(config,payload){
+  const parts=payload.input?.flatMap(item=>item?.content??[])??[];
+  const files=parts.filter(part=>part.type==='input_file');
+  need(files.length===1,'Es kann nur ein PDF-Beleg geprüft werden.',409);
+  const match=/^data:application\/pdf;base64,([A-Za-z0-9+/=\s]+)$/.exec(files[0].file_data??'');
+  need(match,'PDF-Beleg hat kein lesbares Format.',409);
+  const bytes=Buffer.from(match[1],'base64');
+  need(bytes.length>0&&bytes.length<=12000000,'PDF-Beleg ist leer oder zu groß für die direkte Gemini-Prüfung.',413);
+  const prompt=parts.filter(part=>part.type==='input_text').map(part=>part.text).join('\n')+'\nAntworte ausschließlich mit dem JSON-Objekt, ohne Markdown.';
+  const result=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(90000),headers:{'Content-Type':'application/json','x-goog-api-key':config.apiKey,'Api-Revision':'2026-05-20'},body:JSON.stringify({model:payload.model,input:[{type:'document',data:match[1].replace(/\s/g,''),mime_type:'application/pdf'},{type:'text',text:prompt}]})});
+  need(![301,302,303,307,308].includes(result.status),'Weiterleitung der KI-Adresse ist nicht erlaubt.',502);
+  need(result.ok,'KI-Analyse fehlgeschlagen: HTTP '+result.status,502);
+  const raw=await result.text();need(raw.length<=2000000,'KI-Antwort ist zu groß.',502);
+  let data;try{data=JSON.parse(raw);}catch{throw new AppError('KI-Antwort konnte nicht gelesen werden.',502);}
+  const textValue=geminiOutputText(data).replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'').trim();
+  need(textValue,'KI-Antwort enthält kein lesbares Ergebnis.',502);
+  return {id:typeof data.id==='string'?data.id:'gemini-document',status:'completed',model:data.model||payload.model,output:[{type:'message',content:[{type:'output_text',text:textValue}]}]};
+}
 export async function completeAssistant(env,config,payload){
   if(env.ASSISTANT_ADAPTERS?.analyze)return env.ASSISTANT_ADAPTERS.analyze(config,payload);
+  if(config.provider==='gemini'&&payload.input?.some(item=>item?.content?.some(part=>part.type==='input_file')))return geminiDocument(config,payload);
   const responses=config.mode==='responses',result=await fetch(config.base+(responses?'/responses':'/chat/completions'),{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+config.apiKey},body:JSON.stringify(responses?payload:chatBody(payload)),redirect:'manual',signal:AbortSignal.timeout(90000)});
   need(![301,302,303,307,308].includes(result.status),'Weiterleitung der KI-Adresse ist nicht erlaubt.',502);need(result.ok,'KI-Analyse fehlgeschlagen: HTTP '+result.status,502);
   const raw=await result.text();need(raw.length<=2000000,'KI-Antwort ist zu groß.',502);let data;try{data=JSON.parse(raw);}catch{throw new AppError('KI-Antwort konnte nicht gelesen werden.',502);}return responses?data:asResponses(data);
