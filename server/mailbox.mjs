@@ -5,7 +5,7 @@ import {protect,unprotect} from '../src/worker.mjs';
 import {AppError,need,text} from '../src/domain.mjs';
 import {mailCenterSchema,centerData,changeState,createFolder,deleteFolder,saveNote,deleteNote,saveDraft,deleteDraft,crmLinks,threadMessages,suggestReply,listQuery,listMessages,folderCounts,crmHints,resolveAttachments,storeUpload,deleteUpload,pruneUploads,ATTACHMENT_LIMITS} from './mailbox-center.mjs';
 import {sanitizeInboundHtml,mailDocument,mailDocumentPolicy,sanitizeComposeHtml,htmlToText,outboundHtml} from './mail-html.mjs';
-import {mailPrep} from '../public/prep.js';
+import {mailPrep} from '../src/prep.mjs';
 
 const {simpleParser,ImapFlow,nodemailer}=await import(new URL('../dist/runtime/mailbox.mjs',import.meta.url).href);
 const ROOT='/api/mailbox';

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mailPrep,inquiryGaps,morningBrief,followupDraft,bankMatch} from '../public/prep.js';
+import {mailPrep,inquiryGaps,morningBrief,followupDraft,bankMatch} from '../src/prep.mjs';
 
 test('mail, inquiry, brief, follow-up and bank match stay suggestions', () => {
   assert.equal(mailPrep('Rechnung Oktober','').folder,'Rechnung');
