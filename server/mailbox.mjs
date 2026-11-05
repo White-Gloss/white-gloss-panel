@@ -5,6 +5,7 @@ import {protect,unprotect} from '../src/worker.mjs';
 import {AppError,need,text} from '../src/domain.mjs';
 import {mailCenterSchema,centerData,changeState,createFolder,deleteFolder,saveNote,deleteNote,saveDraft,deleteDraft,crmLinks,threadMessages,suggestReply,listQuery,listMessages,folderCounts,crmHints,resolveAttachments,storeUpload,deleteUpload,pruneUploads,ATTACHMENT_LIMITS} from './mailbox-center.mjs';
 import {sanitizeInboundHtml,mailDocument,mailDocumentPolicy,sanitizeComposeHtml,htmlToText,outboundHtml} from './mail-html.mjs';
+import {mailPrep} from '../public/prep.js';
 
 const {simpleParser,ImapFlow,nodemailer}=await import(new URL('../dist/runtime/mailbox.mjs',import.meta.url).href);
 const ROOT='/api/mailbox';
@@ -225,7 +226,7 @@ async function sendMail(env,input){
 
 function previewText(row){const raw=row.text_preview||htmlToText(row.html_preview??'');return String(raw).replace(/\s+/g,' ').trim().slice(0,220);}
 function messageView(row,hint){
-  return {id:row.id,direction:row.direction,folder:row.work_folder||row.folder,originalFolder:row.folder,fromName:row.from_name,fromAddress:row.from_address,to:parse(row.to_json),cc:parse(row.cc_json),subject:row.subject,preview:previewText(row),receivedAt:row.received_at,importedAt:row.imported_at,read:row.direction==='OUTBOUND'||Boolean(row.read_at),flagged:row.flagged===1,attachmentCount:row.attachment_count,receiptCount:row.receipt_count,isReply:Number(row.reference_count??0)>0,crm:hint??null};
+  return {id:row.id,direction:row.direction,folder:row.work_folder||row.folder,originalFolder:row.folder,fromName:row.from_name,fromAddress:row.from_address,to:parse(row.to_json),cc:parse(row.cc_json),subject:row.subject,preview:previewText(row),receivedAt:row.received_at,importedAt:row.imported_at,read:row.direction==='OUTBOUND'||Boolean(row.read_at),flagged:row.flagged===1,attachmentCount:row.attachment_count,receiptCount:row.receipt_count,isReply:Number(row.reference_count??0)>0,crm:hint??null,prep:row.direction==='INBOUND'?mailPrep(row.subject,previewText(row)):null};
 }
 const partner=row=>row.direction==='INBOUND'?row.from_address:String(parse(row.to_json)[0]?.address??'').toLowerCase();
 async function mailboxView(env,synthetic,params){
