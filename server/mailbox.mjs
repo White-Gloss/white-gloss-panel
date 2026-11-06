@@ -5,6 +5,7 @@ import {protect,unprotect} from '../src/worker.mjs';
 import {AppError,need,text} from '../src/domain.mjs';
 import {mailCenterSchema,centerData,changeState,createFolder,deleteFolder,saveNote,deleteNote,saveTask,setTaskDone,deleteTask,saveDraft,deleteDraft,crmLinks,threadMessages,suggestReply,listQuery,listMessages,folderCounts,crmHints,resolveAttachments,storeUpload,deleteUpload,pruneUploads,ATTACHMENT_LIMITS} from './mailbox-center.mjs';
 import {sanitizeInboundHtml,mailDocument,mailDocumentPolicy,sanitizeComposeHtml,htmlToText,outboundHtml} from './mail-html.mjs';
+import {notifyOwner} from './push.mjs';
 
 const {simpleParser,ImapFlow,nodemailer}=await import(new URL('../dist/runtime/mailbox.mjs',import.meta.url).href);
 const ROOT='/api/mailbox';
@@ -77,7 +78,7 @@ function validAttachment(bytes,mime){
   return bytes.toString('ascii',0,4)==='RIFF'&&bytes.toString('ascii',8,12)==='WEBP';
 }
 async function existingMessage(env,key){return env.DB.prepare('SELECT id FROM mail_messages WHERE dedupe_key=?').bind(key).first();}
-export async function ingestMessage(env,raw,locator,{synthetic=false}={}){
+export async function ingestMessage(env,raw,locator,{synthetic=false,notify=true}={}){
   const bytes=Buffer.from(raw);need(bytes.length>20&&bytes.length<=MAX_MAIL,'E-Mail ist leer oder größer als 25 MB.',413);
   const uid=Number(locator.uid),folder=text(locator.folder||'INBOX',180),uidValidity=text(locator.uidValidity||'0',80);
   need(Number.isSafeInteger(uid)&&uid>0&&folder&&uidValidity,'IMAP-Nachrichtenadresse ist ungültig.',502);
@@ -111,6 +112,7 @@ export async function ingestMessage(env,raw,locator,{synthetic=false}={}){
     const duplicate=await existingMessage(env,key);for(const storedId of stored)await env.BUCKET.delete(storedId).catch(()=>{});
     if(duplicate)return {id:duplicate.id,duplicate:true};throw error;
   }
+  if(!synthetic&&notify)await notifyOwner(env,'mail').catch(()=>({sent:0,failed:0,removed:0}));
   return {id,duplicate:false,attachments:attachments.filter(item=>item.documentId).length};
 }
 
@@ -150,10 +152,11 @@ export async function syncMailbox(env,{automatic=false}={}){
         if(await env.DB.prepare('SELECT id FROM mail_messages WHERE dedupe_key=?').bind(`INBOUND:1:INBOX:${uidValidity}:${entry.uid}`).first()){skipped++;continue;}
         const message=await client.fetchOne(entry.uid,{uid:true,source:true,size:true},{uid:true});
         if(!message||!message.source||message.size>MAX_MAIL){skipped++;continue;}
-        await ingestMessage(env,message.source,{folder:'INBOX',uid:entry.uid,uidValidity});imported++;
+        await ingestMessage(env,message.source,{folder:'INBOX',uid:entry.uid,uidValidity},{notify:false});imported++;
       }
     }finally{lock.release();}
     const at=new Date().toISOString();await env.DB.prepare('UPDATE mailbox_accounts SET last_sync_at=?,last_sync_error=NULL,updated_at=? WHERE id=1').bind(at,at).run();
+    if(imported>0)await notifyOwner(env,'mail').catch(()=>({sent:0,failed:0,removed:0}));
     return {checked,imported,skipped,message:`${imported} neue E-Mail${imported===1?'':'s'} übernommen; ${skipped} bereits vorhanden oder übersprungen.`};
   }catch(error){
     const detail=text(error?.code??error?.name??'Abruffehler',100);await env.DB.prepare('UPDATE mailbox_accounts SET last_sync_error=?,updated_at=? WHERE id=1').bind(detail,new Date().toISOString()).run();throw error instanceof AppError?error:connectionError('IMAP-Abruf',error);

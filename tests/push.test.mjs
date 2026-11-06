@@ -87,3 +87,12 @@ test('portal notices send only generic chat hints and synthetic orders never tri
   assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM chat_messages').first()).n,2);
   await chatNotificationsSettled();
 });
+
+test('mail and customer alerts stay generic',async t=>{
+  const f=await fixture(t);await register(f);
+  assert.deepEqual(await notifyOwner(f.env,'mail'),{sent:1,failed:0,removed:0});
+  const payload=JSON.parse(f.sends[0].payload);
+  assert.equal(payload.body,'Neue E-Mail im Panel.');
+  assert.equal(payload.url,'/#mailbox');
+  assert.doesNotMatch(payload.body,/@|Betreff|Kunde/);
+});
