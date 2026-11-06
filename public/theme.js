@@ -29,5 +29,5 @@
   try { window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', paint); } catch (e) { /* älterer Browser */ }
   if (document.body) paint(); else document.addEventListener('DOMContentLoaded', paint);
   // Das Panel zeichnet seine Leisten neu; die Beschriftung der Schalter folgt der Anzeige.
-  try { new MutationObserver(paint).observe(root, {childList: true, subtree: true}); } catch (e) { /* ohne Beobachter: Beschriftung bleibt allgemein */ }
+  try { new window.MutationObserver(paint).observe(root, {childList: true, subtree: true}); } catch (e) { /* ohne Beobachter: Beschriftung bleibt allgemein */ }
 })();
