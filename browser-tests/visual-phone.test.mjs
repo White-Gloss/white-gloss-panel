@@ -40,6 +40,8 @@ test('phone layout: equal header buttons, content clear of the tasks button, com
   if (clearance.pill) assert.ok(clearance.contentBottom <= clearance.pillTop, 'last content ends above the tasks button');
 
   await page.goto(origin + '/#mailbox'); await page.locator('.cc-head').waitFor();
+  // Der kompakte Kopf gilt im Mail-Bereich: erst den Posteingang öffnen (Start des Postfachs ist die Übersicht).
+  await page.locator('[data-cc-rail]').click(); await page.locator('.cc-rail [data-mail-folder="INBOX"]').click(); await page.locator('.cc-row[data-mail-open]').first().waitFor();
   const head = await page.evaluate(() => {
     const visible = el => { const r = el.getBoundingClientRect(); return r.width > 2 && r.height > 2 && getComputedStyle(el).display !== 'none'; };
     const conn = document.querySelector('.cc-connection');
