@@ -83,3 +83,7 @@ test('service worker shell contains every module the field app imports (offline 
   const missing = [...seen].filter(file => !shell.includes('/' + file));
   assert.deepEqual(missing, []);
 });
+
+test('the mail folder toggle uses its own icon, not a second hamburger', () => {
+  assert.match(read('mailbox.js'), /data-cc-rail aria-label="Ordner und Bereiche öffnen" aria-expanded="\$\{railOpen\}">\$\{icon\('inbox'\)\}/);
+});

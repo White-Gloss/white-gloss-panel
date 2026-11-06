@@ -196,3 +196,12 @@ button.primary,a.button.primary{border-radius:980px}
   .mobile-task[aria-current=page]{box-shadow:inset 0 -2px 0 var(--gold),var(--shadow-2)}
   .mailbox-root{padding-bottom:72px}
 }
+
+/* Handy: ruhigerer Mail-Kopf, gleich hohe Start-Knöpfe, Platz für den Aufgaben-Knopf */
+.overview-shell .action-center .card-title .primary,.overview-shell .action-center .card-title .smallbtn{min-height:44px;font-size:15px}
+@media (max-width:760px){
+  .cc[data-section="mail"] .cc-head h1{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .cc-head .eyebrow{display:none}
+  .cc-connection>span:last-child{display:none}
+  .content{padding-bottom:calc(var(--dock-height) + 96px + env(safe-area-inset-bottom,0px))}
+}
