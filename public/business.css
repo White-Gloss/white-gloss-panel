@@ -22,7 +22,7 @@
 .business-gallery button{width:100%;margin-top:5px}
 .business-photo-input{display:inline-flex;position:relative;align-items:center;justify-content:center;min-height:40px;padding:7px 13px;border:1px solid var(--line);border-radius:9px;font-weight:600;cursor:pointer;overflow:hidden}
 .business-photo-input input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
-.business-photo-input:focus-within{outline:3px solid var(--line)}
+.business-photo-input:focus-within{outline:3px solid var(--accent)}
 .business-portal-head{display:flex;align-items:end;justify-content:space-between;gap:16px;margin:16px 0}
 .business-portal-head h2{margin:0;font-size:23px;color:var(--fg)}
 .business-portal-head p{margin:4px 0 0;color:var(--muted)}

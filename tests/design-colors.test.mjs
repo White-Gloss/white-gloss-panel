@@ -65,3 +65,7 @@ for (const file of MIGRATED) {
     assert.equal(css, readFileSync(new URL('../public/' + file, import.meta.url), 'utf8'), `${file} still has replaceable colours`);
   });
 }
+
+test('focus outlines use the accent colour, not the faint hairline', () => {
+  assert.equal(t('a:focus-visible{outline:2px solid #bfcee0}'), 'a:focus-visible{outline:2px solid var(--accent)}');
+});

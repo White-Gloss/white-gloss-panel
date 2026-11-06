@@ -82,9 +82,12 @@ export function attachSheet(dialog, {onClose, reduceMotion = false, handle = '.m
     if (drag.samples.length > 6) drag.samples.shift();
     apply();
   };
-  const up = () => {
+  const up = e => {
     if (!drag) return;
-    const {samples} = drag, last = samples.at(-1);
+    const {samples} = drag;
+    // Das Loslassen zählt als letzte Probe: wer vor dem Loslassen stillhält, hat keine Wischgeschwindigkeit mehr.
+    if (e && Number.isFinite(e.timeStamp)) samples.push({t: e.timeStamp, y: Number.isFinite(e.clientY) ? e.clientY : samples.at(-1).y});
+    const last = samples.at(-1);
     const first = samples.find(s => s.t >= last.t - 100) ?? last;
     const velocity = last.t > first.t ? ((last.y - first.y) / (last.t - first.t)) * 1000 : 0;
     drag = null;
