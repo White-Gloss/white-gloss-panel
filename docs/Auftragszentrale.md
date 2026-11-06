@@ -100,8 +100,27 @@ Die acht Browsertests behalten alle bisherigen Assertions und prüfen zusätzlic
 keine Warnung ohne Änderung, sichtbare ausstehende Unterschrift, ausgewählte Fotos
 blockieren Navigation bei abgelehnter Warnung, geleerte Auswahl erlaubt Navigation.
 Screenshots umfassen Angebot & Termin sowie Rückgabe in Hell/Dunkel bei
-320/390/768/1440 px. Erneuter vollständiger GitHub-Lauf und visuelle Auswertung
-werden vor Abschluss im PR dokumentiert.
+320/390/768/1440 px.
+
+Run [42304948568](https://github.com/White-Gloss/white-gloss-panel/actions/runs/42304948568)
+besteht mit 700/700 Codetests und 67/67 Browserfällen; beide Releases übersprungen.
+Lokal: 698/699 bestanden, ausschließlich der unveränderte Root-Installertest rot.
+Die Plattformen sammeln unterschiedlich viele Tests; die GitHub-Prüfung ist maßgeblich.
+
+Die tatsächliche Screenshot-Auswertung fand zusätzlich abgeschnittene Tabletreiter,
+einen überlagernden mobilen Aufgabenknopf und die Überschrift „undefined“ bei einer
+offenen Angebotsunterschrift. Korrekturen: zweispaltige Auftragsnavigation bis 1200 px,
+kein schwebender Aufgabenknopf innerhalb eines Auftrags (Aufgaben weiterhin im
+Communication Center), vollständige Angebotsbezeichnung. Browserprüfungen sichern
+alle drei Punkte zusätzlich ab. Der finale Lauf und die erneute Sichtprüfung werden
+im bestehenden Draft-PR verlinkt.
+
+Visuelle Kriterien: Hell/Dunkel, Angebot und Rückgabe, klare Trennung zwischen
+„Kein Protokoll“ und „Übersprungen“, Warnung bei fehlender Vorab-Unterschrift,
+unbestätigter Terminvorschlag, mindestens 48 px große Auftragsreiter, Tastaturwechsel
+und keine horizontale Seitenüberbreite. Lange Protokollformulare bleiben vertikal
+scrollbar. Native Datei-/Datumsfelder folgen der Browserlokalisierung; Screenshots
+aus dem englischen Chromium-Runner sind kein Nachweis deutscher Geräte-Lokalisierung.
 
 Offen bleiben die persönliche Designabnahme und reale Geräteprüfungen für
 Safari/iOS, Android, macOS und Windows. Kein lokaler Website-Server gestartet,

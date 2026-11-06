@@ -11,7 +11,9 @@ Installertests ist in GitHub-Lauf 42301277197 erfolgreich. Die acht Browserfehle
 wurden auf ein fälschlich als geändert behandeltes leeres Fotoformular eingegrenzt.
 Ein roter/grüner Regressionstest belegt die Korrektur; der Schutz ausgewählter
 Fotos und der Signaturformulare bleibt erhalten. Die Browserassertions werden
-nicht abgeschwächt. Erneute CI- und visuelle Ergebnisse stehen im PR.
+nicht abgeschwächt. Run 42304948568 besteht mit 700/700 Code- und 67/67 Browsertests.
+Die Screenshot-Prüfung führte zusätzlich zu Tablet-, Überlagerungs- und
+Unterschriftslabel-Korrekturen. Der finale Nachweis steht im PR.
 
 Details und offene Abnahmepunkte: [Auftragszentrale](Auftragszentrale.md).
 Persönliche Designabnahme und Produktionsfreigabe erfolgen separat.

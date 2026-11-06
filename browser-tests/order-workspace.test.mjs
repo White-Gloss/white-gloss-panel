@@ -24,6 +24,9 @@ for(const colorScheme of ['dark','light'])for(const width of [320,390,768,1440])
     }
     await page.locator('#order-tab-source').click();await page.locator('#order-tab-source').focus();await page.keyboard.press('ArrowRight');
     assert.equal(await page.locator('#order-tab-price').evaluate(el=>el===document.activeElement),true);
+    assert.equal(await page.locator('.pending h3').textContent(),'Angebot · wartet auf Kundenunterschrift');
+    assert.equal(await page.locator('.mobile-task').isVisible(),false);
+    assert.ok(await page.locator('.order-tabs').evaluate(el=>el.scrollWidth<=el.clientWidth),'all areas fit without horizontal scrolling');
     await f.screenshot(`order-workspace-${colorScheme}-${width}`);
     const photo=page.locator('#bookingphotoform input[type=file]');
     await photo.setInputFiles({name:'test.png',mimeType:'image/png',buffer:Buffer.from('synthetic fixture')});

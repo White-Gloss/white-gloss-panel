@@ -249,3 +249,10 @@ button.primary,a.button.primary{border-radius:980px}
   .tabs.order-tabs button{min-width:0;min-height:76px;padding:12px;border-bottom-width:2px}
 }
 @media(max-width:380px){.order-overview{grid-template-columns:1fr}}
+
+/* Keep every order area visible on tablets; avoid a floating task overlay. */
+.mobile-task[hidden]{display:none}
+@media(min-width:761px) and (max-width:1200px){
+  .tabs.order-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));overflow:visible}
+  .tabs.order-tabs button{min-width:0}
+}
