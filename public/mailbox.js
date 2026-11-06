@@ -112,7 +112,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   function sectionTitle(){if(ui.section!=='mail')return SECTIONS.find(([id])=>id===ui.section)?.[1]??'Übersicht';return FOLDER_LABEL[ui.folder]??ui.folder;}
   function drawAll(){
     root.innerHTML=`<div class="cc ${railOpen?'cc-rail-open':''}" data-cc data-section="${ui.section}">
-      <header class="cc-head"><div class="cc-head-title"><button type="button" class="cc-icon-btn cc-rail-toggle" data-cc-rail aria-label="Ordner und Bereiche öffnen" aria-expanded="${railOpen}">${icon('menu')}</button><div><span class="eyebrow">COMMUNICATION CENTER${synthetic?' · TESTBEREICH':''}</span><h1 data-cc-title>${esc(sectionTitle())}</h1></div></div><div class="cc-head-status" data-region="status"></div></header>
+      <header class="cc-head"><div class="cc-head-title"><button type="button" class="cc-icon-btn cc-rail-toggle" data-cc-rail aria-label="Ordner und Bereiche öffnen" aria-expanded="${railOpen}">${icon('inbox')}</button><div><span class="eyebrow">COMMUNICATION CENTER${synthetic?' · TESTBEREICH':''}</span><h1 data-cc-title>${esc(sectionTitle())}</h1></div></div><div class="cc-head-status" data-region="status"></div></header>
       <div class="cc-shell"><aside class="cc-rail" data-region="rail" aria-label="Communication Center"></aside><button type="button" class="cc-rail-backdrop" data-cc-rail-close aria-label="Navigation schließen" tabindex="-1"></button><section class="cc-main" data-region="main"></section></div>
       <div data-region="compose"></div><div data-region="settings"></div><p class="cc-statusline" data-mailbox-message role="status" aria-live="polite"></p></div>`;
     drawStatus();drawRail();drawMain();drawCompose();drawSettings();

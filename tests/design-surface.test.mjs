@@ -110,3 +110,21 @@ test('print block restores light status tokens, no shadow ink and light colour s
   assert.match(print, /--shadow-ink:\s*transparent/);
   assert.match(print, /color-scheme:\s*light/);
 });
+
+const phone = /@media \(max-width:\s*760px\)\s*\{([\s\S]*?)\n\}/g;
+const phoneRules = () => [...surface.matchAll(phone)].map(m => m[1]).join('\n');
+
+test('mail header is compact on phones: one title, no kicker, status as a dot', () => {
+  const css = phoneRules();
+  assert.match(css, /\.cc\[data-section="mail"\] \.cc-head h1\s*\{[^}]*position:\s*absolute/);
+  assert.match(css, /\.cc-head \.eyebrow\s*\{[^}]*display:\s*none/);
+  assert.match(css, /\.cc-connection>span:last-child\s*\{[^}]*display:\s*none/);
+});
+
+test('phone content leaves room for the floating tasks button', () => {
+  assert.match(phoneRules(), /\.content\s*\{[^}]*padding-bottom:\s*calc\(var\(--dock-height\)\s*\+\s*(9\d|1\d\d)px/);
+});
+
+test('the overview header buttons share one height', () => {
+  assert.match(surface, /\.overview-shell \.action-center \.card-title \.primary,\s*\.overview-shell \.action-center \.card-title \.smallbtn\s*\{[^}]*min-height:\s*44px/);
+});
