@@ -70,3 +70,23 @@ belegt; seine Ausführung wird in diesem Abschnitt nicht ausgelöst.
 Verwendet: GitHub-Werkzeuge, Browser Use, Product Design (Index, Kontext-Preflight,
 Audit-Regeln), Hostinger-Anleitung zur Zugangsprüfung, bestehende Node-/jsdom-
 Prüfwerkzeuge. Keine zusätzlichen Plugins oder Projektabhängigkeiten installiert.
+
+## Tatsächlicher Prüfstand dieser Sitzung
+
+- Commit des ersten Abschnitts: `e478d39` (lokaler Entwicklungsbranch).
+- 46 gezielte Tests: bestanden.
+- Lint, Typprüfung, Build, `node --check dist/server/index.js`, Syntax des neuen
+  Browsertests und `git diff --check`: bestanden.
+- Gesamtsuite: 698 Tests, davon 697 bestanden und ein Fehler im unveränderten
+  `tests/deploy-installer.test.mjs:79`. Die Test-Fixture übernimmt die aktuelle UID;
+  diese Umgebung läuft als UID 0. Der Installer lehnt UID 0 bestimmungsgemäß ab
+  („Eigener unprivilegierter Panelbenutzer erforderlich“). `runuser -u nobody`
+  wird von der Umgebung mit „cannot set groups: Operation not permitted“ abgelehnt.
+  Dieser Fall ist auf dem vorgesehenen unprivilegierten GitHub-Runner noch zu prüfen.
+- Kein Website-Server gestartet. Keine echten Kundenaktionen ausgeführt.
+- Push durch automatische Freigabeprüfung blockiert: öffentliche Sichtbarkeit von
+  Projektcode und Dokumentation verlangt eine ausdrückliche Bestätigung.
+- Deshalb: kein Pull Request angelegt, keine GitHub-Browserläufe, keine visuelle
+  Abnahme, kein Merge und kein Deployment. PR-Text ist lokal vorbereitet.
+- Nächster Schritt: Freigabe ausschließlich für den öffentlichen Entwicklungsbranch
+  und Draft-PR einholen, anschließend GitHub-Prüfungen und Screenshots auswerten.
