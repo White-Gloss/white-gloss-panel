@@ -39,6 +39,11 @@ export async function mailCenterSchema(env){
     `CREATE TABLE IF NOT EXISTS mail_uploads(
       id TEXT PRIMARY KEY,synthetic INTEGER NOT NULL CHECK(synthetic IN (0,1)),filename TEXT NOT NULL,mime TEXT NOT NULL,
       size INTEGER NOT NULL,sha256 TEXT NOT NULL,created_at TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS mail_tasks(
+      id TEXT PRIMARY KEY,synthetic INTEGER NOT NULL CHECK(synthetic IN (0,1)),title TEXT NOT NULL,body TEXT NOT NULL DEFAULT '',
+      due_date TEXT,done INTEGER NOT NULL DEFAULT 0 CHECK(done IN (0,1)),important INTEGER NOT NULL DEFAULT 0 CHECK(important IN (0,1)),
+      order_id TEXT,message_id TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
+    'CREATE INDEX IF NOT EXISTS mail_tasks_open ON mail_tasks(synthetic,done,due_date)',
     'CREATE INDEX IF NOT EXISTS mail_notes_order ON mail_notes(order_id,updated_at DESC)',
     'CREATE INDEX IF NOT EXISTS mail_thread_reference ON mail_thread_links(reference_hash,message_id)',
     'CREATE INDEX IF NOT EXISTS mail_state_folder ON mail_message_state(work_folder)'
@@ -52,7 +57,8 @@ export async function centerData(env,synthetic){
   const notes=(await env.DB.prepare(`SELECT n.*,o.wg,o.status order_status,m.subject,c.data customer_data FROM mail_notes n LEFT JOIN orders o ON o.id=n.order_id LEFT JOIN mail_messages m ON m.id=n.message_id LEFT JOIN customers c ON c.id=n.customer_id
     WHERE n.synthetic=? ORDER BY n.pinned DESC,n.updated_at DESC LIMIT 500`).bind(synthetic).all()).results.map(row=>{const customer=json(row.customer_data,null);return {id:row.id,body:row.body,orderId:row.order_id,wg:row.wg,orderStatus:row.order_status,messageId:row.message_id,subject:row.subject,customerId:row.customer_id,customerName:customer?customer.name||customer.company||'Kunde':null,pinned:row.pinned===1,createdAt:row.created_at,updatedAt:row.updated_at};});
   const drafts=(await env.DB.prepare('SELECT * FROM mail_drafts WHERE synthetic=? ORDER BY updated_at DESC LIMIT 200').bind(synthetic).all()).results.map(draftView);
-  return {folders,notes,drafts};
+  const tasks=(await env.DB.prepare(`SELECT t.*,o.wg FROM mail_tasks t LEFT JOIN orders o ON o.id=t.order_id WHERE t.synthetic=? ORDER BY t.done ASC,t.important DESC,COALESCE(t.due_date,'9999-12-31'),t.updated_at DESC LIMIT 500`).bind(synthetic).all()).results.map(row=>({id:row.id,title:row.title,body:row.body,due:row.due_date,done:row.done===1,important:row.important===1,orderId:row.order_id,wg:row.wg,messageId:row.message_id,createdAt:row.created_at,updatedAt:row.updated_at}));
+  return {folders,notes,drafts,tasks};
 }
 function draftView(row){return {id:row.id,to:row.recipient,cc:row.cc??'',bcc:row.bcc??'',subject:row.subject,text:row.body,html:row.html_body??'',attachments:json(row.attachments_json,[]),mode:row.mode??'new',replyTo:row.reply_to,createdAt:row.created_at,updatedAt:row.updated_at};}
 
@@ -164,6 +170,21 @@ export async function saveNote(env,input,synthetic){
     .bind(id,synthetic,body,orderId,messageId,customerId,pinned,old?.created_at??at,at).run();return {ok:true,id};
 }
 export async function deleteNote(env,input,synthetic){need(UUID.test(input.id??''),'Notiz nicht gefunden.',404);await env.DB.prepare('DELETE FROM mail_notes WHERE id=? AND synthetic=?').bind(input.id,synthetic).run();return {ok:true};}
+
+export async function saveTask(env,input,synthetic){
+  const title=text(input.title,200);need(title,'Aufgabentitel fehlt.');const id=input.id?text(input.id,36):randomUUID();need(UUID.test(id),'Aufgaben-ID ist ungültig.');
+  const body=text(input.body??'',10000),due=input.due?text(input.due,10):null,orderId=input.orderId?text(input.orderId,36):null,messageId=input.messageId?text(input.messageId,36):null;
+  need(!due||/^\d{4}-\d{2}-\d{2}$/.test(due),'Fälligkeit ist ungültig.');need(!orderId||UUID.test(orderId),'Auftragsverknüpfung ist ungültig.');need(!messageId||UUID.test(messageId),'E-Mail-Verknüpfung ist ungültig.');
+  if(orderId)need(await env.DB.prepare('SELECT id FROM orders WHERE id=? AND synthetic=?').bind(orderId,synthetic).first(),'Auftrag nicht gefunden.',404);
+  if(messageId)need(await ownMessage(env,messageId,synthetic),'E-Mail nicht gefunden.',404);
+  const at=new Date().toISOString(),old=await env.DB.prepare('SELECT * FROM mail_tasks WHERE id=? AND synthetic=?').bind(id,synthetic).first();if(input.id)need(old,'Aufgabe nicht gefunden.',404);
+  const done=input.done===undefined?old?.done??0:input.done===true?1:0,important=input.important===undefined?old?.important??0:input.important===true?1:0;
+  await env.DB.prepare(`INSERT INTO mail_tasks(id,synthetic,title,body,due_date,done,important,order_id,message_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET title=excluded.title,body=excluded.body,due_date=excluded.due_date,done=excluded.done,important=excluded.important,order_id=excluded.order_id,message_id=excluded.message_id,updated_at=excluded.updated_at`)
+    .bind(id,synthetic,title,body,due,done,important,orderId,messageId,old?.created_at??at,at).run();return {ok:true,id};
+}
+export async function setTaskDone(env,input,synthetic){need(UUID.test(input.id??''),'Aufgabe nicht gefunden.',404);const old=await env.DB.prepare('SELECT id FROM mail_tasks WHERE id=? AND synthetic=?').bind(input.id,synthetic).first();need(old,'Aufgabe nicht gefunden.',404);await env.DB.prepare('UPDATE mail_tasks SET done=?,updated_at=? WHERE id=? AND synthetic=?').bind(input.done===true?1:0,new Date().toISOString(),input.id,synthetic).run();return {ok:true};}
+export async function deleteTask(env,input,synthetic){need(UUID.test(input.id??''),'Aufgabe nicht gefunden.',404);await env.DB.prepare('DELETE FROM mail_tasks WHERE id=? AND synthetic=?').bind(input.id,synthetic).run();return {ok:true};}
 
 // Anhänge: eigene Uploads oder bereits archivierte Anhänge (Weiterleiten, erneuter Versand).
 export async function resolveAttachments(env,input,synthetic){

@@ -200,6 +200,14 @@
 .cc-note.pinned{border-color:var(--warn);background:var(--warn-bg)}
 .cc-note p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13.5px;line-height:1.6;color:var(--wg-ink)}
 .cc-note footer{display:grid;gap:8px}.cc-note footer small{font-size:11px;color:var(--wg-subtle)}.cc-note footer>div{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.cc-task-list,.cc-task-done{display:grid;gap:8px}
+.cc-task{display:grid;grid-template-columns:36px 1fr auto;gap:10px;align-items:start;padding:12px 14px;background:var(--wg-paper);border:1px solid var(--wg-rule);border-radius:var(--cc-radius)}
+.cc-task.important{border-color:var(--warn)}
+.cc-task.done strong,.cc-task.done p{text-decoration:line-through;color:var(--wg-subtle)}
+.cc-task-check{width:28px;height:28px;min-height:28px;padding:0!important;border:1px solid var(--wg-rule)!important;border-radius:50%;background:transparent!important;color:transparent!important}
+.cc-task-check.on{color:var(--wg-ink)!important;border-color:var(--wg-ink)!important}
+.cc-task-body{display:grid;gap:3px;min-width:0}.cc-task-body p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.5}.cc-task-body small{color:var(--wg-subtle);font-size:11.5px}
+.cc-task-tools{display:flex;gap:4px}.cc-task-done{margin-top:8px}
 
 /* Editor */
 .cc-compose-layer{position:fixed;inset:0;z-index:70;display:grid;place-items:center;padding:24px;background:var(--scrim)}
