@@ -147,3 +147,44 @@ body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:-.
 .overview-shell .action-item,.overview-shell .agenda-item{border-radius:14px;background:var(--wg-paper)}
 .overview-shell .overview-orders,.card,.operations-panel,.stat{border-radius:16px}
 button.primary,a.button.primary{border-radius:980px}
+
+/* Aufgaben unter den E-Mails: ruhige Platinfläche, Gold nur als Markierung. */
+.cc-tasks{display:grid;gap:22px;max-width:760px}
+.cc-task-hero{display:grid;gap:14px}
+.cc-task-kicker{margin:0;font-size:11px;font-weight:650;letter-spacing:.14em;text-transform:uppercase;color:var(--gold)}
+.cc-tasks .cc-section-head{padding:0}
+.cc-tasks .cc-section-head h2{margin:0;font-size:34px;font-weight:600;letter-spacing:-.035em}
+.cc-tasks .cc-section-head small{display:block;margin-top:4px;color:var(--muted)}
+.cc-task-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.cc-task-stat{appearance:none;width:100%;padding:14px 16px 12px;border:1px solid var(--line);border-radius:16px;background:var(--surface);box-shadow:var(--shadow-1);color:inherit;font:inherit;text-align:left;cursor:pointer}
+.cc-task-stat.active{border-color:color-mix(in srgb,var(--gold) 62%,var(--line));box-shadow:inset 0 -2px 0 var(--gold),var(--shadow-1)}
+.cc-task-stat span{display:block;font-size:11px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.cc-task-stat strong{display:block;margin-top:6px;font-size:26px;font-weight:600;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.cc-task-compose{display:grid;gap:8px;padding:14px;border:1px solid var(--line);border-radius:18px;background:var(--surface);box-shadow:var(--shadow-1)}
+.cc-task-quick{display:flex;gap:8px;align-items:center}
+.cc-task-quick input{flex:1;min-width:0;min-height:48px;border:0;background:transparent;font-size:17px;font-weight:600;letter-spacing:-.02em}
+.cc-task-quick .primary{flex:none;min-height:44px;padding:0 16px}
+.cc-task-more{justify-self:start;min-height:36px;padding:0 2px;border:0;background:transparent;color:var(--muted);font-size:13px}
+.cc-tasks .cc-task-check{width:44px;height:44px;min-height:44px}
+.cc-task-tools{display:flex;gap:0}
+.cc-task-tools .cc-icon-btn{width:44px;height:44px;min-height:44px}
+.cc-task-star.on{color:var(--gold)}
+.cc-task-star.on .cc-icon{fill:var(--gold);stroke:var(--gold)}
+.cc-tasks #cc-task-title{border:0;background:transparent;font-size:18px;font-weight:600;letter-spacing:-.02em;padding:2px 2px 0}
+.cc-tasks #cc-task-body{min-height:64px;border:0;background:transparent;padding:2px}
+.cc-task{grid-template-columns:44px minmax(0,1fr) auto;align-items:center;padding:14px 16px;border-radius:16px;background:var(--surface);box-shadow:var(--shadow-1)}
+.cc-task.important{border-color:color-mix(in srgb,var(--gold) 46%,var(--line));box-shadow:inset 3px 0 0 var(--gold),var(--shadow-1)}
+.cc-task-check{border-color:color-mix(in srgb,var(--gold) 42%,var(--line))!important}
+.cc-task-check.on{background:var(--accent)!important;color:var(--on-accent)!important;border-color:var(--accent)!important}
+.cc-task-body small{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.cc-due,.cc-mark{display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border-radius:980px;background:var(--elevated);color:var(--fg);font-size:11px;letter-spacing:.01em}
+.cc-due.quiet,.cc-mark.quiet{color:var(--muted)}
+.cc-mark:not(.quiet){color:var(--gold);background:color-mix(in srgb,var(--gold) 16%,transparent)}
+.cc-tasks .cc-notes{margin-top:6px;padding-top:18px;border-top:1px solid var(--line)}
+.cc-tasks .cc-notes h2{font-size:22px;font-weight:600;letter-spacing:-.03em}
+.cc-tasks .cc-note{border-radius:16px;box-shadow:var(--shadow-1)}
+@media (max-width:760px){
+  .cc-tasks .cc-section-head h2{font-size:28px}
+  .cc-task{grid-template-columns:44px minmax(0,1fr)}
+  .cc-task-tools{grid-column:2}
+}
