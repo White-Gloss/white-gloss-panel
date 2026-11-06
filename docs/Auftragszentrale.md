@@ -71,22 +71,38 @@ Verwendet: GitHub-Werkzeuge, Browser Use, Product Design (Index, Kontext-Preflig
 Audit-Regeln), Hostinger-Anleitung zur Zugangsprüfung, bestehende Node-/jsdom-
 Prüfwerkzeuge. Keine zusätzlichen Plugins oder Projektabhängigkeiten installiert.
 
-## Tatsächlicher Prüfstand dieser Sitzung
+## Prüfstand und Fehlerkorrektur
 
-- Commit des ersten Abschnitts: `e478d39` (lokaler Entwicklungsbranch).
-- 46 gezielte Tests: bestanden.
-- Lint, Typprüfung, Build, `node --check dist/server/index.js`, Syntax des neuen
-  Browsertests und `git diff --check`: bestanden.
-- Gesamtsuite: 698 Tests, davon 697 bestanden und ein Fehler im unveränderten
-  `tests/deploy-installer.test.mjs:79`. Die Test-Fixture übernimmt die aktuelle UID;
-  diese Umgebung läuft als UID 0. Der Installer lehnt UID 0 bestimmungsgemäß ab
-  („Eigener unprivilegierter Panelbenutzer erforderlich“). `runuser -u nobody`
-  wird von der Umgebung mit „cannot set groups: Operation not permitted“ abgelehnt.
-  Dieser Fall ist auf dem vorgesehenen unprivilegierten GitHub-Runner noch zu prüfen.
-- Kein Website-Server gestartet. Keine echten Kundenaktionen ausgeführt.
-- Push durch automatische Freigabeprüfung blockiert: öffentliche Sichtbarkeit von
-  Projektcode und Dokumentation verlangt eine ausdrückliche Bestätigung.
-- Deshalb: kein Pull Request angelegt, keine GitHub-Browserläufe, keine visuelle
-  Abnahme, kein Merge und kein Deployment. PR-Text ist lokal vorbereitet.
-- Nächster Schritt: Freigabe ausschließlich für den öffentlichen Entwicklungsbranch
-  und Draft-PR einholen, anschließend GitHub-Prüfungen und Screenshots auswerten.
+Draft-PR [#63](https://github.com/White-Gloss/white-gloss-panel/pull/63) ist auf
+`codex/wg-ux-001-order-workspace` veröffentlicht. Branch-Updates sind ausdrücklich
+freigegeben; Merge und Deployment bleiben ausgeschlossen. Die frühere Push-Sperre
+ist nach der ausdrücklichen Betreiberfreigabe aufgehoben.
+
+Run [42301277197](https://github.com/White-Gloss/white-gloss-panel/actions/runs/42301277197)
+bestätigt die vollständige Codeprüfung einschließlich des Installertests. Der lokale
+Fehler (UID 0 wird vom Installer bestimmungsgemäß abgelehnt) war umgebungsbedingt;
+der Test wird weder übersprungen noch abgeschwächt. Beide Release-Jobs wurden
+übersprungen. Acht von 67 Browserfällen scheiterten am Wechsel aus Angebot & Termin.
+
+Ursache: `markFormsSaved` übersprang das Fotoformular, `hasUnsavedForms` prüfte es
+jedoch trotzdem. Sein fehlender Ausgangszustand ließ selbst ein leeres Formular
+als ungespeichert erscheinen. Playwright verwirft unbehandelte Bestätigungsdialoge;
+damit blieb der aktive Reiter unverändert. Die älteren jsdom-Fälle hatten den
+Upload nicht, weil die Worker-Fixture keine eigenständige Authentifizierung meldet.
+
+Reproduktion: zusätzlicher jsdom-Test mit exakt diesem Formular und abgelehntem
+Bestätigungsdialog schlug vor der Korrektur mit `false !== true` fehl. Nach der
+Korrektur passiert unberührte Navigation ohne Dialog; ausgewählte Dateien bleiben
+vor Verwerfen geschützt. Dateiauswahl wird anhand Name, Größe, Typ und
+Änderungsdatum erkannt. Signaturformulare behalten ihren bisherigen Schutz.
+
+Die acht Browsertests behalten alle bisherigen Assertions und prüfen zusätzlich:
+keine Warnung ohne Änderung, sichtbare ausstehende Unterschrift, ausgewählte Fotos
+blockieren Navigation bei abgelehnter Warnung, geleerte Auswahl erlaubt Navigation.
+Screenshots umfassen Angebot & Termin sowie Rückgabe in Hell/Dunkel bei
+320/390/768/1440 px. Erneuter vollständiger GitHub-Lauf und visuelle Auswertung
+werden vor Abschluss im PR dokumentiert.
+
+Offen bleiben die persönliche Designabnahme und reale Geräteprüfungen für
+Safari/iOS, Android, macOS und Windows. Kein lokaler Website-Server gestartet,
+keine realen Kundenaktionen und kein Produktionsrelease.

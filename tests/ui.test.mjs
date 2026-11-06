@@ -708,3 +708,24 @@ test('order workspace keeps skipped intake independent, persists annotation and 
   ui.$('#order-tab-source').dispatchEvent(new ui.w.KeyboardEvent('keydown',{key:'End',bubbles:true}));await ui.settle();assert.equal(ui.w.document.activeElement.id,'order-tab-notes');
   assert.deepEqual(ui.errors,[]);
 });
+
+test('empty booking photo form does not block navigation but selected files remain protected',async t=>{
+  const ui=await boot(t,{page:'index.html',script:'app.js'});
+  await ui.click('[data-click="test"]');await ui.click('[data-click="create"]');
+  ui.fill(ui.$('#createform'),{name:'Foto Navigation Test'});await ui.submit('#createform');
+  await ui.click('#order-tab-price');
+  // The standalone runtime renders this upload form; this worker fixture does not.
+  // Insert that exact form shape to exercise the same observer and navigation guard.
+  ui.$('.detail').insertAdjacentHTML('beforeend','<form id="bookingphotoform"><input name="bookingphotos" type="file" multiple></form>');
+  await ui.settle();const confirm=t.mock.method(ui.w,'confirm',()=>false);
+  await ui.click('#order-tab-intake');
+  assert.equal(ui.$('#order-tab-intake').getAttribute('aria-selected'),'true','untouched photo upload must not block leaving price');
+  assert.equal(confirm.mock.callCount(),0);
+  await ui.click('#order-tab-price');
+  ui.$('.detail').insertAdjacentHTML('beforeend','<form id="bookingphotoform"><input name="bookingphotos" type="file" multiple></form>');
+  await ui.settle();const input=ui.$('#bookingphotoform input');
+  Object.defineProperty(input,'files',{configurable:true,value:[new ui.w.File(['synthetic photo'],'test.png',{type:'image/png',lastModified:1})]});
+  await ui.click('#order-tab-return');assert.equal(ui.$('#order-tab-price').getAttribute('aria-selected'),'true');assert.equal(confirm.mock.callCount(),1);
+  confirm.mock.mockImplementation(()=>true);await ui.click('#order-tab-return');assert.equal(ui.$('#order-tab-return').getAttribute('aria-selected'),'true');
+  assert.deepEqual(ui.errors,[]);
+});
