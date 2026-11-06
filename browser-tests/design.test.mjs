@@ -10,7 +10,7 @@ const pages = [
   {name: 'kunde', path: '/kunde', area: 'customer', identity: customer},
   {name: 'kanzlei', path: '/kanzlei', area: 'advisor'}
 ];
-const background = {dark: 'rgb(11, 13, 16)', light: 'rgb(245, 243, 238)'};
+const background = {dark: 'rgb(14, 18, 24)', light: 'rgb(245, 243, 238)'};
 const viewports = [{width: 390, height: 844}, {width: 1366, height: 800}];
 
 for (const scheme of ['dark', 'light']) for (const viewport of viewports) for (const spec of pages) {

@@ -59,7 +59,7 @@ button:active,a.button:active{transform:scale(.97);transition:transform 100ms ea
 
 /* Zugänglichkeit */
 @media (prefers-reduced-motion: reduce){
-  *,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important}
+  *,*::before,*::after{transition-duration:0s!important;animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important}
   button:active,a.button:active{transform:none}
 }
 @media (prefers-contrast: more){
@@ -68,7 +68,7 @@ button:active,a.button:active{transform:scale(.97);transition:transform 100ms ea
 
 /* Druck und PDF-Ansichten immer hell auf Weiß */
 @media print{
-  :root{
+  :root,:root[data-theme]{
     --bg:#ffffff;--surface:#ffffff;--elevated:#f1f1ef;--fg:#14181d;--muted:#4a525c;
     --accent:#1b2530;--on-accent:#ffffff;--gold:#7a5f26;--line:rgba(20,24,29,.25);
     --glass:#ffffff;--shadow-1:none;--shadow-2:none;--shadow-ink:transparent;
@@ -205,3 +205,24 @@ button.primary,a.button.primary{border-radius:980px}
   .cc-connection>span:last-child{display:none}
   .content{padding-bottom:calc(var(--dock-height) + 96px + env(safe-area-inset-bottom,0px))}
 }
+
+/* Tag/Nacht-Schalter: Sonne in der Nacht-Anzeige (Wechsel zu Tag), Mond in der Tag-Anzeige */
+.theme-toggle{display:inline-flex;align-items:center;justify-content:center;width:44px;min-width:44px;height:44px;padding:0;border:1px solid var(--line);border-radius:var(--radius-s);background:var(--surface);color:var(--fg)}
+.theme-toggle .icon{width:20px;height:20px}
+.theme-toggle .ico-sun{display:inline-flex}
+.theme-toggle .ico-moon{display:none}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]) .theme-toggle .ico-sun{display:none}
+  :root:not([data-theme="dark"]) .theme-toggle .ico-moon{display:inline-flex}
+}
+:root[data-theme="light"] .theme-toggle .ico-sun{display:none}
+:root[data-theme="light"] .theme-toggle .ico-moon{display:inline-flex}
+:root[data-theme="dark"] .theme-toggle .ico-sun{display:inline-flex}
+:root[data-theme="dark"] .theme-toggle .ico-moon{display:none}
+.vo-top .theme-toggle{flex:none}
+
+/* Mail-Ansicht: das Postfach hat eine eigene Suche, die obere entfällt */
+.workspace[data-screen="mailbox"] .topbar .search{display:none}
+
+/* Abmelden im Seitenmenü */
+.sidebar footer .logout{margin-top:12px;width:100%;min-height:44px}

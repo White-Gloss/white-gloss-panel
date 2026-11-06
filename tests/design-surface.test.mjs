@@ -128,3 +128,9 @@ test('phone content leaves room for the floating tasks button', () => {
 test('the overview header buttons share one height', () => {
   assert.match(surface, /\.overview-shell \.action-center \.card-title \.primary,\s*\.overview-shell \.action-center \.card-title \.smallbtn\s*\{[^}]*min-height:\s*44px/);
 });
+
+test('reduced motion switches transitions off instead of creating tiny ones', () => {
+  const block = /@media \(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*?)\n\}/.exec(surface)[1];
+  assert.match(block, /transition-duration:\s*0s\s*!important/);
+  assert.doesNotMatch(block, /transition-duration:\s*\.01ms/);
+});
