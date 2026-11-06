@@ -729,3 +729,14 @@ test('empty booking photo form does not block navigation but selected files rema
   confirm.mock.mockImplementation(()=>true);await ui.click('#order-tab-return');assert.equal(ui.$('#order-tab-return').getAttribute('aria-selected'),'true');
   assert.deepEqual(ui.errors,[]);
 });
+test('order evidence keeps six tabs and existing notes and protects unsaved navigation',async t=>{
+ const ui=await boot(t,{page:'index.html',script:'app.js'});
+ await ui.click('[data-click="test"]');await ui.click('[data-click="create"]');
+ ui.fill(ui.$('#createform'),{name:'Evidence Test',vehicle:'Testauto'});await ui.submit('#createform');
+ await ui.click('[data-tab="notes"]');assert.equal(ui.w.document.querySelectorAll('[role="tab"]').length,6);
+ assert.match(ui.$('#order-tab-notes').textContent,/Kundenakte & Dokumente/);
+ assert.equal(ui.w.document.querySelectorAll('[data-evidence-document]').length,4);assert.ok(ui.$('#noteform'));assert.ok(ui.$('#statusform'));assert.ok(!ui.text().includes('Kein automatischer Versand (keine Kundenunterschrift'));
+ ui.fill(ui.$('#noteform'),{note:'Ungespeicherte Notiz'});ui.w.confirm=()=>false;
+ await ui.click('[data-evidence-document="return"] [data-tab]');assert.ok(ui.$('#noteform'));assert.equal(ui.$('#noteform').elements.note.value,'Ungespeicherte Notiz');
+ ui.w.confirm=()=>true;await ui.click('[data-evidence-document="return"] [data-tab]');assert.ok(ui.$('#protocolform'));
+});

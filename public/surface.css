@@ -256,3 +256,21 @@ button.primary,a.button.primary{border-radius:980px}
   .tabs.order-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));overflow:visible}
   .tabs.order-tabs button{min-width:0}
 }
+
+/* Order evidence uses the established Obsidian & Platinum surface tokens. */
+.order-evidence { margin-block: 0 2rem; min-width: 0; }
+.order-evidence h3 { margin-block: 0 0.6rem; }
+.evidence-document { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 1rem; padding-block: 1.25rem; border-bottom: 1px solid var(--line); align-items: start; }
+.evidence-document h4 { margin: 0 0 0.4rem; font-size: 1rem; }
+.evidence-document p { margin-block: 0.3rem; }
+.evidence-document small { display: block; }
+.evidence-pending, .evidence-history { margin-block: 0.75rem; padding: 0.75rem; background: var(--bg); border-radius: 8px; }
+.order-evidence summary { min-height: 44px; padding-block: 0.75rem; cursor: pointer; }
+.order-evidence button, .order-evidence a { min-height: 44px; }
+.order-evidence, .order-evidence p, .order-evidence figcaption { overflow-wrap: anywhere; }
+.evidence-media { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,180px),1fr)); gap: 1rem; margin-block: 1rem; }
+.evidence-media figure { margin: 0; min-width: 0; }
+.evidence-media img, .evidence-media video { display: block; width: 100%; max-height: 240px; object-fit: contain; border-radius: 8px; }
+.evidence-media a { display: flex; align-items: center; }
+.evidence-media figcaption { margin-top: 0.5rem; font-size: 0.875rem; }
+@media (max-width: 640px) { .evidence-document { grid-template-columns: minmax(0,1fr); } .evidence-document > button { justify-self: start; } }

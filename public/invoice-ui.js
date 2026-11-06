@@ -327,7 +327,7 @@ export function invoiceInput(form, currentOrder) {
   };
 }
 
-function invoiceView(order) {
+export function invoiceView(order) {
   const inv = order.invoice,
     info = order.invoiceInfo ?? null,
     open = info?.openCents ?? Math.max(0, (inv.totalCents ?? order.offer?.totalCents ?? 0) - paidCents(order)),

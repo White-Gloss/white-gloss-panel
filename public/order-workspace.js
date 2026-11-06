@@ -8,7 +8,7 @@ export function orderAreas(order) {
     ['intake', 'Annahme', documentState('intake')],
     ['return', 'Rückgabe', documentState('return')],
     ['payment', 'Zahlung & Rechnung', order.invoice ? 'Rechnung vorhanden' : 'Keine Rechnung'],
-    ['notes', 'Kundenakte & Status', 'Notizen & Verlauf'],
+    ['notes', 'Kundenakte & Dokumente', 'Dokumente, Fotos & Verlauf'],
   ];
   return areas.map(([id, label, evidence]) => ({
     id, label, evidence,
