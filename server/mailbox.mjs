@@ -3,7 +3,7 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {protect,unprotect} from '../src/worker.mjs';
 import {AppError,need,text} from '../src/domain.mjs';
-import {mailCenterSchema,centerData,changeState,createFolder,deleteFolder,saveNote,deleteNote,saveDraft,deleteDraft,crmLinks,threadMessages,suggestReply,listQuery,listMessages,folderCounts,crmHints,resolveAttachments,storeUpload,deleteUpload,pruneUploads,ATTACHMENT_LIMITS} from './mailbox-center.mjs';
+import {mailCenterSchema,centerData,changeState,createFolder,deleteFolder,saveNote,deleteNote,saveTask,setTaskDone,deleteTask,saveDraft,deleteDraft,crmLinks,threadMessages,suggestReply,listQuery,listMessages,folderCounts,crmHints,resolveAttachments,storeUpload,deleteUpload,pruneUploads,ATTACHMENT_LIMITS} from './mailbox-center.mjs';
 import {sanitizeInboundHtml,mailDocument,mailDocumentPolicy,sanitizeComposeHtml,htmlToText,outboundHtml} from './mail-html.mjs';
 
 const {simpleParser,ImapFlow,nodemailer}=await import(new URL('../dist/runtime/mailbox.mjs',import.meta.url).href);
@@ -313,6 +313,9 @@ export async function handleMailbox(env,request,isOwner){
   if(request.method==='POST'&&path===ROOT+'/folder/delete'){const input=await bodyJSON(request);need(!synthetic,'Im Testbereich können keine Ordner entfernt werden.',409);return response(await deleteFolder(env,input));}
   if(request.method==='POST'&&path===ROOT+'/note')return response(await saveNote(env,await bodyJSON(request),synthetic));
   if(request.method==='POST'&&path===ROOT+'/note/delete')return response(await deleteNote(env,await bodyJSON(request),synthetic));
+  if(request.method==='POST'&&path===ROOT+'/task')return response(await saveTask(env,await bodyJSON(request),synthetic));
+  if(request.method==='POST'&&path===ROOT+'/task/done')return response(await setTaskDone(env,await bodyJSON(request),synthetic));
+  if(request.method==='POST'&&path===ROOT+'/task/delete')return response(await deleteTask(env,await bodyJSON(request),synthetic));
   if(request.method==='POST'&&path===ROOT+'/draft')return response(await saveDraft(env,await bodyJSON(request,400000),synthetic));
   if(request.method==='POST'&&path===ROOT+'/draft/delete'){const input=await bodyJSON(request);return response(await deleteDraft(env,text(input.id,36),synthetic));}
   if(request.method==='POST'&&path===ROOT+'/reply-suggestion')return suggestReply(env,await bodyJSON(request),synthetic);

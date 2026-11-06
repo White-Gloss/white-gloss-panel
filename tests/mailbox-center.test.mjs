@@ -61,3 +61,17 @@ test('AI reply requires confirmation, returns an editable draft and never sends 
   const response=await f.call(path,{messageId:message.id,style:'professional',confirmed:true}),result=await response.json();assert.equal(response.status,200);assert.match(result.draft,/bestätige ich den Erhalt/);assert.equal(analyses.length,1);assert.match(analyses[0].input[0].content[0].text,/Keine Preise, Zusagen oder Termine erfinden/);
   const view=await (await f.call('/api/mailbox?test=true')).json();assert.equal(view.deliveries.length,0);assert.equal(view.drafts.length,0);assert.equal(view.messages.length,1);
 });
+
+test('tasks stay with the mailbox, include a note and stay out of the live area',async t=>{
+  const f=await fixture(t),suffix='?test=true';
+  assert.equal((await f.call('/api/mailbox/task'+suffix,{})).status,400);
+  const created=await (await f.call('/api/mailbox/task'+suffix,{title:'Rückruf vorbereiten',body:'Notiz zur Aufgabe',due:'2026-11-12',important:true})).json();
+  assert.ok(created.id);
+  const testView=await (await f.call('/api/mailbox'+suffix)).json();
+  assert.equal(testView.tasks[0].title,'Rückruf vorbereiten');assert.equal(testView.tasks[0].body,'Notiz zur Aufgabe');assert.equal(testView.tasks[0].due,'2026-11-12');assert.equal(testView.tasks[0].important,true);assert.equal(testView.tasks[0].done,false);
+  assert.equal((await f.call('/api/mailbox/task/done'+suffix,{id:created.id,done:true})).status,200);
+  const doneView=await (await f.call('/api/mailbox'+suffix)).json();assert.equal(doneView.tasks[0].done,true);
+  const liveView=await (await f.call('/api/mailbox')).json();assert.equal(liveView.tasks.length,0);
+  assert.equal((await f.call('/api/mailbox/task/delete'+suffix,{id:created.id})).status,200);
+  assert.equal((await (await f.call('/api/mailbox'+suffix)).json()).tasks.length,0);
+});
