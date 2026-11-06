@@ -4,7 +4,7 @@ import {randomBytes,randomUUID} from 'node:crypto';
 import {PanelDatabase} from '../server/storage.mjs';
 import {createApplication} from '../server/application.mjs';
 import {digest} from '../server/auth.mjs';
-import {ingestMessage} from '../server/mailbox.mjs';
+import {ingestMessage,remindDueTasks} from '../server/mailbox.mjs';
 
 const origin='https://panel.example.invalid',owner='owner@example.invalid';
 async function fixture(t,{mailbox={},assistant}={}){
@@ -74,4 +74,18 @@ test('tasks stay with the mailbox, include a note and stay out of the live area'
   const liveView=await (await f.call('/api/mailbox')).json();assert.equal(liveView.tasks.length,0);
   assert.equal((await f.call('/api/mailbox/task/delete'+suffix,{id:created.id})).status,200);
   assert.equal((await (await f.call('/api/mailbox'+suffix)).json()).tasks.length,0);
+});
+
+test('a reminder rings once at the Berlin time and never for the test area',async t=>{
+  const f=await fixture(t);
+  assert.equal((await f.call('/api/mailbox/task',{title:'Ohne Zeit',remind:true})).status,400);
+  assert.equal((await f.call('/api/mailbox/task',{title:'Schlechte Zeit',due:'2026-11-12',time:'25:00',remind:true})).status,400);
+  const live=await (await f.call('/api/mailbox/task',{title:'Rückruf',due:'2026-11-12',time:'09:30',remind:true})).json();
+  assert.equal((await (await f.call('/api/mailbox')).json()).tasks[0].time,'09:30');
+  assert.equal((await (await f.call('/api/mailbox')).json()).tasks[0].remind,true);
+  await f.call('/api/mailbox/task?test=true',{title:'Testwecker',due:'2026-11-12',time:'09:30',remind:true});
+  assert.equal(await remindDueTasks(f.env,new Date('2026-11-12T08:29:00Z')),0);
+  assert.equal(await remindDueTasks(f.env,new Date('2026-11-12T08:30:00Z')),1);
+  assert.ok((await f.env.DB.prepare('SELECT reminded_at FROM mail_tasks WHERE id=?').bind(live.id).first()).reminded_at);
+  assert.equal(await remindDueTasks(f.env,new Date('2026-11-12T08:45:00Z')),0);
 });

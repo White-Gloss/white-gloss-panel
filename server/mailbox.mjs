@@ -329,8 +329,22 @@ export async function handleMailbox(env,request,isOwner){
   return response({error:'Funktion nicht gefunden.'},404);
 }
 
+export function berlinClock(now=new Date()){
+  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Berlin',hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).formatToParts(now).filter(part=>part.type!=='literal').map(part=>[part.type,part.value]));
+  return {day:`${parts.year}-${parts.month}-${parts.day}`,time:`${parts.hour}:${parts.minute}`};
+}
+export async function remindDueTasks(env,now=new Date()){
+  const clock=berlinClock(now);
+  const due=(await env.DB.prepare(`SELECT id FROM mail_tasks WHERE synthetic=0 AND done=0 AND remind=1 AND reminded_at IS NULL AND due_date IS NOT NULL AND due_time IS NOT NULL AND (due_date<? OR (due_date=? AND due_time<=?))`).bind(clock.day,clock.day,clock.time).all()).results;
+  if(!due.length)return 0;
+  await notifyOwner(env,'task').catch(()=>({sent:0,failed:0,removed:0}));
+  const at=new Date(now).toISOString();
+  await env.DB.batch(due.map(row=>env.DB.prepare('UPDATE mail_tasks SET reminded_at=? WHERE id=? AND reminded_at IS NULL').bind(at,row.id)));
+  return due.length;
+}
 export async function mailboxBackground(env){
   await pruneUploads(env).catch(()=>0);
+  await remindDueTasks(env).catch(()=>0);
   const row=await env.DB.prepare('SELECT sync_approved,imap_verified_at FROM mailbox_accounts WHERE id=1').first();if(!row||row.sync_approved!==1||!row.imap_verified_at)return {skipped:true};
   return syncMailbox(env,{automatic:true});
 }
