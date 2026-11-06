@@ -54,3 +54,25 @@ test('phone layout: equal header buttons, content clear of the tasks button, com
   await f.screenshot('visual-phone-mail', {fullPage: false});
   assert.deepEqual(f.errors, []);
 });
+
+test('day/night toggle switches, remembers the choice and the bar has five entries', async t => {
+  const f = await browserFixture(t, {viewport: {width: 390, height: 844}, colorScheme: 'dark'}), {page} = f;
+  const bg = () => page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
+  page.setDefaultTimeout(10000);
+  await page.goto(origin); await page.locator('#content h1').first().waitFor();
+  assert.equal(await bg(), 'rgb(14, 18, 24)', 'night follows the device by default');
+  assert.equal(await page.locator('.mobile-dock > button').count(), 5, 'five entries in the bottom bar');
+  assert.ok(await page.locator('.topbar [data-theme-toggle]').isVisible(), 'toggle visible in the top bar');
+  assert.equal(await page.locator('.topbar [data-click="logout"]').count(), 0, 'no logout button in the top bar');
+  await page.locator('.topbar [data-theme-toggle]').click();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'light');
+  assert.equal(await bg(), 'rgb(245, 243, 238)', 'day shows the ivory ground');
+  await page.reload(); await page.locator('#content h1').first().waitFor();
+  assert.equal(await bg(), 'rgb(245, 243, 238)', 'the choice survives a reload without flashing');
+  await page.locator('.topbar [data-theme-toggle]').click();
+  assert.equal(await bg(), 'rgb(14, 18, 24)', 'and back to night');
+  await page.goto(origin + '/#mailbox'); await page.locator('.cc-head').waitFor();
+  assert.equal(await page.locator('.topbar .search').isVisible(), false, 'the mailbox has its own search, the top one is hidden');
+  assert.equal(await page.locator('.topbar [data-theme-toggle]').isVisible(), true);
+  assert.deepEqual(f.errors, []);
+});

@@ -29,3 +29,19 @@ Kundenchat, Steuerberaterzugang und die Anmeldeseiten. Spec:
   Handy- und Desktop-Breite, mit Screenshots in `test-results/`.
 - Service Worker der Vor-Ort-App: Cache `wg-vor-ort-v5`; neue Programmdateien müssen in `SHELL`
   (`public/sw.js`) stehen, sonst scheitert die Installation.
+
+## Stand 06.11.2026: Webseiten-Farben, Tag/Nacht-Schalter, Struktur
+
+- **Dunkel wie die Webseite:** Hintergrund `#0e1218`, Flächen `#151d27` und `#202c3a`, Text `#f4f3ed` (am Screenshot der
+  Webseite gemessen). Akzent bleibt Platin, Gold sparsam. Hell (Elfenbein) ist unverändert.
+- **Tag/Nacht-Schalter:** Knopf oben rechts im Panel und in der Vor-Ort-App (`data-theme-toggle`). Ohne Wahl folgt die
+  Anzeige dem Gerät; die Wahl wird im Browser gemerkt (`wg-theme`). `public/theme.js` läuft im `<head>` vor den
+  Stylesheets (kein Aufblitzen). Das Panel navigiert über `closest('[data-view]')`: **kein** `data-view` auf Containern
+  setzen (Bildschirmname steht in `data-screen`).
+- **Abmelden** steht unten im Seitenmenü. Im Postfach entfällt die obere Suche (eigene Suche im Postfach).
+- **Untere Leiste (Handy):** Start, Mail, Anfragen, Laufend, Mehr. Kalender und Finanzen liegen im Menü.
+- **Benachrichtigungen außerhalb der App:** Der Server sendet nur allgemeine Hinweise (Website-Anfrage, Kundennachricht,
+  WhatsApp, E-Mail). Der Service Worker (`public/sw.js`) zeigt sie nur an, wenn Text und Ziel in seiner Liste stehen. Ein
+  Test (`tests/device-pwa.test.mjs`) prüft, dass jede Server-Meldung dort bekannt ist. Einrichten: Einstellungen oder
+  Vor-Ort-Startseite, „App & Benachrichtigungen“. Auf dem iPhone funktioniert Web-Push nur bei installierter App
+  (Zum Home-Bildschirm).

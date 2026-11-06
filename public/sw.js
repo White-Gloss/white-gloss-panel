@@ -13,13 +13,13 @@ self.addEventListener('fetch',event=>{
 });
 self.addEventListener('push',event=>{
   let data={};try{data=event.data?.json()??{};}catch{return;}
-  const allowed={'/#requests':'Neue Website-Anfrage im Panel.','/#chat':'Neue Kundennachricht im Panel.','/#whatsapp':'Neue WhatsApp-Nachricht im Panel.'};
+  const allowed={'/#requests':'Neue Website-Anfrage im Panel.','/#chat':'Neue Kundennachricht im Panel.','/#whatsapp':'Neue WhatsApp-Nachricht im Panel.','/#mailbox':'Neue E-Mail im Panel.'};
   if(data.title!=='White Gloss'||data.body!==allowed[data.url])return;
   event.waitUntil(self.registration.showNotification(data.title,{body:data.body,icon:'/icon-192.png',badge:'/icon-192.png',tag:typeof data.tag==='string'&&/^wg-[a-z]+$/.test(data.tag)?data.tag:'wg-activity',data:{url:data.url}}));
 });
 self.addEventListener('notificationclick',event=>{
   event.notification.close();const path=event.notification.data?.url;
-  if(!['/#requests','/#chat','/#whatsapp'].includes(path))return;
+  if(!['/#requests','/#chat','/#whatsapp','/#mailbox'].includes(path))return;
   const target=new URL(path,self.location.origin).href;
   event.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(async clients=>{
     for(const client of clients){if(new URL(client.url).origin===self.location.origin){await client.focus();if(client.url!==target)await client.navigate(target);return;}}

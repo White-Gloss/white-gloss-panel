@@ -79,3 +79,20 @@ test('service worker displays only generic allowed messages and navigates clicks
   let waiting,closed=0;listeners.get('notificationclick')({notification:{data:{url:'/#chat'},close:()=>{closed++;}},waitUntil:promise=>{waiting=promise;}});await waiting;
   assert.equal(closed,1);assert.equal(client.focused,1);assert.equal(client.navigated,origin+'/#chat');assert.deepEqual(opened,[]);
 });
+
+test('every notification the server can send is shown by the service worker and opens its panel page',async()=>{
+  // Vertrag Server <-> Service Worker: sonst verwirft das Handy den Hinweis stumm (so war es bei „Neue E-Mail“).
+  const serverSource=readFileSync(new URL('../server/push.mjs',import.meta.url),'utf8');
+  const messages=[...serverSource.matchAll(/(\w+):\{body:'([^']+)',url:'([^']+)'\}/g)].map(m=>({kind:m[1],body:m[2],url:m[3]}));
+  assert.deepEqual(messages.map(m=>m.kind).sort(),['chat','mail','website','whatsapp']);
+  for(const message of messages){
+    const listeners=new Map(),shown=[];
+    const client={url:origin+'/',focused:0,navigated:'',async focus(){this.focused++;},async navigate(url){this.navigated=url;}};
+    const self={location:{origin},registration:{showNotification:async(...args)=>{shown.push(args);}},clients:{matchAll:async()=>[client],openWindow:async()=>{},claim:async()=>{}},addEventListener:(type,handler)=>listeners.set(type,handler),skipWaiting(){}};
+    vm.runInNewContext(readFileSync(new URL('../public/sw.js',import.meta.url),'utf8'),{self,URL,Response,console,caches:{}});
+    let waiting;listeners.get('push')({data:{json:()=>({title:'White Gloss',body:message.body,url:message.url,tag:'wg-'+message.kind})},waitUntil:promise=>{waiting=promise;}});await waiting;
+    assert.equal(shown.length,1,message.kind+' is displayed');assert.equal(shown[0][1].data.url,message.url);
+    listeners.get('notificationclick')({notification:{data:{url:message.url},close(){}},waitUntil:promise=>{waiting=promise;}});await waiting;
+    assert.equal(client.navigated,origin+message.url,message.kind+' click opens '+message.url);
+  }
+});
