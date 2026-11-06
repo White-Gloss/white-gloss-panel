@@ -48,3 +48,24 @@ test('Google cancellation checks ownership before deleting and never deletes an 
   t.mock.method(globalThis,'fetch',async(_url,options={})=>{if(options.method){writes++;return new Response(null,{status:204});}return Response.json({id:'unrelated',etag:'test-version',extendedProperties:{private:{whiteGlossOrder:'another-order'}}});});
   await assert.rejects(providerOperations.action(env,order,'calendarSync',{}),/gehört nicht/);assert.equal(writes,0);
 });
+test('cached order media endpoint never synchronizes the website provider',async t=>{
+ const order={...completed(),source:{...completed().source,id:'100'}},env=await fixture(t,order);
+ await setting(env,'hubVerified',true);await setting(env,'hubKey',await protect(env,'synthetic-hub'));
+ let calls=0;t.mock.method(globalThis,'fetch',async()=>{calls++;return Response.json({photos:[]});});
+ const before=await getOrder(env,order.id);
+ const result=await providerOperations.endpoint(env,new URL('https://panel.example.invalid/api/bookingphotos?id=test-order&sync=false'));
+ assert.equal(calls,0);assert.deepEqual(result.photos,[]);assert.deepEqual(await getOrder(env,order.id),before);
+ await providerOperations.endpoint(env,new URL('https://panel.example.invalid/api/bookingphotos?id=test-order'));
+ assert.equal(calls,1,'existing explicit refresh keeps synchronization');
+});
+test('cached media preserves authentication and order asset boundaries',async t=>{
+ const order=completed(),env=await fixture(t,order),app=await createApplication(env);
+ const at=new Date().toISOString();
+ await env.DB.prepare('INSERT INTO assets VALUES(?,?,?,?,?,?,?)').bind('own-photo',order.id,'booking','image/png','synthetic-hash',4,at).run();
+ await env.DB.prepare('INSERT INTO assets VALUES(?,?,?,?,?,?,?)').bind('foreign-photo','other-order','booking','image/png','synthetic-hash',4,at).run();
+ const url='https://panel.example.invalid/api/bookingphotos?id='+order.id+'&sync=false';
+ assert.equal((await app.fetch(new Request(url))).status,401);
+ for(const [raw,email] of [['a'.repeat(64),'owner@example.invalid'],['b'.repeat(64),'customer@example.invalid']])await env.DB.prepare('INSERT INTO auth_sessions VALUES(?,?,?,?)').bind(digest(raw),email,Date.now()+600000,Date.now()).run();
+ const denied=await app.fetch(new Request(url,{headers:{cookie:'__Host-wg-session='+ 'b'.repeat(64)}}));assert.equal(denied.status,403);
+ const allowed=await app.fetch(new Request(url,{headers:{cookie:'__Host-wg-session='+ 'a'.repeat(64)}}));assert.equal(allowed.status,200);const data=await allowed.json();assert.deepEqual(data.photos.map(p=>p.url),['/api/asset/own-photo']);
+});
