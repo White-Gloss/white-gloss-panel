@@ -226,3 +226,33 @@ button.primary,a.button.primary{border-radius:980px}
 
 /* Abmelden im Seitenmenü */
 .sidebar footer .logout{margin-top:12px;width:100%;min-height:44px}
+
+/* WG-UX-001: one independently accessible navigation for the order. */
+.order-overview{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:0;padding:0 24px 20px}
+.order-overview>div{min-width:0;padding:16px;border:1px solid var(--line);border-radius:var(--radius-card,16px);background:var(--bg)}
+.order-overview dt{font-size:.8rem;color:var(--muted)}
+.order-overview dd{margin:6px 0 0;font-size:1rem;color:var(--fg);overflow-wrap:anywhere}
+.order-overview dd.hint{font-size:.8rem;color:var(--muted)}
+.order-next{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 24px;border-top:1px solid var(--line)}
+.order-next>div{display:grid;gap:5px;min-width:0}.order-next strong{font-size:.9rem;overflow-wrap:anywhere}.order-next button{flex-shrink:0}
+.tabs.order-tabs{display:flex;position:static;gap:0;padding:0;background:var(--surface);overflow-x:auto;scrollbar-width:thin}
+.tabs.order-tabs button{flex:1 0 150px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:5px;min-height:82px;padding:14px 16px;white-space:normal;text-align:left;border-bottom:3px solid transparent}
+.tabs.order-tabs button strong{font-size:.9rem;color:var(--fg)}
+.tabs.order-tabs button small{font-size:.75rem;color:var(--muted);line-height:1.4}
+.tabs.order-tabs button.active{background:var(--elevated);border-bottom-color:var(--gold)}
+.tabs.order-tabs button[data-pending] small{color:var(--warn)}
+.order-annotation{font-size:.75rem;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
+@media(max-width:760px){
+  .order-overview{gap:10px;padding:0 16px 16px}.order-overview>div{padding:12px}
+  .order-next{padding:14px 16px;align-items:flex-start}.order-next button{max-width:40%;white-space:normal}
+  .tabs.order-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));overflow:visible}
+  .tabs.order-tabs button{min-width:0;min-height:76px;padding:12px;border-bottom-width:2px}
+}
+@media(max-width:380px){.order-overview{grid-template-columns:1fr}}
+
+/* Keep every order area visible on tablets; avoid a floating task overlay. */
+.mobile-task[hidden]{display:none}
+@media(min-width:761px) and (max-width:1200px){
+  .tabs.order-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));overflow:visible}
+  .tabs.order-tabs button{min-width:0}
+}
