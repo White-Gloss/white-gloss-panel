@@ -11,7 +11,8 @@ const MESSAGES=Object.freeze({
   website:{body:'Neue Website-Anfrage im Panel.',url:'/#requests'},
   chat:{body:'Neue Kundennachricht im Panel.',url:'/#chat'},
   whatsapp:{body:'Neue WhatsApp-Nachricht im Panel.',url:'/#whatsapp'},
-  mail:{body:'Neue E-Mail im Panel.',url:'/#mailbox'}
+  mail:{body:'Neue E-Mail im Panel.',url:'/#mailbox'},
+  task:{body:'Eine Aufgabe ist fällig.',url:'/#tasks'}
 });
 const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'};
 const json=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{...headers,'Content-Type':'application/json; charset=utf-8'}});

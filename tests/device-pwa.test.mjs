@@ -73,9 +73,11 @@ test('service worker displays only generic allowed messages and navigates clicks
   vm.runInNewContext(readFileSync(new URL('../public/sw.js',import.meta.url),'utf8'),{self,URL,Response,console,caches:{}});
   const push=async data=>{let waiting;listeners.get('push')({data:{json:()=>data},waitUntil:promise=>{waiting=promise;}});await waiting;};
   await push({title:'White Gloss',body:'Neue Kundennachricht im Panel.',url:'/#chat',tag:'wg-chat'});
+  await push({title:'White Gloss',body:'Eine Aufgabe ist fällig.',url:'/#tasks',tag:'wg-task'});
+  await push({title:'White Gloss',body:'Rückruf um 09:30',url:'/#tasks',tag:'wg-task'});
   await push({title:'White Gloss',body:'Kundin Erika: vertraulicher Text',url:'/#chat',tag:'wg-chat'});
   await push({title:'White Gloss',body:'Neue Website-Anfrage im Panel.',url:'https://evil.example.invalid',tag:'wg-website'});
-  assert.equal(shown.length,1);assert.equal(shown[0][1].body,'Neue Kundennachricht im Panel.');assert.equal(shown[0][1].data.url,'/#chat');
+  assert.equal(shown.length,2);assert.equal(shown[0][1].body,'Neue Kundennachricht im Panel.');assert.equal(shown[0][1].data.url,'/#chat');assert.equal(shown[1][1].requireInteraction,true);assert.equal(shown[1][1].body,'Eine Aufgabe ist fällig.');
   let waiting,closed=0;listeners.get('notificationclick')({notification:{data:{url:'/#chat'},close:()=>{closed++;}},waitUntil:promise=>{waiting=promise;}});await waiting;
   assert.equal(closed,1);assert.equal(client.focused,1);assert.equal(client.navigated,origin+'/#chat');assert.deepEqual(opened,[]);
 });
@@ -84,7 +86,7 @@ test('every notification the server can send is shown by the service worker and 
   // Vertrag Server <-> Service Worker: sonst verwirft das Handy den Hinweis stumm (so war es bei „Neue E-Mail“).
   const serverSource=readFileSync(new URL('../server/push.mjs',import.meta.url),'utf8');
   const messages=[...serverSource.matchAll(/(\w+):\{body:'([^']+)',url:'([^']+)'\}/g)].map(m=>({kind:m[1],body:m[2],url:m[3]}));
-  assert.deepEqual(messages.map(m=>m.kind).sort(),['chat','mail','website','whatsapp']);
+  assert.deepEqual(messages.map(m=>m.kind).sort(),['chat','mail','task','website','whatsapp']);
   for(const message of messages){
     const listeners=new Map(),shown=[];
     const client={url:origin+'/',focused:0,navigated:'',async focus(){this.focused++;},async navigate(url){this.navigated=url;}};
