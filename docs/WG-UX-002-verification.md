@@ -76,3 +76,33 @@ Draft-PR-Prüfungen dürfen keine Veröffentlichung auslösen.
 CI am finalen Head, heruntergeladene Screenshots tatsächlich prüfen,
 veröffentlichte Dateien und Draft-PR nachlesen, Betreiberabnahme.
 Produktive Daten und angemeldete Live-Aufträge bleiben ungeprüft und unverändert.
+
+## Erster CI-Lauf und tatsächliche Sichtprüfung
+
+Draft-PR: https://github.com/White-Gloss/white-gloss-panel/pull/64
+Erster Code-Head: `b9270062e6477799404e80df991e45f75d5dba39`.
+Lauf: https://github.com/White-Gloss/white-gloss-panel/actions/runs/42311497936
+Codejob erfolgreich einschließlich Root-sensitivem Installertest auf dem
+unprivilegierten Runner. Browser: 77/77 erfolgreich; beide Release-Jobs übersprungen.
+
+Die Artefakte wurden heruntergeladen und Hell/Dunkel bei 1440, 768 und 390 px
+wirklich angesehen. Ergebnis: klare Zeilen, stabile mobile Stapelung, lesbare
+Statusunterscheidung und getrennte offene Fassung; keine horizontale Überbreite.
+Dabei trotz grüner Tests entdeckt:
+
+1. Fehlende Rückgabe/Rechnung erbten fälschlich das Angebotsannahmedatum.
+   Ein neuer Regressionstest zeigte den Fehler; Datumsquelle nun auf die jeweilige
+   Dokumentart begrenzt. Fehlende Daten zeigen „Nicht hinterlegt“.
+2. Allgemeine Versandhinweise ohne tatsächlichen Versandjob erschienen doppelt
+   und ohne Dokumentbezug. Die Kundenakte zeigt nun ausschließlich vorhandene
+   Versandnachweise, ausdrücklich nach Dokumentart beschriftet. Fachbereich und
+   Versandregeln bleiben unverändert.
+3. Desktop-Screenshots erfassten wegen des inneren Scrollcontainers nicht den
+   Seitenanfang. Neue Aufnahmen dokumentieren zusätzlich Anfang, Dokumente und
+   Kommunikationsbereich in jeder Breite.
+
+Diese Korrekturen sind im nachfolgenden Commit enthalten. Fokussierte Modell-,
+Medien- und Navigationstests erneut grün. Vollständige lokale/CI-Regressionsprüfung
+und erneute Sichtprüfung werden für diesen korrigierten Head wiederholt; der
+aktuelle Abschlussstatus mit exaktem Head und Lauf steht in der PR-Beschreibung.
+Die erste grüne CI wird ausdrücklich nicht als Freigabe der Korrektur ausgegeben.

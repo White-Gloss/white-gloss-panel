@@ -3,7 +3,7 @@ const kinds=[['offer','Angebot / Auftragsbestätigung','price'],['intake','Annah
 function evidence(kind,document,acceptance){
  const exists=Boolean(document),customerSigned=Boolean(kind==='offer'?acceptance?.signature:document?.customerSignature);
  const status=!exists?'Noch nicht vorhanden':kind==='invoice'?invoiceStatusLabel(document.status):customerSigned?'Vom Kunden unterschrieben':kind==='offer'?(acceptance?'Ohne Kundenunterschrift angenommen':'Annahme offen'):'Gespeichert · Kundenunterschrift fehlt';
- return {exists,status,customerSigned,operatorSigned:Boolean(document?.operatorSignature),at:acceptance?.at??document?.signedAt??document?.savedAt??document?.createdAt??document?.at??null};
+ return {exists,status,customerSigned,operatorSigned:Boolean(document?.operatorSignature),at:!exists?null:(kind==='offer'?acceptance?.at:null)??document?.signedAt??document?.savedAt??document?.issueDate??document?.createdAt??document?.at??null};
 }
 // Only facts for presentation; never expose tokens or signature payloads.
 export function buildOrderEvidence(order){

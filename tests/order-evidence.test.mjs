@@ -30,3 +30,7 @@ test('prior handover permission is separate from the final protocol signature',(
 test('Qonto payment evidence agrees with existing invoice display',()=>{
  assert.equal(row({invoice:{provider:'qonto',status:'unpaid',totalCents:1000},invoiceInfo:{openCents:0}},'invoice').current.status,'Bezahlt');
 });
+test('offer acceptance date never leaks into another document or missing evidence',()=>{
+ const o={offer:{},acceptance:{at:'2026-11-06'},intake:{savedAt:'2026-11-01'}};
+ assert.equal(row(o,'return').current.at,null);assert.equal(row(o,'invoice').current.at,null);assert.equal(row(o,'intake').current.at,'2026-11-01');
+});

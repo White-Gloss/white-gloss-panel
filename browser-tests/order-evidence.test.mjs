@@ -13,7 +13,9 @@ for(const colorScheme of ['dark','light'])for(const width of [320,390,768,1024,1
   assert.deepEqual(writes,[],'opening evidence must not write');
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   for(const button of await page.locator('.order-evidence button').all()){const box=await button.boundingBox();assert.ok(box.height>=44&&box.width>=44);}
-  await page.locator('#order-panel-notes').scrollIntoViewIfNeeded();await f.screenshot(`order-evidence-${colorScheme}-${width}`);
+  await page.locator('.workspace').evaluate(el=>{el.scrollTop=0;});await f.screenshot(`order-evidence-${colorScheme}-${width}`);
+  await page.locator('[data-evidence-document=return]').scrollIntoViewIfNeeded();assert.match(await page.locator('[data-evidence-document=return]').textContent(),/Datum: Nicht hinterlegt/);await f.screenshot(`order-evidence-documents-${colorScheme}-${width}`);
+  await page.locator('#noteform').scrollIntoViewIfNeeded();await f.screenshot(`order-evidence-communication-${colorScheme}-${width}`);
   if(width===1440){await page.evaluate(()=>{document.body.style.zoom='2';});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'200% CSS zoom reflow');await f.screenshot(`order-evidence-${colorScheme}-zoom200`);await page.evaluate(()=>{document.body.style.zoom='';});}
   await page.locator('#noteform textarea').fill('Ungespeichert');let dialogs=0;page.on('dialog',async d=>{dialogs++;await d.dismiss();});
   await page.locator('[data-evidence-document=return] button').click();assert.equal(dialogs,1);assert.equal(await page.locator('#noteform textarea').inputValue(),'Ungespeichert');
