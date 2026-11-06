@@ -69,6 +69,7 @@ function remembered(synthetic){
 export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],markSaved=()=>{}}={}){
   if(!root)return;
   const ui=remembered(synthetic);
+  if(root.dataset.openTasks==='1')ui.section='tasks';
   let data=null,list=[],stale=new Set(),total=0,detail=null,detailState='idle',detailError='',listState='loading',listError='',busy=false,compose=null,selection=new Set(),selectMode=false,railOpen=false,settingsOpen=false,searchTimer=null,loadToken=0,observer=null,confirmDelete=null;
 
   async function api(path='',payload,params={}){
