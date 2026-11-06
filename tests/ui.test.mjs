@@ -340,7 +340,8 @@ test('panel: mobile navigation separates enquiries, running work and finance whi
   assert.equal(ui.$('.sidebar.open'),null);assert.equal(ui.$('.sidebar-backdrop').hidden,true);
   await ui.click('.mobile-dock [data-view="requests"]');assert.match(ui.$('h1').textContent,/Kundenanfragen/);
   await ui.click('.mobile-dock [data-view="active"]');assert.match(ui.$('h1').textContent,/Laufende Aufträge/);
-  await ui.click('.mobile-dock [data-view="finance"]');assert.match(ui.$('h1').textContent,/Finanz/);
+  // Finanzen und Kalender liegen im Menü („Mehr“), die untere Leiste hat fünf Einträge.
+  await ui.click('.mobile-dock [data-click="menu"]');await ui.click('.sidebar [data-view="finance"]');assert.match(ui.$('h1').textContent,/Finanz/);
   await ui.click('.mobile-dock [data-click="menu"]');await ui.click('.sidebar [data-view="orders"]');assert.match(ui.$('h1').textContent,/Alle Aufträge/);
   assert.equal((await ui.env.DB.prepare('SELECT COUNT(*) n FROM orders').first()).n,0);
   assert.deepEqual(ui.errors,[]);
@@ -614,7 +615,7 @@ test('panel: navigation groups daily work, customers, finance subpages and admin
   assert.deepEqual(ids.slice(0,13),['mailbox','prices','calendar','overview','requests','active','orders','customers','chat','whatsapp','care','business','protocols']);
   assert.deepEqual(ids.slice(13,20),['finance','finance-income','finance-expenses','finance-invoices','finance-receipts','finance-bank','finance-advisor']);
   assert.equal(ids.at(-1),'settings');assert.equal(ids[0],'mailbox','Communication Center steht allein ganz oben');assert.ok(ui.$('.sidebar .nav-primary [data-view="mailbox"]'));
-  const mobileIds=[...ui.w.document.querySelectorAll('.mobile-dock [data-view]')].map(button=>button.dataset.view);assert.equal(mobileIds[0],'calendar');assert.ok(mobileIds.includes('mailbox'),'Communication Center in der mobilen Leiste');assert.equal(ui.w.document.querySelectorAll('.mobile-dock > button').length,7);
+  const mobileIds=[...ui.w.document.querySelectorAll('.mobile-dock [data-view]')].map(button=>button.dataset.view);assert.deepEqual(mobileIds,['overview','mailbox','requests','active']);assert.ok(mobileIds.includes('mailbox'),'Communication Center in der mobilen Leiste');assert.equal(ui.w.document.querySelectorAll('.mobile-dock > button').length,5);
   const agenda=ui.$('.overview-shell .action-center'),stats=ui.$('.overview-shell > .stats');
   assert.ok(agenda.compareDocumentPosition(stats)&ui.w.Node.DOCUMENT_POSITION_FOLLOWING,'Tagesplanung steht vor den Kennzahlen');
   for(const [view,title] of [['finance','Finanzübersicht'],['finance-income','Einnahmen'],['finance-expenses','Ausgaben'],['finance-invoices','Rechnungen'],['finance-receipts','Belege'],['finance-bank','Bank'],['finance-advisor','Steuerberater']]){

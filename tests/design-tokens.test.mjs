@@ -45,7 +45,7 @@ test('light mode overrides the colour tokens', () => {
 test('spec values are used verbatim', () => {
   const dark = parseTokens(css, 'dark'), light = parseTokens(css, 'light');
   const spec = {
-    dark: {bg: '#0b0d10', surface: '#12161b', elevated: '#1a2027', fg: '#eef0f3', muted: '#9aa4b0', accent: '#d9dee5', gold: '#c9a96b', good: '#6fc3a0', warn: '#e0b45c', danger: '#ef8a84', 'on-accent': '#0b0d10'},
+    dark: {bg: '#0e1218', surface: '#151d27', elevated: '#202c3a', fg: '#f4f3ed', muted: '#bbc5d1', accent: '#d9dee5', gold: '#c9a96b', good: '#6fc3a0', warn: '#e0b45c', danger: '#ef8a84', 'on-accent': '#0e1218'},
     light: {bg: '#f5f3ee', surface: '#ffffff', elevated: '#ece9e2', fg: '#14181d', muted: '#5b6470', accent: '#1b2530', gold: '#7a5f26', good: '#2f6b53', warn: '#7d5a12', danger: '#a63d38', 'on-accent': '#f5f3ee'}
   };
   for (const [name, value] of Object.entries(spec.dark)) assert.equal(dark[name].toLowerCase(), value, `dark --${name}`);
@@ -67,4 +67,13 @@ test('declares colour-scheme and the accessibility media blocks', () => {
   assert.match(css, /@media \(prefers-color-scheme: light\)/);
   assert.match(css, /@media \(prefers-reduced-transparency: reduce\)/);
   assert.match(css, /@media \(prefers-contrast: more\)/);
+});
+
+test('a manual theme choice overrides the device setting in both directions', () => {
+  assert.match(css, /@media \(prefers-color-scheme: light\)\s*\{\s*:root:not\(\[data-theme="dark"\]\)/);
+  assert.match(css, /:root\[data-theme="light"\]\s*\{/);
+  assert.match(css, /:root\[data-theme="dark"\]\s*\{[^}]*color-scheme:\s*dark/);
+  assert.match(css, /:root\[data-theme="light"\]\s*\{[^}]*color-scheme:\s*light/);
+  const light = parseTokens(css, 'light');
+  assert.equal(light.bg.toLowerCase(), '#f5f3ee');
 });

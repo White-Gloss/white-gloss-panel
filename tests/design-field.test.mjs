@@ -87,3 +87,11 @@ test('service worker shell contains every module the field app imports (offline 
 test('the mail folder toggle uses its own icon, not a second hamburger', () => {
   assert.match(read('mailbox.js'), /data-cc-rail aria-label="Ordner und Bereiche öffnen" aria-expanded="\$\{railOpen\}">\$\{icon\('inbox'\)\}/);
 });
+
+test('service worker shell lists every script and stylesheet the field page loads', () => {
+  const shell = vm.runInNewContext(/const SHELL=(\[[^;]+\]);/.exec(read('sw.js'))[1]);
+  const html = read('vor-ort.html');
+  const assets = [...html.matchAll(/<(?:script|link)[^>]+(?:src|href)="(\/[^"]+\.(?:js|css))"/g)].map(m => m[1]);
+  assert.ok(assets.includes('/theme.js'));
+  assert.deepEqual(assets.filter(path => !shell.includes(path)), []);
+});
