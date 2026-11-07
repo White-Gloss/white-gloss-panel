@@ -2,7 +2,7 @@
 
 Basis: `de73465b0ec7f7103beff2cacb810f36ad2ca04c` (PR #64/WG-UX-002 auf main).
 Entwicklungsbranch: `codex/wg-flow-003-customer-journey`.
-Stand: in Prüfung, keine Produktionsfreigabe. Kein Merge oder Deployment ausgeführt.
+Aktualisierung 07.11.2026: PR #65 wurde nach gesonderter Betreiberfreigabe als `edaac91a49f66b4df2b1d2f371f0c16e4d1e8756` gemergt und mit [Lauf 42324642961](https://github.com/White-Gloss/white-gloss-panel/actions/runs/42324642961) auf Hostinger veröffentlicht. 729 Code- und 89 Browsertests bestanden. Die nachfolgenden Vorlaufangaben sind historisch; neue QA-Befunde stehen in [WG-QA-004](WG-QA-004.md). Die neue QA-Freigabe erlaubt keinen weiteren Merge oder Release.
 
 ## Umgesetzt
 
@@ -24,7 +24,7 @@ Stand: in Prüfung, keine Produktionsfreigabe. Kein Merge oder Deployment ausgef
 - Neue Tests für echte Terminbestätigung statt Status allein, Widerruf, Sperre nach Betreiberunterschrift, Terminänderungen und Übergabewünsche zuerst rot, danach erfolgreich.
 - Tests für mandantengetrennte Galerie, private Bestandsfotos, nebenwirkungsfreie Abrufe, parallele Wiederholung, unveränderte Originale/Vorschauen, Dateigrenze und Typprüfung.
 - Letzter vollständiger lokaler Lauf: 726/727 Tests bestanden; anschließend zusätzlich der neue Paginationstest bestanden. Der bestehende Test „panel data directories are created and repaired through directory descriptors“ scheitert unter UID 0. Nicht entfernt oder abgeschwächt; Bestätigung auf unprivilegiertem GitHub-Runner ist Pflicht.
-- Lint, Typecheck, Build, Syntax des Serverbundles und Shell-Syntax bestanden. Der erste GitHub- und Screenshot-Nachweis ist unten dokumentiert. Den aktuellen Head-Prüfstand und die nachfolgenden Galerieaufnahmen führt [Draft-PR #65](https://github.com/White-Gloss/white-gloss-panel/pull/65).
+- Lint, Typecheck, Build, Syntax des Serverbundles und Shell-Syntax bestanden. Der erste GitHub- und Screenshot-Nachweis ist unten dokumentiert. Den aktuellen Head-Prüfstand und die nachfolgenden Galerieaufnahmen führt [PR #65](https://github.com/White-Gloss/white-gloss-panel/pull/65).
 - Browserprüfung ausschließlich auf echtem Linux-GitHub-Runner. Kein lokaler Website-Server gestartet.
 
 ## Offene Abnahmegrenzen
@@ -36,7 +36,7 @@ Stand: in Prüfung, keine Produktionsfreigabe. Kein Merge oder Deployment ausgef
 5. Bestehende Protokollbilder bleiben privat, bis ausdrücklich geteilt; neue Galeriezuordnung ändert keine bereits unterschriebenen Dokumente.
 6. Die bestehende Bewertungsmail bleibt einwilligungsgebunden 168 Stunden nach Abschluss. Sie wird nicht still auf „direkt nach Rechnung“ umgestellt.
 7. Keine tatsächliche Mailzustellung, Kundenbuchung, Rechnung oder reale Übergabe getestet. Alle Testdaten sind synthetisch.
-8. Die abschließende Betreiberabnahme bleibt offen. Der jeweils aktuelle CI- und visuelle Prüfstand ist in Draft-PR #65 mit Commit und Lauf vermerkt.
+8. Die abschließende Betreiberabnahme bleibt offen. Der jeweils aktuelle CI- und visuelle Prüfstand ist in PR #65 mit Commit und Lauf vermerkt.
 
 ## Sicherheits- und Code-Review vor Branch-Push
 
