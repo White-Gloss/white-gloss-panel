@@ -9,7 +9,7 @@ import {digest} from '../server/auth.mjs';
 import {providerOperations,calendarAvailability} from '../server/providers.mjs';
 import {calendarAccessToken} from '../server/calendar-oauth.mjs';
 import {syncBookingPhotos,bookingPhotos} from '../server/booking-photos.mjs';
-import {setting,protect,unprotect,getOrder,settings} from '../src/worker.mjs';
+import {setting,protect,unprotect,getOrder,settings,background} from '../src/worker.mjs';
 function completed(){return {id:'test-order',wg:'WG-000100',version:1,status:'Erledigt',synthetic:false,source:{name:'Test',email:'test@example.invalid',vehicle:'Testauto'},return:{at:'2026-10-03T13:00:00Z'},completedAt:'2026-10-03T13:00:00Z',offer:{totalCents:11900,services:'Test',lines:[{title:'Paket',amountCents:11900}]}};}
 async function fixture(t,order=completed()){
   const env={PANEL_ORIGIN:'https://panel.example.invalid',OWNER_EMAIL_SHA256:digest('owner@example.invalid'),CONFIG_KEY:Buffer.alloc(32,3).toString('base64'),DB:new PanelDatabase(':memory:'),BUCKET:{},ASSETS:{fetch:async()=>new Response('test')}};t.after(()=>env.DB.close());await createApplication(env);
@@ -68,4 +68,17 @@ test('cached media preserves authentication and order asset boundaries',async t=
  for(const [raw,email] of [['a'.repeat(64),'owner@example.invalid'],['b'.repeat(64),'customer@example.invalid']])await env.DB.prepare('INSERT INTO auth_sessions VALUES(?,?,?,?)').bind(digest(raw),email,Date.now()+600000,Date.now()).run();
  const denied=await app.fetch(new Request(url,{headers:{cookie:'__Host-wg-session='+ 'b'.repeat(64)}}));assert.equal(denied.status,403);
  const allowed=await app.fetch(new Request(url,{headers:{cookie:'__Host-wg-session='+ 'a'.repeat(64)}}));assert.equal(allowed.status,200);const data=await allowed.json();assert.deepEqual(data.photos.map(p=>p.url),['/api/asset/own-photo']);
+});
+test('explicit portal invitations are deduplicated per order and email',async t=>{
+ const o=completed(),env=await fixture(t,o);for(const [key,value] of Object.entries({emailVerified:true,sendApproved:true,sender:'test@example.invalid'}))await setting(env,key,value);await setting(env,'resendKey',await protect(env,'synthetic-only'));
+ let sent=0;t.mock.method(globalThis,'fetch',async(_url,options)=>{sent++;assert.match(JSON.parse(options.body).text,/PIN/);return Response.json({id:'synthetic-invite'});});
+ await providerOperations.action(env,o,'portalInvite',{});await assert.rejects(providerOperations.action(env,o,'portalInvite',{}),/bereits|ungeklärt/);assert.equal(sent,1);
+});
+
+test('confirmed reminder versions deduplicate and rescheduling gets a distinct delivery key',async t=>{
+ const now=Date.now(),o={...completed(),status:'Termin verbindlich',appointment:{start:new Date(now+86400000).toISOString(),end:new Date(now+93600000).toISOString(),duration:120,delivery:'Kunde bringt',confirmation:{at:new Date(now-4*86400000).toISOString()}}},env=await fixture(t,o);
+ for(const [key,value] of Object.entries({emailVerified:true,sendApproved:true,backgroundApproved:true,sender:'test@example.invalid'}))await setting(env,key,value);await setting(env,'resendKey',await protect(env,'synthetic-only'));
+ const keys=[];t.mock.method(globalThis,'fetch',async(_url,options)=>{keys.push(options.headers['Idempotency-Key']);const body=JSON.parse(options.body);assert.match(body.text,/kunde#/);assert.match(body.text,/2 Stunden/);return Response.json({id:'synthetic-'+keys.length});});
+ await background(env);await background(env);assert.equal(keys.length,1);
+ o.appointment.start=new Date(now+90000000).toISOString();await env.DB.prepare('UPDATE orders SET data=?,version=version+1 WHERE id=?').bind(JSON.stringify(o),o.id).run();await background(env);assert.equal(keys.length,2);assert.notEqual(keys[0],keys[1]);
 });

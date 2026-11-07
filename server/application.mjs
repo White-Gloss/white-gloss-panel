@@ -1,3 +1,4 @@
+import {orderMediaSchema,handleOrderMedia} from './order-media.mjs';
 import worker,{init,setting,protect,settings,configuration,background} from '../src/worker.mjs';
 import {AppError} from '../src/domain.mjs';
 import {authSchema,sessionIdentity,requestLogin,redeemLogin,logout,loginPage,pruneAuth,digest} from './auth.mjs';
@@ -25,7 +26,7 @@ function errorResponse(message,status=500){return new Response(JSON.stringify({e
 export async function createApplication(env){
   const origin=new URL(env.PANEL_ORIGIN);if(origin.protocol!=='https:'||origin.origin!==env.PANEL_ORIGIN||origin.username||origin.password)throw Error('PANEL_ORIGIN muss ein eindeutiger HTTPS-Ursprung sein.');
   if(!/^[a-f0-9]{64}$/.test(env.OWNER_EMAIL_SHA256??''))throw Error('Betreiberidentität fehlt.');
-  await init(env);await authSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await chatSchema(env);await portalSchema(env);await businessPortalSchema(env);await accountingSchema(env);await bankAccountingSchema(env);await advisorSchema(env);await bookkeepingSchema(env);await mailboxSchema(env);await assistantSchema(env);await agentSchema(env);await whatsappSchema(env);await pushSchema(env);
+  await init(env);await orderMediaSchema(env);await authSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await chatSchema(env);await portalSchema(env);await businessPortalSchema(env);await accountingSchema(env);await bankAccountingSchema(env);await advisorSchema(env);await bookkeepingSchema(env);await mailboxSchema(env);await assistantSchema(env);await agentSchema(env);await whatsappSchema(env);await pushSchema(env);
   env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=Object.create(providerOperations);env.operations.ownerActivity=notifyOwner;
   const handle=async request=>{
     try{
@@ -61,7 +62,8 @@ export async function createApplication(env){
         return authorization;
       }
       if(url.pathname==='/auth/calendar/callback'&&request.method==='GET')return calendarCallback(env,request,identity);
-      if(!isOwner&&url.pathname!==PORTAL_PATH&&!['/angebot/','/api/offer/','/dokument/','/api/document/','/rechnung/','/api/rechnung/',...CUSTOMER_CHAT_PREFIXES,...PORTAL_PREFIXES].some(prefix=>url.pathname.startsWith(prefix)))return errorResponse('Dieser Zugang ist für das persönliche Angebot vorgesehen.',403);
+      if(!isOwner&&url.pathname!==PORTAL_PATH&&!['/api/order-media/','/angebot/','/api/offer/','/dokument/','/api/document/','/rechnung/','/api/rechnung/',...CUSTOMER_CHAT_PREFIXES,...PORTAL_PREFIXES].some(prefix=>url.pathname.startsWith(prefix)))return errorResponse('Dieser Zugang ist für das persönliche Angebot vorgesehen.',403);
+      if(url.pathname.startsWith('/api/order-media/'))return await handleOrderMedia(env,request,identity,isOwner);
       if(url.pathname.startsWith('/api/chats')||url.pathname.startsWith('/api/kundenchat/')){const chat=await handleChat(env,request,identity,isOwner);if(chat)return chat;}
       if(url.pathname.startsWith('/api/portal/business/')){const business=await handleBusinessPortal(env,request,identity,isOwner);if(business)return business;}
       if(url.pathname.startsWith('/api/portal-admin/business/')){const business=await handleBusinessAdmin(env,request,isOwner);if(business)return business;}

@@ -25,4 +25,4 @@ export function websiteInboxSnapshot(source){
   return safe;
 }
 
-export const isMailJob=kind=>['offer','reminder','review','invoice-mail'].includes(kind)||/^(offer|document|protocol|invoice-reminder|invoice-copy)-/.test(kind);
+export const isMailJob=kind=>['offer','reminder','review','invoice-mail'].includes(kind)||/^(offer|document|protocol|invoice-reminder|invoice-copy|reminder|portal-invite)-/.test(kind);

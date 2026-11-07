@@ -251,3 +251,41 @@ test('customer signs contactless pickup and key deposit before the operator prot
   await f.env.DB.prepare("UPDATE orders SET version=version+1,data=json_set(data,'$.intake.customerSignature','protokoll-signatur') WHERE id=?").bind(o.id).run();
   assert.equal((await f.post(route,f.customer,base)).status,409,'signed protocol locks the prior handover plan');
 });
+
+test('handover permission can be revoked only by its customer before protocol completion',async t=>{
+ const f=await fixture(t),o=await order(f.env,{extra:{handover:{intake:{mode:'contactless',keyMethod:'deposit',keyLocation:'SECRET KEY LOCATION',signature:'existing',at:'2026-11-01T10:00:00Z'}}}}),route='/api/portal/o/'+o.id+'/uebergabe-widerruf';
+ const input={kind:'intake',signedAt:'2026-11-01T10:00:00Z'};
+ assert.equal((await f.post(route,f.stranger,input)).status,403);
+ assert.equal((await f.post(route,f.customer,{...input,signedAt:'stale'})).status,409);
+ await f.ok(await f.post(route,f.customer,input));const saved=await getOrder(f.env,o.id);
+ assert.equal(saved.handover.intake,undefined);assert.equal(saved.handoverHistory.at(-1).signature,'existing');assert.equal(saved.handoverHistory.at(-1).kind,'intake');assert.ok(saved.handoverHistory.at(-1).revokedAt);
+ assert.equal((await f.post(route,f.customer,input)).status,409);
+});
+test('shared gallery protects private legacy images and never writes on reads',async t=>{
+ const f=await fixture(t),o=await order(f.env),route='/api/order-media/'+o.id;
+ await f.env.DB.prepare('INSERT INTO assets VALUES(?,?,?,?,?,?,?)').bind('legacy-photo',o.id,'photo','image/png','hash',png.length,new Date().toISOString()).run();f.files.set('legacy-photo',{body:png});
+ const count=()=>f.env.DB.prepare('SELECT COUNT(*) n FROM order_media').first();
+ assert.deepEqual((await f.ok(await f.get(route,f.customer))).items,[]);assert.equal((await f.get(route+'/legacy-photo',f.customer)).status,404);assert.equal((await f.get(route,f.stranger)).status,403);assert.equal((await count()).n,0);
+ const upload=()=>f.app.fetch(new Request(origin+route+'?stage=intake&name=synthetic.png',{method:'POST',headers:{origin,cookie:f.customer,'content-type':'image/png'},body:png}));
+ const first=await f.ok(await upload()),retry=await f.ok(await upload());assert.equal(first.id,retry.id);assert.equal((await count()).n,1);
+ const list=await f.ok(await f.get(route,f.customer));assert.equal(list.items.length,1);assert.equal(list.items[0].role,'customer');assert.deepEqual(Buffer.from(await (await f.get(list.items[0].url,f.customer)).arrayBuffer()),png);
+ const ownerList=await f.ok(await f.get(route,f.owner));assert.equal(ownerList.items.length,2);
+ const metadata={stage:'work',shared:true,description:'Vor der Politur',revision:0};assert.equal((await f.post(route+'/legacy-photo',f.customer,metadata)).status,403);await f.ok(await f.post(route+'/legacy-photo',f.owner,metadata));assert.equal((await f.post(route+'/legacy-photo',f.owner,metadata)).status,409);assert.equal((await f.ok(await f.get(route,f.customer))).items.length,2);
+});
+test('parallel gallery retries create one original and previews keep the original bytes',async t=>{
+ const f=await fixture(t),o=await order(f.env),route='/api/order-media/'+o.id;
+ const upload=()=>f.app.fetch(new Request(origin+route+'?stage=work',{method:'POST',headers:{origin,cookie:f.customer,'content-type':'image/png'},body:png}));
+ const [a,b]=await Promise.all([upload().then(f.ok),upload().then(f.ok)]);assert.equal(a.id,b.id);assert.equal((await f.env.DB.prepare("SELECT COUNT(*) n FROM assets WHERE kind='gallery'").first()).n,1);
+ const preview=await f.app.fetch(new Request(origin+route+'/'+a.id+'?preview=true',{method:'POST',headers:{origin,cookie:f.customer,'content-type':'image/png'},body:png}));await f.ok(preview);
+ const item=(await f.ok(await f.get(route,f.customer))).items[0];assert.match(item.preview,/preview=true/);assert.deepEqual(Buffer.from(await (await f.get(item.url,f.customer)).arrayBuffer()),png);assert.deepEqual(Buffer.from(await (await f.get(item.preview,f.customer)).arrayBuffer()),png);
+});
+test('handover preference records a request without changing the signed booking or price',async t=>{const f=await fixture(t),o=await order(f.env),before=await getOrder(f.env,o.id);await f.ok(await f.post('/api/portal/o/'+o.id+'/uebergabewunsch',f.customer,{choice:'absent'}));assert.deepEqual(await getOrder(f.env,o.id),before);const rows=(await f.env.DB.prepare('SELECT data FROM portal_change_requests WHERE order_id=?').bind(o.id).all()).results;assert.equal(JSON.parse(rows[0].data).choice,'absent');});
+test('completed operator protocol locks revocation even without a customer signature',async t=>{const f=await fixture(t),o=await order(f.env,{extra:{intake:{operatorSignature:'operator-signed'},handover:{intake:{signature:'prior',at:'2026-11-01'}}}});assert.equal((await f.post('/api/portal/o/'+o.id+'/uebergabe-widerruf',f.customer,{kind:'intake',signedAt:'2026-11-01'})).status,409);});
+test('gallery pagination exposes every shared image and excludes signatures and protocol previews',async t=>{
+ const f=await fixture(t),o=await order(f.env,{extra:{intake:{photos:['photo-0'],photoPreviews:{'photo-0':'protocol-preview'}}}}),route='/api/order-media/'+o.id;
+ for(let i=0;i<26;i++){const id='photo-'+i;await f.env.DB.prepare('INSERT INTO assets VALUES(?,?,?,?,?,?,?)').bind(id,o.id,'photo','image/png','test-'+i,100,'2026-11-01').run();await f.env.DB.prepare('INSERT INTO order_media(asset_id,order_id,stage,shared,role,name) VALUES(?,?,?,?,?,?)').bind(id,o.id,'intake',1,'owner',id).run();}
+ for(const [id,kind] of [['secret-signature','signature'],['protocol-preview','photo']])await f.env.DB.prepare('INSERT INTO assets VALUES(?,?,?,?,?,?,?)').bind(id,o.id,kind,'image/png','test',100,'2026-11-02').run();
+ const first=await f.ok(await f.get(route,f.customer)),second=await f.ok(await f.get(route+'?offset='+first.next,f.customer));assert.equal(first.items.length,24);assert.equal(second.items.length,2);assert.equal(second.next,null);assert.equal(new Set([...first.items,...second.items].map(x=>x.id)).size,26);
+ assert.equal((await f.get(route+'/protocol-preview',f.owner)).status,404);assert.equal((await f.get(route+'/secret-signature',f.owner)).status,404);
+ const preview=await f.ok(await f.get(route+'?view=customer',f.owner));assert.equal(preview.owner,false);
+});
