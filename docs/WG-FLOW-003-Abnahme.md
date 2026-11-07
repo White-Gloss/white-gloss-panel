@@ -24,7 +24,7 @@ Stand: in Prüfung, keine Produktionsfreigabe. Kein Merge oder Deployment ausgef
 - Neue Tests für echte Terminbestätigung statt Status allein, Widerruf, Sperre nach Betreiberunterschrift, Terminänderungen und Übergabewünsche zuerst rot, danach erfolgreich.
 - Tests für mandantengetrennte Galerie, private Bestandsfotos, nebenwirkungsfreie Abrufe, parallele Wiederholung, unveränderte Originale/Vorschauen, Dateigrenze und Typprüfung.
 - Letzter vollständiger lokaler Lauf: 726/727 Tests bestanden; anschließend zusätzlich der neue Paginationstest bestanden. Der bestehende Test „panel data directories are created and repaired through directory descriptors“ scheitert unter UID 0. Nicht entfernt oder abgeschwächt; Bestätigung auf unprivilegiertem GitHub-Runner ist Pflicht.
-- Lint, Typecheck, Build, Syntax des Serverbundles und Shell-Syntax bestanden. GitHub-CI und visuelle Abnahme stehen noch aus.
+- Lint, Typecheck, Build, Syntax des Serverbundles und Shell-Syntax bestanden. Der erste GitHub- und Screenshot-Nachweis ist unten dokumentiert. Den aktuellen Head-Prüfstand und die nachfolgenden Galerieaufnahmen führt [Draft-PR #65](https://github.com/White-Gloss/white-gloss-panel/pull/65).
 - Browserprüfung ausschließlich auf echtem Linux-GitHub-Runner. Kein lokaler Website-Server gestartet.
 
 ## Offene Abnahmegrenzen
@@ -36,7 +36,7 @@ Stand: in Prüfung, keine Produktionsfreigabe. Kein Merge oder Deployment ausgef
 5. Bestehende Protokollbilder bleiben privat, bis ausdrücklich geteilt; neue Galeriezuordnung ändert keine bereits unterschriebenen Dokumente.
 6. Die bestehende Bewertungsmail bleibt einwilligungsgebunden 168 Stunden nach Abschluss. Sie wird nicht still auf „direkt nach Rechnung“ umgestellt.
 7. Keine tatsächliche Mailzustellung, Kundenbuchung, Rechnung oder reale Übergabe getestet. Alle Testdaten sind synthetisch.
-8. Browser-Screenshots und endgültiger Sicherheits-/Code-Review sind bis zum dokumentierten Ergebnis offen. Der Draft ist nicht abnahmefertig, solange diese Punkte fehlen.
+8. Die abschließende Betreiberabnahme bleibt offen. Der jeweils aktuelle CI- und visuelle Prüfstand ist in Draft-PR #65 mit Commit und Lauf vermerkt.
 
 ## Sicherheits- und Code-Review vor Branch-Push
 
@@ -45,3 +45,11 @@ Aktueller Dateibestand (293 Dateien beim ersten Scan), 158 Basiscommits und 1.09
 Manuell geprüft: Authentifizierung und Auftragseigentum bei jedem Galerieabruf; private Legacy-Dateien; ausgeschlossene Signaturen/Belege/Protokollvorschauen; versionsgesicherte Metadatenänderungen; parallele Uploadwiederholungen; Speichergrenzen; unveränderliche Originale; keine Schreibaktion beim Lesen; Widerrufssperren; Terminversionsprüfung unmittelbar vor Mailversand; kein Auto-Retry bei unklarem Providerresultat. Die Mustersuche ist kein mathematischer Beweis für Geheimnisfreiheit.
 
 Workflow geprüft: Pull Requests führen Code- und Browserjobs aus. Releasejobs setzen `refs/heads/main` und Push/Workflow-dispatch voraus. Dieser Draft löst keinen produktiven Release aus.
+
+## Erster GitHub-Nachweis und visuelle Nacharbeit
+
+Commit `d71b4e68564f9b83f5f05507ddaaa46a57f975d1`, Lauf [42321598235](https://github.com/White-Gloss/white-gloss-panel/actions/runs/42321598235): **728/728 Code-Tests und 89/89 Browsertests bestanden**. Der lokal unter Root fehlschlagende Installertest bestand auf dem GitHub-Runner. Beide Releasejobs wurden übersprungen.
+
+Die zwölf FLOW003-Aufnahmen (Betreiber/Kunde × Hell/Dunkel × 390/768/1440) wurden geöffnet und visuell geprüft. Lesbarkeit, Statusunterscheidung und Farbgestaltung entsprechen dem bestehenden Design; keine horizontale Seitenüberbreite. Die Smartphone-Kundennavigation zeigte jedoch nur einen seitlich scrollbar erreichbaren Teil der Ziele. Deshalb werden alle Ziele nun mehrzeilig angezeigt, mit direktem Fahrzeugfotozugang. Die Galerie erhält explizite Abschnittsgruppen und einen Abschnittsfilter. Für die separaten Betreiber-Scrollbereiche werden zusätzliche Galerieaufnahmen erfasst; der erste Desktop-/Tablet-Screenshot allein zeigte dort nur den oberen Bereich. Die Bilddatei ist eine synthetische Pixel-Fixture, kein Beleg für reale Fahrzeugfotoqualität.
+
+Die visuelle Nacharbeit wird über denselben Draft erneut geprüft; den konkreten Folge-Commit, CI-Lauf und die bewerteten Galerieaufnahmen dokumentiert die PR-Beschreibung. Keine Produktionsfreigabe aus einem grünen Lauf ableiten.

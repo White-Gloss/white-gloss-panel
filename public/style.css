@@ -474,3 +474,5 @@ details>summary{cursor:pointer;min-height:44px;line-height:1.55;padding:10px 0;c
 
 /* Shared gallery uses the existing Obsidian/Platin tokens. */
 .order-gallery{margin-block:1.25rem;padding:1.25rem;min-width:0}.gallery-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:1rem;margin-block:1rem}.gallery-photo{min-width:0;border:1px solid var(--line);border-radius:12px;padding:1rem;overflow-wrap:anywhere}.gallery-photo img{display:block;width:100%;height:180px;object-fit:contain;border-radius:8px;margin-bottom:.75rem}.order-gallery form{display:grid;gap:.75rem}.order-gallery button,.order-gallery select{min-height:44px}.order-gallery input[type=file]{max-width:100%;min-height:44px}.order-gallery progress{width:100%}.gallery-photo p{margin:.5rem 0}.gallery-photo small{display:block;margin-bottom:.75rem}
+
+.gallery-stage{grid-column:1 / -1;margin:1rem 0 0;font-size:1rem}

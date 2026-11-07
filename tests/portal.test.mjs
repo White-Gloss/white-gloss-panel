@@ -287,5 +287,5 @@ test('gallery pagination exposes every shared image and excludes signatures and 
  for(const [id,kind] of [['secret-signature','signature'],['protocol-preview','photo']])await f.env.DB.prepare('INSERT INTO assets VALUES(?,?,?,?,?,?,?)').bind(id,o.id,kind,'image/png','test',100,'2026-11-02').run();
  const first=await f.ok(await f.get(route,f.customer)),second=await f.ok(await f.get(route+'?offset='+first.next,f.customer));assert.equal(first.items.length,24);assert.equal(second.items.length,2);assert.equal(second.next,null);assert.equal(new Set([...first.items,...second.items].map(x=>x.id)).size,26);
  assert.equal((await f.get(route+'/protocol-preview',f.owner)).status,404);assert.equal((await f.get(route+'/secret-signature',f.owner)).status,404);
- const preview=await f.ok(await f.get(route+'?view=customer',f.owner));assert.equal(preview.owner,false);
+ const preview=await f.ok(await f.get(route+'?view=customer',f.owner));assert.equal(preview.owner,false);assert.equal((await f.ok(await f.get(route+'?stage=work',f.customer))).items.length,0);assert.equal((await f.ok(await f.get(route+'?stage=intake',f.customer))).items.length,24);
 });

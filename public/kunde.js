@@ -65,7 +65,7 @@ function render(){
 const tel=phone=>String(phone??'').replace(/[^\d+]/g,'').replace(/^0/,'+49');
 
 function orderView(o){
-  return `${hero(o)}${o.restricted?'':`<nav class="portal-jump" aria-label="Direkt zu Ihrem Auftrag"><a href="#leistungen-${esc(o.id)}">Termin & Leistungen</a><a href="#uebergabe-${esc(o.id)}">Übergabe & Schlüssel</a><a href="#angaben-${esc(o.id)}">Ihre Angaben</a><a href="#dokumente-${esc(o.id)}">Dokumente${o.documents.length?` <span>${o.documents.length}</span>`:''}</a><a href="#nachrichten-${esc(o.id)}">Nachrichten & Fotos</a></nav>`}
+  return `${hero(o)}${o.restricted?'':`<nav class="portal-jump" aria-label="Direkt zu Ihrem Auftrag"><a href="#leistungen-${esc(o.id)}">Termin & Leistungen</a><a href="#uebergabe-${esc(o.id)}">Übergabe & Schlüssel</a><a href="#angaben-${esc(o.id)}">Ihre Angaben</a><a href="#dokumente-${esc(o.id)}">Dokumente${o.documents.length?` <span>${o.documents.length}</span>`:''}</a><a href="#nachrichten-${esc(o.id)}">Nachrichten</a><a href="#vehicle-gallery">Fahrzeugfotos</a></nav>`}
   <div class="portal-grid">
   <div class="portal-col">${todo(o)}<div class="portal-section" id="leistungen-${esc(o.id)}">${appointment(o)}${handover(o)}${services(o)}${extrasView(o)}</div>${inquiry(o)}</div>
   <div class="portal-col">${messages(o)}${orderGalleryHTML()}${documents(o)}${invoice(o)}${review(o)}</div></div>`;
