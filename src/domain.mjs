@@ -126,8 +126,10 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
   }
   else if(action==='appointment') {
     const workStarted=['In Arbeit','Erledigt','Bezahlt'].includes(status);
-    if(!text(input.start)){need(!workStarted||!o.appointment,'Nach Arbeitsbeginn bleibt der bestätigte Termin unverändert.',409);if(o.appointment)history(o,'appointmentHistory',{...o.appointment,replacedAt:now});o.appointment=null;if(status==='Termin verbindlich'){history(o,'statusHistory',{from:status,to:'Angenommen',at:now,reason:'Termin entfernt'});o.status='Angenommen';}}
+    const invalidateHandover=()=>{for(const kind of ['intake','return'])if(o.handover?.[kind]&&!o[kind]?.customerSignature&&!o[kind]?.operatorSignature&&!o.pending?.[kind]?.content?.operatorSignature){history(o,'handoverHistory',{...o.handover[kind],kind,invalidatedAt:now,reason:'Termin geändert'});delete o.handover[kind];}};
+    if(!text(input.start)){need(!workStarted||!o.appointment,'Nach Arbeitsbeginn bleibt der bestätigte Termin unverändert.',409);if(o.appointment)history(o,'appointmentHistory',{...o.appointment,replacedAt:now});o.appointment=null;invalidateHandover();if(status==='Termin verbindlich'){history(o,'statusHistory',{from:status,to:'Angenommen',at:now,reason:'Termin entfernt'});o.status='Angenommen';}}
     else{const duration=input.duration===undefined||input.duration===null||input.duration===''?120:input.duration;need(Number.isInteger(duration)&&duration>=15&&duration<=4320,'Dauer: 15 Minuten bis 3 Tage.');const delivery=text(input.delivery,40)||'Kunde bringt';need(['Abholung','Kunde bringt'].includes(delivery),'Übergabeart ist ungültig.');const start=optionalTime(input.start),previous=o.appointment;o.appointment={start,end:new Date(Date.parse(start)+duration*60000).toISOString(),duration,delivery,location:text(input.location,600)};
+      if(!sameAppointment(previous,o.appointment))invalidateHandover();
       if(workStarted&&!sameAppointment(previous,o.appointment))need(input.release===true,'Der Auftrag läuft bereits. Den Termin bitte nur mit Freigabe und Grund ändern.',409);
       // Ein unveränderter Termin behält seine Bestätigung; jede Änderung braucht eine neue.
       if(sameAppointment(previous,o.appointment)&&previous.confirmation)o.appointment.confirmation=previous.confirmation;
@@ -249,7 +251,7 @@ export function transition(order,action,input,now=new Date().toISOString(),role=
 export function dueJobs(o,now=Date.now()) {
   if(o.synthetic)return [];
   const out=[];const start=Date.parse(o.appointment?.start);
-  if(o.status==='Termin verbindlich'&&start>now&&start-now<=72*3600000)out.push('reminder');
+  if(o.status==='Termin verbindlich'&&Date.parse(o.appointment?.confirmation?.at)<=start-72*3600000&&start>now&&start-now<=72*3600000)out.push('reminder');
   if(['Erledigt','Bezahlt'].includes(o.status)&&o.source.reviewConsent&&o.completedAt&&now-Date.parse(o.completedAt)>=168*3600000)out.push('review');
   return out;
 }

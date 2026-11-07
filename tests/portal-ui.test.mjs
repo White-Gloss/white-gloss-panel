@@ -85,7 +85,7 @@ test('customer sees the original inquiry and sends a traceable correction reques
 test('customer overview offers one contact path and valid direct navigation',async t=>{
   const f=await setup(t),ui=await boot(t,{app:f.app,path:'/kunde',cookie:f.customerCookie});
   assert.match(ui.$('.portal-next-clear h2').textContent,/Termin ist verbindlich bestätigt/);
-  const links=[...ui.w.document.querySelectorAll('.portal-jump a')];assert.equal(links.length,5);
+  const links=[...ui.w.document.querySelectorAll('.portal-jump a')];assert.equal(links.length,6);assert.ok(links.some(link=>link.getAttribute('href')==='#vehicle-gallery'));
   for(const link of links)assert.ok(ui.w.document.querySelector(link.getAttribute('href')),'navigation target exists: '+link.getAttribute('href'));
   const ids=[...ui.w.document.querySelectorAll('[id]')].map(el=>el.id);assert.equal(new Set(ids).size,ids.length,'no duplicate anchors or form IDs');
   assert.equal(ui.w.document.querySelectorAll('[data-act="chat"]').length,1,'the real chat button stays unique');

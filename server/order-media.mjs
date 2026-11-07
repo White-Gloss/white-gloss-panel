@@ -1,0 +1,51 @@
+import {randomUUID,createHash} from 'node:crypto';
+import {limited} from './auth.mjs';
+import {getOrder} from '../src/worker.mjs';
+import {need} from '../src/domain.mjs';
+import {assertRecordOperation} from '../src/record-compat.mjs';
+import {isTrashedOrder} from '../src/order-trash.mjs';
+export const PHOTO_LIMIT=52428800;
+export const PHOTO_STAGES=['inquiry','offer','intake','work','return','after'];
+const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'};
+const json=value=>Response.json(value,{headers});
+export async function orderMediaSchema(env){await env.DB.prepare(`CREATE TABLE IF NOT EXISTS order_media(asset_id TEXT PRIMARY KEY REFERENCES assets(id),upload_key TEXT UNIQUE,preview_id TEXT REFERENCES assets(id),order_id TEXT NOT NULL,stage TEXT NOT NULL,shared INTEGER NOT NULL DEFAULT 0,role TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',name TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 1)`).run();await env.DB.prepare(`CREATE TABLE IF NOT EXISTS order_media_history(id TEXT PRIMARY KEY,asset_id TEXT NOT NULL,actor TEXT NOT NULL,at TEXT NOT NULL,previous TEXT NOT NULL)`).run();}
+// Reject HTML/SVG and mismatched or incomplete image containers; originals are never transformed.
+export function validatePhoto(bytes,mime){
+ need(bytes.length>0&&bytes.length<=PHOTO_LIMIT,'Maximal 50 MiB je Bild.',413);
+ const b=Buffer.isBuffer(bytes)?bytes:Buffer.from(bytes),ascii=(a,z)=>b.subarray(a,z).toString('latin1');let valid=false;
+ if(mime==='image/png')valid=b.length>=45&&ascii(0,8)==='\x89PNG\r\n\x1a\n'&&ascii(12,16)==='IHDR'&&b.readUInt32BE(16)>0&&b.readUInt32BE(20)>0&&ascii(b.length-8,b.length-4)==='IEND';
+ if(mime==='image/jpeg')valid=b.length>4&&b[0]===255&&b[1]===216&&b[2]===255&&b.at(-2)===255&&b.at(-1)===217;
+ if(mime==='image/webp')valid=b.length>=30&&ascii(0,4)==='RIFF'&&ascii(8,12)==='WEBP'&&b.readUInt32LE(4)===b.length-8&&['VP8 ','VP8L','VP8X'].includes(ascii(12,16));
+ need(valid,'Bitte ein vollständiges JPEG-, PNG- oder WebP-Bild wählen. HEIC wird hier noch nicht unterstützt.',415);
+}
+async function boundedBody(request){const size=Number(request.headers.get('content-length'));need(!size||size<=PHOTO_LIMIT,'Maximal 50 MiB je Bild.',413);const reader=request.body?.getReader();need(reader,'Bild fehlt.');let total=0;const chunks=[];try{for(;;){const {done,value}=await reader.read();if(done)break;total+=value.length;need(total<=PHOTO_LIMIT,'Maximal 50 MiB je Bild.',413);chunks.push(value);}}catch(error){await reader.cancel();throw error;}return Buffer.concat(chunks);}
+const stages=new Set(PHOTO_STAGES);
+export async function handleOrderMedia(env,request,email,isOwner){
+ const url=new URL(request.url),match=url.pathname.match(/^\/api\/order-media\/([a-zA-Z0-9-]+)(?:\/([a-zA-Z0-9-]+))?$/);need(match,'Galerie nicht gefunden.',404);
+ const [,orderId,assetId]=match,o=await getOrder(env,orderId);need(o&&!isTrashedOrder(o),'Auftrag nicht gefunden.',404);need(isOwner||(!o.synthetic&&String(o.source.email??'').trim().toLowerCase()===email.toLowerCase()),'Kein Zugriff auf diesen Auftrag.',403);assertRecordOperation(o,isOwner?'read':'customer-document');
+ const customerView=!isOwner||url.searchParams.get('view')==='customer';const visible=customerView?' AND m.shared=1':'';
+ const documents=[o.intake,o.return,o.pending?.intake?.content,o.pending?.return?.content,...(o.intakeHistory??[]),...(o.returnHistory??[])];const previewIds=documents.flatMap(d=>Object.values(d?.photoPreviews??{})).filter(id=>typeof id==='string');const queryArgs=[orderId,JSON.stringify(previewIds)];
+ const query=`SELECT a.*,m.stage,m.shared,m.role,m.description,m.name,m.revision,m.preview_id FROM assets a LEFT JOIN order_media m ON m.asset_id=a.id WHERE a.order_id=? AND a.mime IN ('image/jpeg','image/png','image/webp') AND a.kind IN ('photo','booking','gallery') AND a.id NOT IN (SELECT value FROM json_each(?))`;
+ if(request.method==='GET'){
+  if(assetId){const a=await env.DB.prepare(query+' AND a.id=?'+visible).bind(...queryArgs,assetId).first();need(a,'Bild nicht gefunden.',404);const preview=url.searchParams.get('preview')==='true';need(!preview||a.preview_id,'Vorschaubild nicht vorhanden.',404);const blob=await env.BUCKET.get(preview?a.preview_id:a.id);need(blob,'Bilddatei nicht vorhanden.',404);return new Response(blob.body,{headers:{...headers,'Content-Type':blob.httpMetadata?.contentType??a.mime,'Content-Disposition':'inline'}});}
+  const offset=Number(url.searchParams.get('offset')??0);need(Number.isSafeInteger(offset)&&offset>=0,'Ungültige Seite.');const stage=url.searchParams.get('stage');need(!stage||stages.has(stage)||stage==='unknown','Unbekannter Fotoabschnitt.');const stageFilter=stage?" AND COALESCE(m.stage,'unknown')=?":'';const rows=(await env.DB.prepare(query+visible+stageFilter+" ORDER BY CASE m.stage WHEN 'inquiry' THEN 0 WHEN 'offer' THEN 1 WHEN 'intake' THEN 2 WHEN 'work' THEN 3 WHEN 'return' THEN 4 WHEN 'after' THEN 5 ELSE 6 END,a.created_at DESC,a.id DESC LIMIT 25 OFFSET ?").bind(...queryArgs,...stage?[stage]:[],offset).all()).results;
+  return json({owner:isOwner&&!customerView,items:rows.slice(0,24).map(a=>({id:a.id,url:'/api/order-media/'+orderId+'/'+a.id,preview:a.preview_id?'/api/order-media/'+orderId+'/'+a.id+'?preview=true':null,stage:a.stage??'unknown',shared:!!a.shared,role:a.role??'unknown',description:a.description??'',name:a.name??'Bestandsfoto',revision:a.revision??0,at:a.created_at,size:a.size,documents:['intake','return'].filter(kind=>o[kind]?.photos?.includes(a.id))})),next:rows.length>24?offset+24:null});
+ }
+ need(request.method==='POST','Methode nicht erlaubt.',405);need(request.headers.get('origin')===env.PANEL_ORIGIN,'Ungültiger Ursprung.',403);assertRecordOperation(o,'media-update');
+ need(!await limited(env,'gallery:'+email,Date.now(),120),'Zu viele Fotoänderungen. Bitte später erneut versuchen.',429);
+ if(assetId&&url.searchParams.get('preview')==='true'){
+  const a=await env.DB.prepare(query+' AND a.id=?'+visible).bind(...queryArgs,assetId).first();need(a,'Bild nicht gefunden.',404);need(isOwner||a.role==='customer','Nur eigene Bilder können eine Vorschau erhalten.',403);if(a.preview_id)return json({ok:true});
+  const bytes=await boundedBody(request),mime=request.headers.get('content-type');need(bytes.length<=512000,'Vorschau zu groß.',413);validatePhoto(bytes,mime);const id=randomUUID();await env.BUCKET.put(id,bytes,{httpMetadata:{contentType:mime}});
+  try{const result=await env.DB.batch([env.DB.prepare('INSERT INTO assets SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM order_media WHERE asset_id=? AND preview_id IS NULL) AND EXISTS(SELECT 1 FROM orders WHERE id=? AND version=?)').bind(id,orderId,'gallery-preview',mime,createHash('sha256').update(bytes).digest('hex'),bytes.length,new Date().toISOString(),assetId,orderId,o.version),env.DB.prepare('UPDATE order_media SET preview_id=? WHERE asset_id=? AND preview_id IS NULL AND EXISTS(SELECT 1 FROM assets WHERE id=?)').bind(id,assetId,id)]);if(!result[0].meta.changes)await env.BUCKET.delete(id);}catch(error){await env.BUCKET.delete(id);throw error;}return json({ok:true});
+ }
+ if(assetId){need(isOwner,'Nur der Betrieb kann Fotoangaben ändern.',403);need(request.headers.get('content-type')?.startsWith('application/json'),'JSON erforderlich.',415);const raw=await request.text();need(raw.length<=4000,'Anfrage zu groß.',413);const input=JSON.parse(raw);need(stages.has(input.stage)&&typeof input.shared==='boolean'&&typeof input.description==='string'&&input.description.length<=1000,'Ungültige Fotoangaben.');
+  const a=await env.DB.prepare(query+' AND a.id=?').bind(...queryArgs,assetId).first();need(a,'Bild nicht gefunden.',404);need(input.revision===(a.revision??0),'Fotoangaben wurden verändert. Bitte neu laden.',409);
+  const revision=a.revision??0;const result=await env.DB.batch([env.DB.prepare('INSERT INTO order_media(asset_id,order_id,stage,shared,role,description,name,revision) SELECT ?,?,?,?,?,?,?,1 WHERE EXISTS(SELECT 1 FROM orders WHERE id=? AND version=?) ON CONFLICT(asset_id) DO UPDATE SET stage=excluded.stage,shared=excluded.shared,description=excluded.description,revision=order_media.revision+1 WHERE order_media.revision=?').bind(assetId,orderId,input.stage,Number(input.shared),a.role??'unknown',input.description,a.name??'Bestandsfoto',orderId,o.version,revision),env.DB.prepare('INSERT INTO order_media_history(id,asset_id,actor,at,previous) SELECT ?,?,?,?,? WHERE changes()=1').bind(randomUUID(),assetId,'owner',new Date().toISOString(),JSON.stringify({stage:a.stage,shared:a.shared,description:a.description,revision}))]);need(result[0].meta.changes===1,'Fotoangaben wurden verändert.',409);return json({ok:true});
+ }
+ const mime=request.headers.get('content-type')??'',stage=url.searchParams.get('stage');need(stages.has(stage),'Bitte den Fotoabschnitt wählen.');const bytes=await boundedBody(request);validatePhoto(bytes,mime);const hash=createHash('sha256').update(bytes).digest('hex');
+ // A retry can only reuse images already visible to this actor, never publish private legacy assets.
+ const existing=await env.DB.prepare(query+' AND a.hash=?'+visible).bind(...queryArgs,hash).first();if(existing)return json({ok:true,id:existing.id,duplicate:true});
+ const uploadKey=orderId+':'+(isOwner?'owner':'customer')+':'+hash;const id=randomUUID(),name=String(url.searchParams.get('name')??'Foto').replace(/[\u0000-\u001f/\\]/g,' ').slice(0,180),at=new Date().toISOString();await env.BUCKET.put(id,bytes,{httpMetadata:{contentType:mime}});
+ try{await env.DB.batch([env.DB.prepare('INSERT INTO assets SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM orders WHERE id=? AND version=?)').bind(id,orderId,'gallery',mime,hash,bytes.length,at,orderId,o.version),env.DB.prepare('INSERT INTO order_media(asset_id,upload_key,order_id,stage,shared,role,name) VALUES(?,?,?,?,?,?,?)').bind(id,uploadKey,orderId,stage,isOwner?Number(url.searchParams.get('shared')==='true'):1,isOwner?'owner':'customer',name)]);}catch(error){await env.BUCKET.delete(id);const duplicate=await env.DB.prepare('SELECT asset_id FROM order_media WHERE upload_key=?').bind(uploadKey).first();if(duplicate)return json({ok:true,id:duplicate.asset_id,duplicate:true});throw error;}
+ return json({ok:true,id});
+}

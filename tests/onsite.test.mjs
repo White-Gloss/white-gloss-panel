@@ -153,12 +153,12 @@ test('signed offers are replaced by a signed replacement offer that states the p
   const final=await getOrder(e,o.id);assert.equal(final.offer.totalCents,50625);assert.equal(final.acceptance.mode,'online');assert.ok(final.offer.replaces);assert.equal(final.offerHistory.at(-1).offer.totalCents,48625);
 });
 
-test('uploads accept large phone photos up to 15 MB and check WebP content',async t=>{
+test('uploads accept original phone photos up to exactly 50 MiB and check WebP content',async t=>{
   const e=env(t);const o=await ok(e,'create',{synthetic:true,source:{}});const send=(bytes,type,size=bytes.length)=>worker.fetch(new Request(origin+'/api/upload/'+o.id+'?kind=receipt',{method:'POST',headers:{'oai-authenticated-user-email':ownerEmail,Origin:origin,'Content-Type':type,'Content-Length':String(size)},body:bytes}),e);
-  const jpeg=Buffer.alloc(12*1024*1024);jpeg[0]=255;jpeg[1]=216;assert.equal((await send(jpeg,'image/jpeg')).status,200);
+  const jpeg=Buffer.alloc(50*1024*1024);jpeg[0]=255;jpeg[1]=216;assert.equal((await send(jpeg,'image/jpeg')).status,200);
   const wav=Buffer.alloc(100);wav.write('RIFF',0);wav.write('WAVE',8);assert.equal((await send(wav,'image/webp')).status,400);
   const webp=Buffer.alloc(100);webp.write('RIFF',0);webp.write('WEBP',8);assert.equal((await send(webp,'image/webp')).status,200);
-  assert.equal((await send(Buffer.alloc(100),'image/jpeg',16*1024*1024)).status,413);
+  assert.equal((await send(Buffer.alloc(100),'image/jpeg',50*1024*1024+1)).status,413);
   assert.equal(e.DB.sql.prepare("SELECT COUNT(*) n FROM assets WHERE kind='receipt'").get().n,2);
 });
 

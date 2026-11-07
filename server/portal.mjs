@@ -103,7 +103,7 @@ function handoverPlan(input){
 }
 const handoverSnapshot=(o,kind)=>({wg:o.wg,kind,appointment:appointmentSnapshot(o)});
 const handoverHash=(o,kind)=>digest(JSON.stringify(handoverSnapshot(o,kind)));
-function handoverView(o,kind){const plan=o.handover?.[kind];return {kind,...handoverPlan(plan),signed:Boolean(plan?.signature),signedAt:plan?.at??null,snapshotHash:handoverHash(o,kind),locked:Boolean(o[kind]?.customerSignature||o.pending?.[kind]?.content?.operatorSignature)};}
+function handoverView(o,kind){const plan=o.handover?.[kind];return {kind,...handoverPlan(plan),signed:Boolean(plan?.signature),signedAt:plan?.at??null,snapshotHash:handoverHash(o,kind),locked:Boolean(o[kind]?.customerSignature||o[kind]?.operatorSignature||o.pending?.[kind]?.content?.operatorSignature)};}
 async function portalOrder(env,o,config,preview){
   const restricted=recordOperationIssue(o,'customer-document');
   // Gesperrte Akten: nur die Kopfzeile, keine Inhalte (wie bei Angebots-, Rechnungs- und Chatlinks).
@@ -123,7 +123,7 @@ async function portalOrder(env,o,config,preview){
   }
   let invoice=null;
   if(o.invoice?.provider==='qonto'&&o.invoice.number&&!o.synthetic){try{const view=invoicePortalView(o,preview);invoice={...view.invoice,lines:view.lines,payment:view.payment,payUrl:view.payUrl,vat:view.vat,pdfUrl:'/api/portal/o/'+o.id+'/rechnung.pdf'};}catch{invoice=null;}}
-  const a=o.appointment&&!CLOSED.includes(o.status)?{start:o.appointment.start,end:o.appointment.end,delivery:o.appointment.delivery??'',location:o.appointment.location??'',workDays:o.appointment.workDays??null,curingNote:o.appointment.curing?.note??'',
+  const a=o.appointment&&!CLOSED.includes(o.status)?{start:o.appointment.start,end:o.appointment.end,duration:o.appointment.duration??null,delivery:o.appointment.delivery??'',location:o.appointment.location??'',workDays:o.appointment.workDays??null,curingNote:o.appointment.curing?.note??'',
     confirmed:Boolean(o.appointment.confirmation)||!CONFIRMABLE.includes(o.status),confirmedAt:o.appointment.confirmation?.at??null,confirmedHow:o.appointment.confirmation?.mode??null,
     // Der Kunde unterschreibt genau diesen Stand; der Server prüft den Hash beim Absenden.
     snapshotHash:digest(JSON.stringify(appointmentSnapshot(o))),canConfirm:!openOffer&&!o.appointment.confirmation&&CONFIRMABLE.includes(o.status)}:null;
@@ -197,22 +197,31 @@ export async function handlePortal(env,request,identity,isOwner){
     const saved=await saveOrder(env,updated,o.version,'Kunde hat Dokument im Kundenportal zur Unterschrift geöffnet','customer',statements);
     return json({url:'/dokument/'+saved.pending[kind].token});
   }
+  if(op==='uebergabe-widerruf'){
+    const kind=input.kind;need(['intake','return'].includes(kind),'Unbekannte Übergabe.',404);
+    need(!CLOSED.includes(o.status)&&!o[kind]?.customerSignature&&!o[kind]?.operatorSignature&&!o.pending?.[kind]?.content?.operatorSignature,'Diese Übergabe ist bereits dokumentiert.',409);
+    const previous=o.handover?.[kind];need(previous?.signature&&input.signedAt===previous.at,'Die Übergabeangaben wurden geändert. Bitte neu laden.',409);
+    const updated=structuredClone(o);updated.handoverHistory=[...(updated.handoverHistory??[]),{...previous,kind,revokedAt:new Date(now).toISOString()}];delete updated.handover[kind];
+    await saveOrder(env,updated,o.version,'Kunde hat die Vorab-Übergabeerlaubnis widerrufen','customer');
+    await portalNotice(env,o.id,'Vorab-Übergabeerlaubnis widerrufen. Bitte die Übergabe neu abstimmen.',now).catch(()=>null);
+    return json({ok:true,message:'Die Vorab-Erlaubnis ist widerrufen. Bitte stimmen Sie die Übergabe mit uns ab.'});
+  }
   if(op==='uebergabe'){
     const kind=input.kind,plan=handoverPlan(input);need(['intake','return'].includes(kind),'Unbekannte Übergabe.',404);
     // Ohne persönlichen Kontakt gilt die Regelung nur mit der ausdrücklichen Bestätigung, dass allein der Betrieb das Protokoll ausfüllt.
     if(plan.mode==='contactless')need(plan.operatorOnlyProtocol,'Bitte bestätigen Sie, dass der Schlüssel bereitliegt und nur White Gloss das Übergabeprotokoll ausfüllt.');
-    need(!CLOSED.includes(o.status)&&!o[kind]?.customerSignature&&!o.pending?.[kind]?.content?.operatorSignature,'Diese Übergabe ist bereits dokumentiert und kann hier nicht mehr geändert werden.',409);
+    need(!CLOSED.includes(o.status)&&!o[kind]?.customerSignature&&!o[kind]?.operatorSignature&&!o.pending?.[kind]?.content?.operatorSignature,'Diese Übergabe ist bereits dokumentiert und kann hier nicht mehr geändert werden.',409);
     need(input.confirmed===true,'Bitte bestätigen Sie die angezeigten Übergabeangaben.');
     const snapshotHash=handoverHash(o,kind);need(input.snapshotHash===snapshotHash,'Termin oder Übergabeangaben wurden geändert. Bitte die Seite neu laden.',409);
     if(o.handover?.[kind]?.signature&&JSON.stringify(handoverPlan(o.handover[kind]))===JSON.stringify(plan))return json({ok:true,message:'Diese Übergabe ist bereits unterschrieben.'});
     const operationId=randomUUID(),guard={sql:"EXISTS(SELECT 1 FROM orders WHERE id=? AND version=? AND json_extract(data,'$.operationId')=?)",params:[o.id,o.version+1,operationId]};
     const signature=await storeDataSignature(env,o.id,input.signature,'signature',guard);
     try{
-      const updated=structuredClone(o),previous=updated.handover?.[kind];if(previous)updated.handoverHistory=[...(updated.handoverHistory??[]),previous];
+      const updated=structuredClone(o),previous=updated.handover?.[kind];if(previous)updated.handoverHistory=[...(updated.handoverHistory??[]),{...previous,kind,replacedAt:new Date(now).toISOString()}];
       updated.handover={...(updated.handover??{}),[kind]:{...plan,customerName:text(input.customerName,180),signature:signature.id,snapshotHash,at:new Date(now).toISOString()}};updated.operationId=operationId;
       await saveOrder(env,updated,o.version,'Kunde hat '+(kind==='intake'?'Abholung':'Rückgabe')+' und Schlüsselübergabe unterschrieben','customer',[signature.statement]);
     }catch(error){const bound=await env.DB.prepare('SELECT id FROM assets WHERE id=?').bind(signature.id).first();if(!bound)await env.BUCKET.delete(signature.id);throw error;}
-    await portalNotice(env,o.id,(kind==='intake'?'Abholung':'Rückgabe')+' unterschrieben: '+(plan.mode==='contactless'?HANDOVER_METHODS[plan.keyMethod]+' · '+plan.keyLocation:'Persönliche Übergabe'),now).catch(()=>null);
+    await portalNotice(env,o.id,(kind==='intake'?'Abholung':'Rückgabe')+' unterschrieben: '+(plan.mode==='contactless'?'Kontaktlos – Einzelheiten ausschließlich im geschützten Auftrag':'Persönliche Übergabe'),now).catch(()=>null);
     return json({ok:true,message:'Vielen Dank! Ihre Übergabeangaben sind unterschrieben gespeichert.'});
   }
   if(op==='extras'){
@@ -243,6 +252,13 @@ export async function handlePortal(env,request,identity,isOwner){
     await portalNotice(env,o.id,'Termin im Kundenportal bestätigt und unterschrieben.',now).catch(()=>null);
     return json({ok:true,message:'Vielen Dank! Ihr Termin ist jetzt verbindlich bestätigt.'});
   }
+  if(op==='uebergabewunsch'){
+    need(!CLOSED.includes(o.status),'Dieser Auftrag ist abgeschlossen.',409);
+    const choices={bring:'Ich bringe das Fahrzeug selbst',pickup:'Bitte eine Abholung abstimmen',absent:'Ich bin bei der Übergabe nicht vor Ort'};need(Object.hasOwn(choices,input.choice),'Bitte eine Übergabeart wählen.');
+    const id=randomUUID(),at=new Date(now).toISOString();await env.DB.prepare('INSERT INTO portal_change_requests(id,order_id,data,created_at) VALUES(?,?,?,?)').bind(id,o.id,JSON.stringify({choice:input.choice,wish:choices[input.choice]}),at).run();
+    await portalNotice(env,o.id,'Übergabewunsch (noch nicht vereinbart): '+choices[input.choice],now).catch(()=>null);
+    return json({ok:true,id,message:'Wunsch übermittelt. Leistungen und Preis bleiben unverändert, bis wir eine Änderung gemeinsam vereinbaren.'});
+  }
   if(op==='angaben'){
     const wish=text(input.wish,1000);need(wish.length>=3,'Bitte beschreiben Sie kurz, welche Angaben geändert werden sollen.');
     const id=randomUUID(),at=new Date(now).toISOString();
@@ -256,7 +272,7 @@ export async function handlePortal(env,request,identity,isOwner){
     const id=randomUUID(),at=new Date(now).toISOString();
     await env.DB.prepare("INSERT INTO portal_requests(id,order_id,kind,data,created_at) VALUES(?,?,'termin',?,?)").bind(id,o.id,JSON.stringify({wish,appointmentStart:o.appointment?.start??null}),at).run();
     await portalNotice(env,o.id,'Terminwunsch über das Kundenportal:\n'+wish,now).catch(()=>null);
-    return json({ok:true,id,message:'Danke! Wir melden uns zu Ihrem Terminwunsch. Bis dahin gilt der bisherige Termin.'});
+    return json({ok:true,id,message:o.appointment?.confirmation?'Danke! Wir melden uns zu Ihrem Terminwunsch. Bis dahin gilt der bestätigte Termin.':'Danke! Wir stimmen einen passenden Termin im Kundenchat ab. Der bisherige Vorschlag bleibt unverbindlich.'});
   }
   throw new AppError('Funktion nicht gefunden.',404);
 }

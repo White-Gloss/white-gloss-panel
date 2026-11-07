@@ -218,3 +218,10 @@
   .portal-contact{overflow-wrap:anywhere}
 }
 @media(prefers-reduced-motion:reduce){.portal-page{scroll-behavior:auto}}
+
+/* All customer destinations remain visible without horizontal discovery. */
+.portal-jump{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));overflow:visible}
+.portal-jump a{white-space:normal;text-align:center;min-width:0}
+#vehicle-gallery{scroll-margin-top:210px}
+@media(max-width:900px){.portal-jump{grid-template-columns:repeat(3,minmax(0,1fr))}.portal-jump a{border-bottom:1px solid var(--wg-rule)}}
+@media(max-width:520px){.portal-jump{grid-template-columns:repeat(2,minmax(0,1fr))}}

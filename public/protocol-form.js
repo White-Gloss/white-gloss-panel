@@ -62,9 +62,10 @@ export function mountProtocolForm(form){
 }
 function paintValues(row){return [...row.querySelectorAll('[data-paint-value]')].map(i=>i.value.trim()).filter(Boolean).map(Number).filter(Number.isFinite).map(Math.round);}
 async function shrink(file){
-  // Very large camera images are reduced before upload; everything up to 15 MB stays original.
-  if(file.size<=14.5*1024*1024)return file;const bitmap=await createImageBitmap(file);try{const scale=Math.min(1,4096/Math.max(bitmap.width,bitmap.height)),canvas=document.createElement('canvas');canvas.width=Math.round(bitmap.width*scale);canvas.height=Math.round(bitmap.height*scale);canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.9));return new File([blob],'Foto.jpg',{type:'image/jpeg'});}finally{bitmap.close();}
+  if(file.size>52428800)throw Error('Maximal 50 MiB je Bild. Das Original wird nicht verkleinert.');
+  return file;
 }
+
 // Reads the form, uploads new photos and returns the protocol for the server.
 export async function collectProtocol(form,upload,previous={}){
   const f=form.elements,value=name=>f[name]?.value??'';
