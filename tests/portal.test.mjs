@@ -289,3 +289,12 @@ test('gallery pagination exposes every shared image and excludes signatures and 
  assert.equal((await f.get(route+'/protocol-preview',f.owner)).status,404);assert.equal((await f.get(route+'/secret-signature',f.owner)).status,404);
  const preview=await f.ok(await f.get(route+'?view=customer',f.owner));assert.equal(preview.owner,false);assert.equal((await f.ok(await f.get(route+'?stage=work',f.customer))).items.length,0);assert.equal((await f.ok(await f.get(route+'?stage=intake',f.customer))).items.length,24);
 });
+
+test('50MiB actual PNG upload preserves bytes for customer and operator',async t=>{
+ const f=await fixture(t),o=await order(f.env),size=52428800,n=size-png.length-12,chunk=Buffer.alloc(n+12);chunk.writeUInt32BE(n,0);chunk.write('npAD',4);
+ const table=Array.from({length:256},(_,c)=>{for(let i=0;i<8;i++)c=c&1?0xedb88320^(c>>>1):c>>>1;return c>>>0;});let crc=0xffffffff;for(const b of chunk.subarray(4,-4))crc=table[(crc^b)&255]^(crc>>>8);chunk.writeUInt32BE((crc^0xffffffff)>>>0,chunk.length-4);
+ const image=Buffer.concat([png.subarray(0,-12),chunk,png.subarray(-12)]);assert.equal(image.length,size);
+ const route='/api/order-media/'+o.id+'?stage=work';const upload=cookie=>f.app.fetch(new Request(origin+route,{method:'POST',headers:{origin,cookie,'content-type':'image/png','content-length':String(size)},body:image}));
+ const first=await f.ok(await upload(f.customer)),second=await f.ok(await upload(f.owner));assert.equal(first.id,second.id);assert.deepEqual(Buffer.from(f.files.get(first.id).body),image);
+ const row=await f.env.DB.prepare('SELECT size FROM assets WHERE id=?').bind(first.id).first();assert.equal(row.size,size);
+});
