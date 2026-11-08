@@ -48,7 +48,7 @@ export async function mailCenterSchema(env){
     'CREATE INDEX IF NOT EXISTS mail_thread_reference ON mail_thread_links(reference_hash,message_id)',
     'CREATE INDEX IF NOT EXISTS mail_state_folder ON mail_message_state(work_folder)'
   ].map(sql=>env.DB.prepare(sql)));
-  await addColumns(env,'mail_drafts',[['cc',"TEXT NOT NULL DEFAULT ''"],['bcc',"TEXT NOT NULL DEFAULT ''"],['html_body',"TEXT NOT NULL DEFAULT ''"],['attachments_json',"TEXT NOT NULL DEFAULT '[]'"],['mode',"TEXT NOT NULL DEFAULT 'new'"]]);
+  await addColumns(env,'mail_drafts',[['order_id','TEXT'],['cc',"TEXT NOT NULL DEFAULT ''"],['bcc',"TEXT NOT NULL DEFAULT ''"],['html_body',"TEXT NOT NULL DEFAULT ''"],['attachments_json',"TEXT NOT NULL DEFAULT '[]'"],['mode',"TEXT NOT NULL DEFAULT 'new'"]]);
   await addColumns(env,'mail_notes',[['customer_id','TEXT'],['pinned','INTEGER NOT NULL DEFAULT 0']]);
   await addColumns(env,'mail_tasks',[['due_time','TEXT'],['remind','INTEGER NOT NULL DEFAULT 0'],['reminded_at','TEXT']]);
 }
@@ -61,7 +61,7 @@ export async function centerData(env,synthetic){
   const tasks=(await env.DB.prepare(`SELECT t.*,o.wg FROM mail_tasks t LEFT JOIN orders o ON o.id=t.order_id WHERE t.synthetic=? ORDER BY t.done ASC,t.important DESC,COALESCE(t.due_date,'9999-12-31'),COALESCE(t.due_time,'99:99'),t.updated_at DESC LIMIT 500`).bind(synthetic).all()).results.map(row=>({id:row.id,title:row.title,body:row.body,due:row.due_date,time:row.due_time,remind:row.remind===1,done:row.done===1,important:row.important===1,orderId:row.order_id,wg:row.wg,messageId:row.message_id,createdAt:row.created_at,updatedAt:row.updated_at}));
   return {folders,notes,drafts,tasks};
 }
-function draftView(row){return {id:row.id,to:row.recipient,cc:row.cc??'',bcc:row.bcc??'',subject:row.subject,text:row.body,html:row.html_body??'',attachments:json(row.attachments_json,[]),mode:row.mode??'new',replyTo:row.reply_to,createdAt:row.created_at,updatedAt:row.updated_at};}
+function draftView(row){return {id:row.id,orderId:row.order_id??null,to:row.recipient,cc:row.cc??'',bcc:row.bcc??'',subject:row.subject,text:row.body,html:row.html_body??'',attachments:json(row.attachments_json,[]),mode:row.mode??'new',replyTo:row.reply_to,createdAt:row.created_at,updatedAt:row.updated_at};}
 
 // Ordner- und Filterlogik für Liste und Zähler; identisch zur Anzeige im Panel.
 function viewClause(view){
@@ -242,14 +242,15 @@ export async function pruneUploads(env,now=Date.now()){
 
 export async function saveDraft(env,input,synthetic){
   const recipient=text(input.to,2000),cc=text(input.cc,2000),bcc=text(input.bcc,2000),subject=text(input.subject,500),html=sanitizeComposeHtml(typeof input.html==='string'?input.html:''),body=text(input.text,50000),replyTo=input.replyTo?text(input.replyTo,36):null,id=input.id?text(input.id,36):randomUUID();
+  const orderId=input.orderId?text(input.orderId,36):null;if(orderId)need(await env.DB.prepare('SELECT id FROM orders WHERE id=? AND synthetic=?').bind(orderId,synthetic).first(),'Auftrag nicht gefunden.',404);
   const mode=['new','reply','replyAll','forward'].includes(input.mode)?input.mode:'new';need(UUID.test(id),'Entwurfs-ID ist ungültig.');need(!replyTo||UUID.test(replyTo),'Antwortbezug ist ungültig.');
   if(replyTo)need(await ownMessage(env,replyTo,synthetic),'Antwortbezug nicht gefunden.',404);
   const attachments=(await resolveAttachments(env,input.attachments??[],synthetic)).map(({id,source,filename,mime,size})=>({id,source,filename,mime,size}));
   need(recipient||cc||bcc||subject||body||attachments.length,'Ein leerer Entwurf wird nicht gespeichert.');
   const at=new Date().toISOString(),old=await env.DB.prepare('SELECT * FROM mail_drafts WHERE id=? AND synthetic=?').bind(id,synthetic).first();if(input.id)need(old,'Entwurf nicht gefunden.',404);
-  await env.DB.prepare(`INSERT INTO mail_drafts(id,synthetic,recipient,cc,bcc,subject,body,html_body,attachments_json,mode,reply_to,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(id) DO UPDATE SET recipient=excluded.recipient,cc=excluded.cc,bcc=excluded.bcc,subject=excluded.subject,body=excluded.body,html_body=excluded.html_body,attachments_json=excluded.attachments_json,mode=excluded.mode,reply_to=excluded.reply_to,updated_at=excluded.updated_at`)
-    .bind(id,synthetic,recipient,cc,bcc,subject,body,html,JSON.stringify(attachments),mode,replyTo,old?.created_at??at,at).run();return {ok:true,id};
+  await env.DB.prepare(`INSERT INTO mail_drafts(id,synthetic,recipient,cc,bcc,subject,body,html_body,attachments_json,mode,reply_to,order_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET recipient=excluded.recipient,cc=excluded.cc,bcc=excluded.bcc,subject=excluded.subject,body=excluded.body,html_body=excluded.html_body,attachments_json=excluded.attachments_json,mode=excluded.mode,reply_to=excluded.reply_to,order_id=excluded.order_id,updated_at=excluded.updated_at`)
+    .bind(id,synthetic,recipient,cc,bcc,subject,body,html,JSON.stringify(attachments),mode,replyTo,orderId,old?.created_at??at,at).run();return {ok:true,id};
 }
 export async function deleteDraft(env,id,synthetic){need(UUID.test(id),'Entwurf nicht gefunden.',404);await env.DB.prepare('DELETE FROM mail_drafts WHERE id=? AND synthetic=?').bind(id,synthetic).run();return {ok:true};}
 

@@ -1,0 +1,19 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+test('a portal request and its generated chat notice count once while a separate unread reply remains actionable',()=>{
+ const requests=[{id:'request',order_id:'a',kind:'termin',status:'offen',created_at:'2035-01-01T10:00:00.000Z'}],messages=[{id:'notice',channel:'Kundenchat',orderId:'a',unread:true,portalNotice:true,at:requests[0].created_at}];
+ assert.equal(customerRecordModel({requests,messages}).tasks.length,1);
+ messages.push({id:'real-message',channel:'Kundenchat',orderId:'a',unread:true,at:'2035-01-01T11:00:00.000Z'});assert.equal(customerRecordModel({requests,messages}).tasks.length,2);
+});
+
+test('customer dossier retains explicit multi-order message links and derives invoice payment from recorded payments',()=>{
+ const r=customerRecordModel({orders:[{id:'a',wg:'WG-A',invoice:{provider:'qonto',status:'unpaid',totalCents:10000},payments:[{amountCents:10000}]}],messages:[{id:'same',channel:'WhatsApp',orderId:'a'},{id:'same',channel:'WhatsApp',orderId:'b'}]});
+ assert.equal(r.orders[0].invoice.status,'Bezahlt');assert.equal(r.messages.length,2);
+});
+import {customerRecordModel} from '../server/customer-record.mjs';
+test('customer record separates confirmed appointments, private notes and proven message states',()=>{
+ const model=customerRecordModel({orders:[{id:'a',wg:'WG-A',status:'Angebot offen',source:{email:'a@example.invalid'},appointment:{start:'2030-01-01',confirmation:null},offer:{totalCents:10000},notes:[{note:'INTERNAL ONLY',at:'2026-01-01',followUp:'2026-02-01'}]},{id:'b',wg:'WG-B',status:'Termin verbindlich',source:{},appointment:{start:'2030-02-01',confirmation:{at:'2026-01-01'}}}],requests:[{id:'r',order_id:'a',kind:'termin',status:'offen',created_at:'2026-01-01'},{id:'r',order_id:'a',kind:'termin',status:'offen',created_at:'2026-01-01'}],messages:[{id:'m',channel:'E-Mail',orderId:'a',state:'sent',at:'2026-01-01',body:'Hello'},{id:'c',channel:'Kundenchat',orderId:'b',state:'stored',at:'2026-01-02',body:'Question'}]});
+ assert.equal(model.orders.length,2);assert.equal(model.orders[0].appointment.confirmed,false);assert.equal(model.orders[1].appointment.confirmed,true);assert.equal(model.tasks.filter(t=>t.id==='request:r').length,1);assert.equal(model.messages.find(m=>m.id==='m').status,'Vom Anbieter angenommen');assert.ok(!JSON.stringify(model.messages).includes('INTERNAL ONLY'));assert.equal(model.notes[0].body,'INTERNAL ONLY');assert.equal(model.tasks.find(t=>t.id==='request:r').next,'Terminwunsch prüfen');
+});
+test('record presentation neither invents delivery nor leaks tokens and keeps documents by order',()=>{const model=customerRecordModel({orders:[{id:'a',wg:'WG-A',status:'Preise prüfen',source:{},offerToken:'SECRET',offer:{totalCents:5},pending:{offer:{token:'OTHER SECRET'}},intake:{customerSignature:'PRIVATE SIGNATURE'},invoice:{status:'unpaid',totalCents:5}}],messages:[{id:'x',channel:'E-Mail',state:'unknown',body:'Notice'}]});assert.equal(model.messages[0].status,'Status unbekannt');assert.ok(!JSON.stringify(model).includes('SECRET'));assert.ok(!JSON.stringify(model).includes('PRIVATE SIGNATURE'));assert.ok(model.orders[0].documents.some(d=>d.kind==='intake'&&d.signed));});

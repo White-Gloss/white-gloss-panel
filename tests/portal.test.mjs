@@ -33,7 +33,7 @@ async function order(env,{email=customer,synthetic=false,status='Termin verbindl
 
 test('portal page needs a sign-in and the login accepts only emails with an order',async t=>{
   const f=await fixture(t);
-  const page=await f.get('/kunde');assert.equal(page.status,303);assert.equal(new URL(page.headers.get('location')).searchParams.get('returnTo'),'/kunde');
+  const page=await f.get('/kunde');assert.equal(page.status,303);assert.equal(new URL(page.headers.get('location')).pathname,'/auth/customer');
   assert.equal((await f.get('/api/portal/me')).status,401);
   assert.equal(await (await f.get('/kunde',f.customer)).text(),'asset:/kunde');
   const unknown=await f.post('/auth/request',null,{email:'niemand@example.invalid',returnTo:'/kunde'});assert.equal(unknown.status,200);const neutral=await unknown.json();
