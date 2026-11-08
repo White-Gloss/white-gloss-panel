@@ -1,0 +1,12 @@
+.customer-access { max-width: 480px; margin: max(24px, 8vh) auto; padding: 28px; }
+.customer-access-eyebrow { color: var(--muted); font-size: .75rem; letter-spacing: .18em; margin-top: 24px; }
+.customer-access form { display: grid; gap: 16px; margin-block: 24px; }
+.customer-access label { display: grid; gap: 8px; }
+.customer-access input { min-height: 48px; font-size: 16px; width: 100%; }
+.customer-access .check { display: flex; align-items: flex-start; gap: 12px; }
+.customer-access .check input { width: 20px; min-height: 20px; flex-shrink: 0; }
+.customer-access button { min-height: 48px; white-space: normal; }
+.customer-access-nav { display: grid; gap: 8px; margin-block: 16px; }
+.customer-access footer { margin-top: 32px; font-size: .875rem; }
+.customer-access [role="status"] { overflow-wrap: anywhere; }
+@media (max-width: 520px) { .customer-access { margin: 16px; padding: 24px 20px; max-width: none; } }

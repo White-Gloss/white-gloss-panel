@@ -1,8 +1,12 @@
+import {mcpConfig,mcpSchema,mcpMaintenance} from './mcp-auth.mjs';
+import {handleMcp} from './mcp.mjs';
 import {orderMediaSchema,handleOrderMedia} from './order-media.mjs';
 import worker,{init,setting,protect,settings,configuration,background} from '../src/worker.mjs';
 import {AppError} from '../src/domain.mjs';
 import {authSchema,sessionIdentity,requestLogin,redeemLogin,logout,loginPage,pruneAuth,digest} from './auth.mjs';
 import {passwordLogin,savePassword,passwordPage} from './password-auth.mjs';
+import {customerAuthSchema,customerAuth,customerAuthPage,deliverCustomerCodes,accountInviteStatements} from './customer-auth.mjs';
+import {readCustomerRecord} from './customer-record.mjs';
 import {calendarOAuthSchema,calendarAuthorize,calendarCallback,calendarAccessToken} from './calendar-oauth.mjs';
 import {createStorage} from './storage.mjs';
 import {providerOperations,providerSchema} from './providers.mjs';
@@ -27,15 +31,20 @@ export async function createApplication(env){
   const origin=new URL(env.PANEL_ORIGIN);if(origin.protocol!=='https:'||origin.origin!==env.PANEL_ORIGIN||origin.username||origin.password)throw Error('PANEL_ORIGIN muss ein eindeutiger HTTPS-Ursprung sein.');
   if(!/^[a-f0-9]{64}$/.test(env.OWNER_EMAIL_SHA256??''))throw Error('Betreiberidentität fehlt.');
   await init(env);await orderMediaSchema(env);await authSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await chatSchema(env);await portalSchema(env);await businessPortalSchema(env);await accountingSchema(env);await bankAccountingSchema(env);await advisorSchema(env);await bookkeepingSchema(env);await mailboxSchema(env);await assistantSchema(env);await agentSchema(env);await whatsappSchema(env);await pushSchema(env);
+  if(mcpConfig(env))await mcpSchema(env);
+  await customerAuthSchema(env);
   await initializeWhatsAppReview(env);
-  env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=Object.create(providerOperations);env.operations.ownerActivity=notifyOwner;
+  env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=Object.create(providerOperations);env.operations.ownerActivity=notifyOwner;env.operations.accountInviteStatements=accountInviteStatements;
   const handle=async request=>{
     try{
       const url=new URL(request.url);if(url.origin!==env.PANEL_ORIGIN)return errorResponse('Ungültiger Host.',400);
       if(url.pathname==='/healthz')return new Response('ok',{headers:{'Content-Type':'text/plain',...(releaseCommit?{'X-Panel-Commit':releaseCommit}:{}),...(env.agentSchemaError?{'X-Agent-Schema':env.agentSchemaError}:{})}});
+      const mcp=await handleMcp(env,request,r=>sessionIdentity(env,r));if(mcp)return mcp;
       // Scripts, styles, the web app manifest and icons are public; customer data never is.
       if(request.method==='GET'&&/^\/[a-zA-Z0-9_-]+\.(css|js|mjs|webmanifest|png|svg|woff2)$/.test(url.pathname))return env.ASSETS.fetch(request);
       if(request.method==='GET'&&['/auth/login','/auth/verify'].includes(url.pathname))return loginPage();
+      if(request.method==='GET'&&url.pathname==='/auth/customer')return customerAuthPage();
+      if(request.method==='POST'&&url.pathname.startsWith('/auth/customer/'))return await customerAuth(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/request')return await requestLogin(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/redeem')return await redeemLogin(env,request);
       if(request.method==='POST'&&url.pathname==='/auth/password/login')return await passwordLogin(env,request);
@@ -45,8 +54,14 @@ export async function createApplication(env){
       const books=await handleBookkeeping(env,request);if(books)return books;
       const advisor=await handleAdvisor(env,request);if(advisor)return advisor;
       const identity=await sessionIdentity(env,request);
+      if(!identity&&request.method==='GET'&&url.pathname===PORTAL_PATH)return Response.redirect(new URL('/auth/customer',env.PANEL_ORIGIN),303);
       if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/(?:angebot|dokument|rechnung|chat)\/[a-f0-9]{64}$/.test(url.pathname)||url.pathname==='/vor-ort'||url.pathname===PORTAL_PATH)login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
       const isOwner=digest(identity)===env.OWNER_EMAIL_SHA256;
+      if(url.pathname.startsWith('/api/customer-record/')){
+        if(!isOwner)return errorResponse('Nur für den Betreiber vorgesehen.',403);
+        if(request.method!=='GET')return errorResponse('Nur lesender Zugriff vorgesehen.',405);
+        return Response.json(await readCustomerRecord(env,decodeURIComponent(url.pathname.slice('/api/customer-record/'.length))));
+      }
       if(url.pathname==='/api/push'||url.pathname.startsWith('/api/push/')){const sessionCookie=(request.headers.get('cookie')??'').split(';').map(x=>x.trim()).find(x=>x.startsWith('__Host-wg-session='))?.slice(18)??'';const push=await handlePush(env,request,isOwner,digest(sessionCookie));if(push)return push;}
       if(url.pathname==='/auth/password'){
         if(!isOwner)return errorResponse('Nur für den Betreiber vorgesehen.',403);
@@ -96,9 +111,12 @@ export async function maintenance(env,now=Date.now()){
   await providerSchema(env);const lease=digest(String(now)+crypto.randomUUID());const claimed=await env.DB.prepare("INSERT INTO runtime_locks(name,owner,expires_at) VALUES('maintenance',?,?) ON CONFLICT(name) DO UPDATE SET owner=excluded.owner,expires_at=excluded.expires_at WHERE runtime_locks.expires_at<?").bind(lease,now+30*60000,now).run();if(!claimed.meta.changes)return {skipped:true,ok:true,deliveryError:null};
   try{
     await agentMaintenance(env,now);
+    if(mcpConfig(env)){await mcpSchema(env);await mcpMaintenance(env,now);}
     await setting(env,'lastScheduledAttempt',new Date(now).toISOString());await pruneAuth(env,now);await prunePush(env);
+    await env.DB.prepare('DELETE FROM auth_customer_codes WHERE expires_at<?').bind(now-86400000).run();
     await env.DB.prepare('DELETE FROM calendar_oauth_states WHERE expires_at<?').bind(now).run();
-    let errors=[];try{errors=(await providerOperations.background(env)).errors;}catch(error){errors.push('Anbieterabgleich: '+error.message);}
+    let errors=[];try{await deliverCustomerCodes(env,now);}catch{errors.push('Kontoeinrichtung: Versandvorbereitung fehlgeschlagen.');}
+    try{errors.push(...(await providerOperations.background(env)).errors);}catch(error){errors.push('Anbieterabgleich: '+error.message);}
     try{await mailboxBackground(env);}catch(error){errors.push('Postfachabruf: '+error.message);}
     try{errors.push(...await chatBackground(env,now));}catch(error){errors.push('Kundenchat: '+error.message);}
     let result;try{result=await background(env);if(result.deliveryError)errors.push(result.deliveryError);}catch(error){errors.push('Fälligkeitsprüfung: '+error.message);result={ok:false};}
@@ -107,3 +125,5 @@ export async function maintenance(env,now=Date.now()){
     return {...result,ok:!deliveryError,deliveryError};
   }finally{await env.DB.prepare("DELETE FROM runtime_locks WHERE name='maintenance' AND owner=?").bind(lease).run();}
 }
+
+

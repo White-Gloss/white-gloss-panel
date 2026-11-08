@@ -1,14 +1,14 @@
 import {orderGalleryHTML,mountOrderGallery} from './order-gallery.js';
 let disposeGallery=()=>{};
 import {hoursLabel} from './appointment-hours.js';
-// Kundenportal „Mein White Gloss“ unter /kunde. Der Kunde ist über E-Mail-Link und PIN angemeldet
+// Kundenportal „Mein White Gloss“ unter /kunde. Der Kunde ist über ein persönliches Kundenkonto (oder einen bestehenden Link mit PIN) angemeldet
 // und sieht nur Aufträge mit seiner E-Mail-Adresse. Der Betreiber öffnet mit ?vorschau=<Auftrag>
 // eine schreibgeschützte Vorschau.
 import {mountConversation,esc} from './chat-ui.js';
 import {signatureBox,mountSignatures} from './signature.js';
 const app=document.querySelector('#app');
 const params=new URLSearchParams(location.search),previewId=params.get('vorschau');
-const loginUrl='/auth/login?returnTo='+encodeURIComponent('/kunde');
+const loginUrl='/auth/customer';
 const moneyFormat=new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'});
 const money=cents=>cents===null||cents===undefined?'—':moneyFormat.format(cents/100);
 const dateTime=new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'});
@@ -29,7 +29,7 @@ async function api(path,body){
 }
 function toast(message){const t=document.querySelector('#toast');t.textContent=message;t.classList.add('visible');setTimeout(()=>t.classList.remove('visible'),6000);}
 function gate(message,login=false){
-  app.innerHTML=`<main class="appoff card portal-gate"><span class="brandmark">WG</span><h1>Mein White Gloss</h1><p>${esc(message)}</p>${login?`<p><a class="button primary" href="${esc(loginUrl)}">Mit E-Mail-Adresse anmelden</a></p><p class="hint">Sie erhalten einen persönlichen Link mit PIN an die E-Mail-Adresse Ihrer Anfrage.</p>`:''}<p class="hint">White Gloss Detailing, Horb am Neckar · <a href="tel:+4915233540284">0152 33540284</a> · <a href="mailto:info@white-gloss.de">info@white-gloss.de</a></p></main>`;
+  app.innerHTML=`<main class="appoff card portal-gate"><span class="brandmark">WG</span><h1>Mein White Gloss</h1><p>${esc(message)}</p>${login?`<p><a class="button primary" href="${esc(loginUrl)}">Mit E-Mail-Adresse anmelden</a></p><p class="hint">Melden Sie sich mit E-Mail-Adresse und Passwort an. Beim ersten Zugang bestätigen Sie Ihre E-Mail-Adresse mit einem Code.</p>`:''}<p class="hint">White Gloss Detailing, Horb am Neckar · <a href="tel:+4915233540284">0152 33540284</a> · <a href="mailto:info@white-gloss.de">info@white-gloss.de</a></p></main>`;
 }
 async function load(){
   try{data=await api('me'+(previewId?'?vorschau='+encodeURIComponent(previewId):''));}

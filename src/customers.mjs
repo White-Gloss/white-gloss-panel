@@ -69,7 +69,7 @@ export async function searchCustomers(env,query,synthetic=false,limit=100){
 }
 export async function saveCustomer(env,input,synthetic=false){
   const at=new Date().toISOString();
-  if(!input.id){const data=normalizeCustomer(input.customer??{});const id=crypto.randomUUID();await env.DB.batch(customerInsert(env,id,data,synthetic,at));return getCustomer(env,id);}
+  if(!input.id){const data=normalizeCustomer(input.customer??{});const id=crypto.randomUUID();await env.DB.batch([...customerInsert(env,id,data,synthetic,at),...(env.operations?.accountInviteStatements?.(env,data.email,synthetic)??[])]);return getCustomer(env,id);}
   const old=await getCustomer(env,input.id);need(input.version===undefined||input.version===old.version,'Diese Kundenansicht ist veraltet. Bitte neu öffnen.',409);
   const {id:_id,version:_version,synthetic:_synthetic,createdAt:_created,updatedAt:_updated,...stored}=old;
   const data=normalizeCustomer(input.customer??{},stored);data.history=[...(stored.history??[]),{at,before:Object.fromEntries(Object.keys(input.customer??{}).filter(key=>key in CUSTOMER_FIELDS||key==='reviewConsent').map(key=>[key,stored[key]??null]))}].slice(-50);
@@ -88,3 +88,4 @@ export async function customerDetail(env,id){
   return {customer,vehicles,orders};
 }
 export async function orderLink(env,orderId){const row=await env.DB.prepare('SELECT customer_id,vehicle_id FROM customer_orders WHERE order_id=?').bind(orderId).first();if(!row?.customer_id)return {customer:null,vehicle:null};const customer=await getCustomer(env,row.customer_id).catch(()=>null);const vehicle=row.vehicle_id?await getVehicle(env,row.vehicle_id).catch(()=>null):null;return {customer,vehicle};}
+
