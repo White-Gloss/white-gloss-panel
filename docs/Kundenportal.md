@@ -10,6 +10,14 @@ Adresse: **https://panel.white-gloss.de/kunde**
 Der Kunde meldet sich einmal mit der E-Mail-Adresse seiner Anfrage an (persönlicher Link + PIN,
 wie bisher beim Angebot) und sieht dort **alle seine Aufträge** an einem Ort.
 
+## Entwicklungsstand WG-AUTH-001 / WG-UX-005 (08.11.2026)
+
+**Nur Draft PR #68, noch nicht produktiv freigegeben.** Der neue Standardzugang `/auth/customer` führt über E-Mail-Code und eigene Passwortvergabe zum dauerhaften Kundenkonto. Danach erfolgt die Anmeldung mit E-Mail und Passwort; „Passwort vergessen“ nutzt einen neuen Einmalcode. Das Konto bleibt bestehen, auch wenn die Sicherheitssitzung abläuft. Bestehende persönliche Link-/PIN-Zugänge bleiben kompatibel. Neu angelegte Kunden und Aufträge können nach den vorhandenen Transaktionsmail-Freigaben eine Einrichtungsmail erhalten; beim Öffnen oder Übernehmen vorhandener Akten wird keine Mail ausgelöst.
+
+Die Kundenübersicht des Betreibers öffnet eine zentrale Akte mit Dokumenten, Terminen, Fotos, offenen Wünschen und nach Auftrag filterbarer Kommunikation. Diese interne Gesamtakte ist für Kunden gesperrt. Die bestehenden Portalrechte bleiben unverändert. Details, Nachweise und offene Abnahmegrenzen: [WG-AUTH-001 / WG-UX-005](WG-AUTH-001-UX-005.md).
+
+**Die folgenden Link-/PIN- und „keine automatischen Mails“-Beschreibungen dokumentieren den älteren Ablauf; für den neuen Kontozugang gelten die obigen Ergänzungen.**
+
 ## Was der Kunde im Portal hat
 
 Geschäftskunden können zusätzlich für ihre Firmenakte freigeschaltet werden. Dann erscheint ein

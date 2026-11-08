@@ -1,5 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
+test('customer dossier retains explicit multi-order message links and derives invoice payment from recorded payments',()=>{
+ const r=customerRecordModel({orders:[{id:'a',wg:'WG-A',invoice:{provider:'qonto',status:'unpaid',totalCents:10000},payments:[{amountCents:10000}]}],messages:[{id:'same',channel:'WhatsApp',orderId:'a'},{id:'same',channel:'WhatsApp',orderId:'b'}]});
+ assert.equal(r.orders[0].invoice.status,'Bezahlt');assert.equal(r.messages.length,2);
+});
 import {customerRecordModel} from '../server/customer-record.mjs';
 test('customer record separates confirmed appointments, private notes and proven message states',()=>{
  const model=customerRecordModel({orders:[{id:'a',wg:'WG-A',status:'Angebot offen',source:{email:'a@example.invalid'},appointment:{start:'2030-01-01',confirmation:null},offer:{totalCents:10000},notes:[{note:'INTERNAL ONLY',at:'2026-01-01',followUp:'2026-02-01'}]},{id:'b',wg:'WG-B',status:'Termin verbindlich',source:{},appointment:{start:'2030-02-01',confirmation:{at:'2026-01-01'}}}],requests:[{id:'r',order_id:'a',kind:'termin',status:'offen',created_at:'2026-01-01'},{id:'r',order_id:'a',kind:'termin',status:'offen',created_at:'2026-01-01'}],messages:[{id:'m',channel:'E-Mail',orderId:'a',state:'sent',at:'2026-01-01',body:'Hello'},{id:'c',channel:'Kundenchat',orderId:'b',state:'stored',at:'2026-01-02',body:'Question'}]});
