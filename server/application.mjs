@@ -21,17 +21,21 @@ import {agentSchema,agentMaintenance,handleAgent,handleAgentBridge} from './agen
 import {whatsappSchema,handleWhatsApp,handleWhatsAppWebhook} from './whatsapp.mjs';
 import {pushSchema,handlePush,notifyOwner,revokePushSession,prunePush} from './push.mjs';
 import {releaseCommit} from './release.mjs';
+import {handleMcp} from './mcp.mjs';
+import {mcpConfig,mcpSchema,mcpMaintenance} from './mcp-auth.mjs';
 const lockedHeaders={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Strict-Transport-Security':'max-age=31536000','Permissions-Policy':'camera=(), microphone=(), geolocation=()','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com"};
 function errorResponse(message,status=500){return new Response(JSON.stringify({error:message}),{status,headers:{'Content-Type':'application/json'}});}
 export async function createApplication(env){
   const origin=new URL(env.PANEL_ORIGIN);if(origin.protocol!=='https:'||origin.origin!==env.PANEL_ORIGIN||origin.username||origin.password)throw Error('PANEL_ORIGIN muss ein eindeutiger HTTPS-Ursprung sein.');
   if(!/^[a-f0-9]{64}$/.test(env.OWNER_EMAIL_SHA256??''))throw Error('Betreiberidentität fehlt.');
   await init(env);await orderMediaSchema(env);await authSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await chatSchema(env);await portalSchema(env);await businessPortalSchema(env);await accountingSchema(env);await bankAccountingSchema(env);await advisorSchema(env);await bookkeepingSchema(env);await mailboxSchema(env);await assistantSchema(env);await agentSchema(env);await whatsappSchema(env);await pushSchema(env);
+  if(mcpConfig(env))await mcpSchema(env);
   env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=Object.create(providerOperations);env.operations.ownerActivity=notifyOwner;
   const handle=async request=>{
     try{
       const url=new URL(request.url);if(url.origin!==env.PANEL_ORIGIN)return errorResponse('Ungültiger Host.',400);
       if(url.pathname==='/healthz')return new Response('ok',{headers:{'Content-Type':'text/plain',...(releaseCommit?{'X-Panel-Commit':releaseCommit}:{}),...(env.agentSchemaError?{'X-Agent-Schema':env.agentSchemaError}:{})}});
+      const mcp=await handleMcp(env,request,r=>sessionIdentity(env,r));if(mcp)return mcp;
       // Scripts, styles, the web app manifest and icons are public; customer data never is.
       if(request.method==='GET'&&/^\/[a-zA-Z0-9_-]+\.(css|js|mjs|webmanifest|png|svg|woff2)$/.test(url.pathname))return env.ASSETS.fetch(request);
       if(request.method==='GET'&&['/auth/login','/auth/verify'].includes(url.pathname))return loginPage();
@@ -95,6 +99,7 @@ export async function maintenance(env,now=Date.now()){
   await providerSchema(env);const lease=digest(String(now)+crypto.randomUUID());const claimed=await env.DB.prepare("INSERT INTO runtime_locks(name,owner,expires_at) VALUES('maintenance',?,?) ON CONFLICT(name) DO UPDATE SET owner=excluded.owner,expires_at=excluded.expires_at WHERE runtime_locks.expires_at<?").bind(lease,now+30*60000,now).run();if(!claimed.meta.changes)return {skipped:true,ok:true,deliveryError:null};
   try{
     await agentMaintenance(env,now);
+    if(mcpConfig(env)){await mcpSchema(env);await mcpMaintenance(env,now);}
     await setting(env,'lastScheduledAttempt',new Date(now).toISOString());await pruneAuth(env,now);await prunePush(env);
     await env.DB.prepare('DELETE FROM calendar_oauth_states WHERE expires_at<?').bind(now).run();
     let errors=[];try{errors=(await providerOperations.background(env)).errors;}catch(error){errors.push('Anbieterabgleich: '+error.message);}
@@ -106,3 +111,4 @@ export async function maintenance(env,now=Date.now()){
     return {...result,ok:!deliveryError,deliveryError};
   }finally{await env.DB.prepare("DELETE FROM runtime_locks WHERE name='maintenance' AND owner=?").bind(lease).run();}
 }
+
