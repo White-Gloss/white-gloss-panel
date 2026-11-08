@@ -8,12 +8,38 @@ import {assistantCredentials,completeAssistant} from './assistant.mjs';
 import {notifyOwner} from './push.mjs';
 import {readLimitedPhoto} from './booking-photos.mjs';
 import {assertRecordOperation} from '../src/record-compat.mjs';
+import {whatsappReplySchema,customerReplyTime,deliveryStatements,replyAvailability,outgoingReplyViews,sendWhatsAppReply,WhatsAppReplyNotSentError} from './whatsapp-replies.mjs';
 
 const ROOT='/api/whatsapp',WEBHOOK=ROOT+'/webhook';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GRAPH=/^v\d{1,3}\.\d{1,2}$/;
 const CONFIG_MATCH='phone_number_id=? AND graph_version=? AND access_token=? AND app_secret=? AND verify_token=? AND updated_at=? AND verified_at IS ?';
 const configurationValues=row=>[row.phone_number_id,row.graph_version,row.access_token,row.app_secret,row.verify_token,row.updated_at,row.verified_at];
+const reviewPolicies=new WeakMap();
+const reviewKeys=['MODE','ORIGIN','PHONE_NUMBER_ID','RECIPIENT','GRAPH_VERSION','ACCESS_TOKEN'].map(key=>'WHATSAPP_REVIEW_'+key);
+const reviewError='Die serverseitige WhatsApp-Prüfkonfiguration ist ungültig. Kein Anbieterzugriff wurde freigegeben.';
+function reviewPolicy(env){
+  if(reviewPolicies.has(env))return reviewPolicies.get(env);
+  need(!reviewKeys.some(key=>env[key]!==undefined),reviewError,503);return null;
+}
+/** Called only during application startup, before requests are accepted. */
+export async function initializeWhatsAppReview(env){
+  if(reviewPolicies.has(env))return;
+  if(!reviewKeys.some(key=>env[key]!==undefined)){reviewPolicies.set(env,null);return;}
+  const origin=env.WHATSAPP_REVIEW_ORIGIN,phoneNumberId=env.WHATSAPP_REVIEW_PHONE_NUMBER_ID,recipient=env.WHATSAPP_REVIEW_RECIPIENT,graphVersion=env.WHATSAPP_REVIEW_GRAPH_VERSION,accessToken=env.WHATSAPP_REVIEW_ACCESS_TOKEN;
+  let validOrigin=false;try{const url=new URL(origin);validOrigin=url.protocol==='https:'&&url.origin===origin&&url.hostname.startsWith('meta-review.')&&origin===env.PANEL_ORIGIN;}catch{}
+  need(env.WHATSAPP_REVIEW_MODE==='true'&&validOrigin&&typeof phoneNumberId==='string'&&phoneNumberId===phoneNumberId.trim()&&/^\d{3,30}$/.test(phoneNumberId)&&typeof recipient==='string'&&recipient===recipient.trim()&&/^\+[1-9]\d{7,14}$/.test(recipient)&&typeof graphVersion==='string'&&graphVersion===graphVersion.trim()&&GRAPH.test(graphVersion)&&typeof accessToken==='string'&&accessToken.length>0&&accessToken.length<=5000&&accessToken===accessToken.trim()&&!/[\r\n]/.test(accessToken),reviewError,503);
+  const policy=Object.freeze({origin,phoneNumberId,recipient,graphVersion,accessToken});
+  const row=await env.DB.prepare('SELECT * FROM whatsapp_settings WHERE id=1').first();
+  if(row)await assertReviewSettings(env,row,policy);
+  else await env.DB.prepare('INSERT INTO whatsapp_settings(id,phone_number_id,graph_version,access_token,app_secret,verify_token,updated_at) VALUES(1,?,?,?,\'\',\'\',?)').bind(phoneNumberId,graphVersion,await protect(env,accessToken),new Date().toISOString()).run();
+  reviewPolicies.set(env,policy);
+}
+async function assertReviewSettings(env,row,policy=reviewPolicy(env)){
+  if(!policy)return;
+  let token='';try{token=await unprotect(env,row?.access_token);}catch{}
+  need(row&&row.phone_number_id===policy.phoneNumberId&&row.graph_version===policy.graphVersion&&token===policy.accessToken&&!row.app_secret&&!row.verify_token,reviewError,503);
+}
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const response=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const schema={type:'object',properties:{name:{type:'string'},vehicle:{type:'string'},city:{type:'string'},service:{type:'string'},note:{type:'string'},desiredDate:{type:'string'},timeWindow:{type:'string'},uncertainties:{type:'array',items:{type:'string'}},confidence:{type:'number'}},required:['name','vehicle','city','service','note','desiredDate','timeWindow','uncertainties','confidence'],additionalProperties:false};
@@ -54,6 +80,7 @@ export async function whatsappSchema(env){
   await env.DB.batch(tables.map(sql=>env.DB.prepare(sql)));
   const columns=(await env.DB.prepare('PRAGMA table_info(whatsapp_messages)').all()).results.map(column=>column.name);
   for(const column of ['media_id','media_mime','media_name','media_sha256'])if(!columns.includes(column))await env.DB.prepare('ALTER TABLE whatsapp_messages ADD COLUMN '+column+' TEXT').run();
+  await whatsappReplySchema(env);
 }
 function safeEqual(left,right){const a=Buffer.from(String(left??'')),b=Buffer.from(String(right??''));return a.length===b.length&&timingSafeEqual(a,b);}
 async function bodyJSON(request,maximum=16000){
@@ -64,12 +91,13 @@ async function bodyJSON(request,maximum=16000){
   catch(error){if(error instanceof AppError)throw error;throw new AppError('Ungültige Eingabe.',400);}
 }
 function publicSettings(row){return row?{configured:Boolean(row.access_token&&row.app_secret&&row.verify_token),phoneNumberId:row.phone_number_id,graphVersion:row.graph_version,verifiedAt:row.verified_at,verifiedName:row.verified_name,displayPhoneNumber:row.display_phone_number,lastError:row.last_error,lastReceivedAt:row.last_received_at,updatedAt:row.updated_at}:{configured:false,phoneNumberId:'',graphVersion:'',verifiedAt:null,verifiedName:null,displayPhoneNumber:null,lastError:null,lastReceivedAt:null,updatedAt:null};}
-async function credentials(env){
-  const row=await env.DB.prepare('SELECT * FROM whatsapp_settings WHERE id=1').first();need(row,'WhatsApp Business ist noch nicht eingerichtet.',409);
+async function credentials(env,{outbound=false}={}){
+  const row=await env.DB.prepare('SELECT * FROM whatsapp_settings WHERE id=1').first(),policy=reviewPolicy(env);await assertReviewSettings(env,row,policy);
+  need(row,'WhatsApp Business ist noch nicht eingerichtet.',409);
   let accessToken,appSecret,verifyToken;
   try{[accessToken,appSecret,verifyToken]=await Promise.all([unprotect(env,row.access_token),unprotect(env,row.app_secret),unprotect(env,row.verify_token)]);}
   catch{throw new AppError('WhatsApp-Zugang kann nicht entschlüsselt werden. Bitte erneut geschützt speichern.',503);}
-  need(accessToken&&appSecret&&verifyToken,'WhatsApp-Zugang ist unvollständig. Bitte erneut geschützt speichern.',409);
+  need(accessToken&&(outbound&&policy||appSecret&&verifyToken),'WhatsApp-Zugang ist unvollständig. Bitte erneut geschützt speichern.',409);
   return {row,accessToken,appSecret,verifyToken};
 }
 async function saveSettings(env,input){
@@ -88,7 +116,7 @@ async function saveSettings(env,input){
   return {ok:true,message:changed?'WhatsApp-Zugang geschützt gespeichert. Bitte Verbindung lesend prüfen und den Webhook in Meta eintragen.':'Webhook-Einstellungen geschützt gespeichert. Bitte den Webhook in Meta eintragen.'};
 }
 async function check(env){
-  const {row,accessToken}=await credentials(env),at=new Date().toISOString();let result;
+  const {row,accessToken}=await credentials(env,{outbound:true}),at=new Date().toISOString();let result;
   try{
     const config={phoneNumberId:row.phone_number_id,graphVersion:row.graph_version,accessToken};
     if(env.WHATSAPP_ADAPTERS?.check)result=await env.WHATSAPP_ADAPTERS.check(config);
@@ -117,10 +145,12 @@ async function sendTest(env,input,synthetic){
   need(typeof input.requestId==='string'&&input.requestId.length===36&&UUID.test(input.requestId),'Versand-ID fehlt oder ist ungültig.');
   need(typeof input.recipient==='string'&&input.recipient===input.recipient.trim()&&/^\+[1-9]\d{7,14}$/.test(input.recipient),'Eigene Testnummer im internationalen Format eingeben, zum Beispiel +491701234567.');
   need(typeof input.phoneNumberId==='string'&&input.phoneNumberId===input.phoneNumberId.trim()&&/^\d{3,30}$/.test(input.phoneNumberId),'Phone Number ID fehlt oder ist ungültig.');
+  const policy=reviewPolicy(env);
+  if(policy){need(input.phoneNumberId===policy.phoneNumberId&&input.recipient===policy.recipient,'Im Meta-Prüfzugang sind Absender und eigene Testnummer fest vorgegeben.',403);await assertReviewSettings(env,await env.DB.prepare('SELECT * FROM whatsapp_settings WHERE id=1').first(),policy);}
   const requestHash=createHmac('sha256',Buffer.from(env.CONFIG_KEY,'base64')).update('whatsapp-test-send\0'+JSON.stringify({phoneNumberId:input.phoneNumberId,recipient:input.recipient,template:'hello_world',language:'en_US'})).digest('hex');
   const previous=await env.DB.prepare('SELECT * FROM whatsapp_test_sends WHERE request_id=?').bind(input.requestId).first();
   if(previous)return previousTestSend(previous,requestHash);
-  const {row,accessToken}=await credentials(env);
+  const {row,accessToken}=await credentials(env,{outbound:true});
   need(row.verified_at,'WhatsApp-Verbindung zuerst erfolgreich lesend prüfen.',409);
   need(row.phone_number_id===input.phoneNumberId,'Die Absendernummer wurde inzwischen geändert. Einstellungen neu laden und erneut prüfen.',409);
   need(GRAPH.test(row.graph_version),'Gespeicherte Graph-Version ist ungültig. Einstellungen erneut prüfen.',409);
@@ -158,33 +188,36 @@ async function sendTest(env,input,synthetic){
 }
 function messageTime(value,fallback){const stamp=Number(value);return Number.isFinite(stamp)&&stamp>0&&stamp<=86400000000?new Date(stamp*1000).toISOString():fallback;}
 export async function ingestWhatsAppWebhook(env,raw,signature,{synthetic=false}={}){
+  need(!reviewPolicy(env),'Im Meta-Prüfzugang ist der Nachrichteneingang gesperrt.',403);
   const {row,appSecret}=await credentials(env),bytes=Buffer.from(raw);need(bytes.length>1&&bytes.length<=1000000,'Webhook ist leer oder zu groß.',413);
   const expected='sha256='+createHmac('sha256',appSecret).update(bytes).digest('hex');need(safeEqual(signature,expected),'Webhook-Signatur ist ungültig.',401);
   let payload;try{payload=JSON.parse(bytes.toString('utf8'));}catch{throw new AppError('Webhook enthält kein gültiges JSON.',400);}
   need(payload?.object==='whatsapp_business_account'&&Array.isArray(payload.entry)&&payload.entry.length<=50,'Webhook-Objekt ist ungültig.',400);
-  const at=new Date().toISOString(),statements=[];let received=0,duplicates=0,ignored=0,count=0;
+  const at=new Date().toISOString(),statements=[],statuses=[];let received=0,duplicates=0,ignored=0,count=0;
   for(const entry of payload.entry){
     need(Array.isArray(entry?.changes)&&entry.changes.length<=50,'Webhook-Änderungen sind ungültig.',400);
     for(const change of entry.changes){
       const value=change?.value;if(!value||typeof value!=='object')continue;
       if(value.metadata?.phone_number_id!==row.phone_number_id){ignored++;continue;}
-      const messages=Array.isArray(value.messages)?value.messages:[];count+=messages.length;need(count<=100,'Webhook enthält zu viele Nachrichten.',413);
+      const messages=Array.isArray(value.messages)?value.messages:[],events=Array.isArray(value.statuses)?value.statuses:[];count+=messages.length+events.length;need(count<=100,'Webhook enthält zu viele Nachrichten.',413);
+      if(!synthetic&&change.field==='messages'&&value.messaging_product==='whatsapp'&&!value.is_echo&&!value.echo)statuses.push(...deliveryStatements(env,events,row.phone_number_id,at));
       const contacts=Array.isArray(value.contacts)?value.contacts:[];
       for(const message of messages){
         const providerId=text(message?.id,180),from=text(message?.from,30),digits=from.replace(/\D/g,'');need(providerId&&/^\d{6,20}$/.test(digits),'WhatsApp-Nachrichtenadresse ist ungültig.',400);
         const senderKey=phoneKey('+'+digits)||digits,contact=contacts.find(item=>String(item?.wa_id??'')===from),type=text(message?.type,40)||'unknown',media=message?.[type]&&typeof message[type]==='object'?message[type]:null;
         const body=type==='text'?text(message?.text?.body,20000):text(media?.caption,20000),id=randomUUID(),sentAt=messageTime(message?.timestamp,at);
-        statements.push(env.DB.prepare(`INSERT OR IGNORE INTO whatsapp_messages(id,provider_message_id,synthetic,conversation_key,sender_phone,sender_key,profile_name,message_type,body,sent_at,received_at,phone_number_id,media_id,media_mime,media_name,media_sha256)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,providerId,synthetic?1:0,senderKey,'+'+digits,senderKey,text(contact?.profile?.name,180),type,body,sentAt,at,row.phone_number_id,text(media?.id,180)||null,text(media?.mime_type,100)||null,text(media?.filename,250)||null,text(media?.sha256,128)||null));
+        statements.push(env.DB.prepare(`INSERT OR IGNORE INTO whatsapp_messages(id,provider_message_id,synthetic,conversation_key,sender_phone,sender_key,profile_name,message_type,body,sent_at,received_at,phone_number_id,media_id,media_mime,media_name,media_sha256,reply_window_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,providerId,synthetic?1:0,senderKey,'+'+digits,senderKey,text(contact?.profile?.name,180),type,body,sentAt,at,row.phone_number_id,text(media?.id,180)||null,text(media?.mime_type,100)||null,text(media?.filename,250)||null,text(media?.sha256,128)||null,synthetic||change.field!=='messages'||value.messaging_product!=='whatsapp'||value.is_echo||value.echo?null:customerReplyTime(message,Date.parse(at))));
       }
     }
   }
-  if(statements.length){const results=await env.DB.batch(statements);for(const result of results)result.meta.changes?received++:duplicates++;if(received)await env.DB.prepare('UPDATE whatsapp_settings SET last_received_at=?,updated_at=? WHERE id=1').bind(at,at).run();}
+  if(statements.length||statuses.length){const results=await env.DB.batch([...statements,...statuses]);for(const result of results.slice(0,statements.length))result.meta.changes?received++:duplicates++;if(received)await env.DB.prepare('UPDATE whatsapp_settings SET last_received_at=?,updated_at=? WHERE id=1').bind(at,at).run();}
   if(received&&!synthetic)await notifyOwner(env,'whatsapp').catch(()=>({sent:0,failed:0,removed:0}));
   return {ok:true,received,duplicates,ignored};
 }
 export async function handleWhatsAppWebhook(env,request){
   const url=new URL(request.url);if(url.pathname!==WEBHOOK)return null;
+  need(!reviewPolicy(env),'Im Meta-Prüfzugang ist der Nachrichteneingang gesperrt.',403);
   if(request.method==='GET'){
     const {verifyToken}=await credentials(env),challenge=url.searchParams.get('hub.challenge')??'';
     need(url.searchParams.get('hub.mode')==='subscribe'&&safeEqual(url.searchParams.get('hub.verify_token'),verifyToken),'Webhook-Bestätigung ist ungültig.',403);
@@ -198,10 +231,12 @@ export async function handleWhatsAppWebhook(env,request){
   }
   return response({error:'Methode nicht erlaubt.'},405);
 }
-function messageView(row){return {id:row.id,providerMessageId:row.provider_message_id,profileName:row.profile_name,messageType:row.message_type,body:row.body,sentAt:row.sent_at,receivedAt:row.received_at,hasMedia:Boolean(row.media_id),mediaMime:row.media_mime??'',mediaName:row.media_name??'',assignedOrderId:row.assigned_order_id??null};}
+function messageView(row){return {id:row.id,providerMessageId:row.provider_message_id,direction:'incoming',profileName:row.profile_name,messageType:row.message_type,body:row.body,sentAt:row.sent_at,receivedAt:row.received_at,hasMedia:Boolean(row.media_id),mediaMime:row.media_mime??'',mediaName:row.media_name??'',assignedOrderId:row.assigned_order_id??null};}
 function suggestionView(row){return {id:row.id,conversationKey:row.conversation_key,sourceHash:row.source_hash,model:row.model,result:JSON.parse(row.result_json),createdAt:row.created_at,decisionOrderId:row.order_id??null};}
 async function inbox(env,synthetic,conversationKey=''){
-  const settings=publicSettings(await env.DB.prepare('SELECT * FROM whatsapp_settings WHERE id=1').first());
+  const row=await env.DB.prepare('SELECT * FROM whatsapp_settings WHERE id=1').first(),policy=reviewPolicy(env);
+  await assertReviewSettings(env,row,policy);
+  const settings={...publicSettings(row),...(policy?{configured:true,reviewMode:true,reviewRecipient:policy.recipient}:{} )};
   const conversations=(await env.DB.prepare(`SELECT conversation_key,sender_phone,MAX(received_at) last_received_at,COUNT(*) message_count,
     (SELECT profile_name FROM whatsapp_messages p WHERE p.synthetic=m.synthetic AND p.conversation_key=m.conversation_key ORDER BY p.received_at DESC LIMIT 1) profile_name,
     (SELECT body FROM whatsapp_messages b WHERE b.synthetic=m.synthetic AND b.conversation_key=m.conversation_key ORDER BY b.received_at DESC LIMIT 1) last_body
@@ -212,9 +247,11 @@ async function inbox(env,synthetic,conversationKey=''){
   if(conversationKey){
     need(result.conversations.some(item=>item.conversationKey===conversationKey),'WhatsApp-Unterhaltung nicht gefunden.',404);
     result.messages=(await env.DB.prepare(`SELECT m.*,(SELECT a.order_id FROM whatsapp_media_assignments a WHERE a.message_id=m.id ORDER BY a.created_at LIMIT 1) assigned_order_id
-      FROM whatsapp_messages m WHERE m.synthetic=? AND m.conversation_key=? ORDER BY m.sent_at,m.received_at LIMIT 500`).bind(synthetic,conversationKey).all()).results.map(messageView);
+      FROM whatsapp_messages m WHERE m.synthetic=? AND m.conversation_key=? ORDER BY m.sent_at DESC,m.received_at DESC,m.rowid DESC LIMIT 500`).bind(synthetic,conversationKey).all()).results.reverse().map(messageView);
+    result.messages=[...result.messages,...await outgoingReplyViews(env,conversationKey,synthetic)].sort((a,b)=>a.sentAt.localeCompare(b.sentAt)||a.receivedAt.localeCompare(b.receivedAt)).slice(-500);
     result.suggestions=(await env.DB.prepare('SELECT s.*,d.order_id FROM whatsapp_suggestions s LEFT JOIN whatsapp_decisions d ON d.suggestion_id=s.id WHERE s.synthetic=? AND s.conversation_key=? ORDER BY s.created_at DESC LIMIT 20').bind(synthetic,conversationKey).all()).results.map(suggestionView);
   }
+  result.reply=await replyAvailability(env,row,conversationKey,synthetic,Boolean(policy));
   return result;
 }
 async function sourceMessages(env,key,synthetic){
@@ -313,11 +350,17 @@ async function assignMedia(env,input,synthetic){
 }
 export async function handleWhatsApp(env,request,isOwner){
   const url=new URL(request.url),path=url.pathname;if(path!==ROOT&&!path.startsWith(ROOT+'/'))return null;need(isOwner,'Nur für den Betreiber vorgesehen.',403);
+  const policy=reviewPolicy(env);
+  if(policy){need(url.origin===policy.origin,reviewError,503);need(request.method==='GET'&&path===ROOT||request.method==='POST'&&[ROOT+'/check',ROOT+'/test-send'].includes(path),'Im Meta-Prüfzugang sind nur Verbindungsprüfung und Versand an die feste eigene Testnummer erlaubt.',403);}
   const synthetic=url.searchParams.get('test')==='true';
   if(request.method==='GET'&&path===ROOT)return response(await inbox(env,synthetic?1:0,text(url.searchParams.get('conversation'),40)));
   if(request.method==='POST'&&path===ROOT+'/settings')return response(await saveSettings(env,await bodyJSON(request)));
   if(request.method==='POST'&&path===ROOT+'/check'){await bodyJSON(request);need(!synthetic,'Im Testbereich wird keine echte Verbindung abgerufen.',409);return response(await check(env));}
   if(request.method==='POST'&&path===ROOT+'/test-send')return response(await sendTest(env,await bodyJSON(request),synthetic));
+  if(request.method==='POST'&&path===ROOT+'/reply'){
+    try{return response(await sendWhatsAppReply(env,await bodyJSON(request),synthetic,()=>credentials(env,{outbound:true})));}
+    catch(error){if(error instanceof WhatsAppReplyNotSentError)return response({error:error.message,notSent:true},error.status);throw error;}
+  }
   if(request.method==='POST'&&path===ROOT+'/analyze')return response(await analyze(env,await bodyJSON(request,20000),synthetic));
   if(request.method==='POST'&&path===ROOT+'/apply')return response(await applySuggestion(env,await bodyJSON(request,30000),synthetic));
   if(request.method==='POST'&&path===ROOT+'/media/assign')return response(await assignMedia(env,await bodyJSON(request),synthetic));

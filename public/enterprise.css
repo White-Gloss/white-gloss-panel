@@ -497,3 +497,8 @@ dialog{box-shadow:0 20px 60px color-mix(in srgb,var(--shadow-ink) 17%,transparen
   .action-row>.action-item,.care-queue-row .care-queue-item{flex:1 1 100%}
   .action-row .action-done,.care-queue-row .action-done{min-height:44px;margin:0 16px 14px auto}
 }
+
+/* Manual WhatsApp replies: fixed recipient, explicit send, visible delivery state. */
+.whatsapp-message-outgoing{justify-self:end}.whatsapp-message-outgoing>div{background:var(--wg-soft,var(--bg));border-color:var(--wg-subtle)}.whatsapp-message-outgoing time{text-align:right}.whatsapp-delivery-status{display:block;margin-top:3px;text-align:right;color:var(--wg-subtle);font-size:11px;overflow-wrap:anywhere}.whatsapp-delivery-status[data-wa-delivery="failed"],.whatsapp-delivery-status[data-wa-delivery="uncertain"]{color:var(--danger)}
+.whatsapp-reply{padding:20px 22px;border-top:1px solid var(--wg-rule);border-bottom:1px solid var(--wg-rule)}.whatsapp-reply h3{margin:0 0 10px}.whatsapp-reply>p{overflow-wrap:anywhere}.whatsapp-reply label{display:block}.whatsapp-reply textarea{display:block;width:100%;min-height:110px;resize:vertical;white-space:pre-wrap;overflow-wrap:anywhere}.whatsapp-reply-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px}.whatsapp-reply-actions small{color:var(--wg-subtle);font-size:11px}.whatsapp-reply-pending{padding:10px 12px;background:var(--warn-bg);border-left:2px solid var(--warn);font-size:12px;line-height:1.5}.whatsapp-reply textarea[readonly]{opacity:.8}
+@media(max-width:760px){.whatsapp-reply{padding:16px 18px}.whatsapp-reply-actions{align-items:stretch;flex-direction:column}.whatsapp-reply-actions button{width:100%}.whatsapp-reply textarea{font-size:16px}}
