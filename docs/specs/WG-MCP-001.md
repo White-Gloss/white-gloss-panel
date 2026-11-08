@@ -1,7 +1,13 @@
-# WG-MCP-001 – sichere ChatGPT-Leseanbindung
+# WG-MCP-001 – Abnahmekriterien für die ChatGPT-Leseanbindung
 
-Status: technische Spezifikation vom 08.11.2026, noch nicht implementiert oder
-produktiv freigegeben. Bestand und Abhängigkeiten: [Phase 0](../WG-OS-Phase-0.md).
+Status: technischer Prüfrahmen vom 08.11.2026. Während Phase 0 entstand parallel
+[Draft PR #69](https://github.com/White-Gloss/white-gloss-panel/pull/69) mit MCP,
+OAuth und zwölf Lesewerkzeugen. Abgefragter Head:
+`bf9e72c5c019ead36a90cf9d8b963ee8b28ad2f8`, nachfolgend Codeabgleich am Head
+`feabaa7f9203358cb7b312fba898a96a51957d4f`. Diese Liste dient seiner unabhängigen
+Abnahme und weiteren gezielten Arbeit, nicht einer zweiten Implementierung.
+Noch keine produktive Freigabe oder tatsächliche ChatGPT-Verbindung nachgewiesen.
+Bestand und Abhängigkeiten: [Phase 0](../WG-OS-Phase-0.md).
 
 ## Problem und Ziel
 
@@ -38,7 +44,7 @@ Panels bleibt ein gesondertes Vorhaben mit nachgewiesenem Modellzugang.
 9. Als Betreiber möchte ich, dass Auskünfte nichts im Auftrag oder Postfach ändern,
    damit Lesen keine Nachricht, Rechnung oder Buchung auslöst.
 
-## Technische Entscheidungen
+## Technischer Prüfrahmen
 
 ### Vertrauensgrenzen
 
@@ -66,16 +72,19 @@ serverseitige Betreiber-/Scopeprüfung. Abgelaufene, widerrufene oder für eine 
 Audience ausgestellte Tokens werden abgewiesen. Keine Tokenweitergabe an Anbieter.
 Refresh und Widerruf gehören zur Abnahme; „dauerhaft“ heißt nicht unbegrenzt gültig.
 
-**Noch offen:** konkret verfügbarer Autorisierungsserver, unterstützte Clientregistrierung,
+**Am Draft zu prüfen:** die implementierte Autorisierung und Clientregistrierung,
 reale Redirect-URI, sichere Grant-/Tokenablage und Berechtigung im ChatGPT-Konto.
 OpenAI beschreibt CIMD, DCR und vorkonfigurierte Clients. Die tatsächlich passende
-Variante wird erst nach Prüfung gewählt. Kein eigener improvisierter OAuth-Server,
+Variante muss mit dem vorhandenen Draft und den aktuellen Quellen abgeglichen werden.
+Die eigene OAuth-Implementierung in PR #69 benötigt eine gesonderte Sicherheitsprüfung;
 keine geratenen Client-IDs und keine Kopie des Hermes-Schlüssels in ChatGPT.
 
 ### Fachlicher Lesevertrag
 
-Das erste Paket wird bewusst auf vier Werkzeuge begrenzt. Weitere im Master-Briefing
-genannte Datenbereiche folgen mit eigenen Freigabe- und Feldregeln.
+Die folgenden vier Kernfälle sind Mindestanforderungen an PR #69; die Namen sind
+fachliche Prüfbezeichnungen und nicht die Vorgabe, dessen vorhandene Werkzeuge
+umzubenennen. Die übrigen Werkzeuge des Drafts benötigen jeweils eigene Freigabe-
+und Feldregeln. Nicht erneut parallel implementieren.
 
 | Geplantes Werkzeug | Zweck | Mindestvertrag |
 | --- | --- | --- |
@@ -100,6 +109,23 @@ Schlüsselorte, Signaturen, private Notizen, Bankzugänge, Tokens und Rohobjekte
 im ersten Paket nicht ausgegeben. Foto-/Dokumentinhalte und deren Zugriffslinks
 sind nicht Teil dieses ersten Vertrags.
 
+### Konkreter Abgleich mit PR #69
+
+Quellcodeprüfung von `server/mcp-tools.mjs` am Head `feabaa7f`, keine vollständige
+OAuth-Sicherheitsabnahme und kein produktiver Werkzeugtest:
+
+| Befund | Erforderliche Abnahme / gezielte Korrektur im bestehenden Draft |
+| --- | --- |
+| `orderView()` gibt bestätigte Termine auch bei `Storniert` aus; nur `panel_appointments` filtert inaktive Status. Der Mapper akzeptiert zudem truthy primitive Bestätigungen, der Kalender verlangt ein Objekt. | Identische Terminsemantik für Auftrags- und Kalenderauskünfte testen. Die separate Hermes-Korrektur in PR #70 wirkt nicht auf diesen Mapper. |
+| Der E-Mail-WG-Filter prüft Absender-/Empfängeradresse, keine feste Nachricht-Auftrag-Verknüpfung. | Zwei Aufträge derselben Adresse prüfen; Ergebnisse als kundenbezogene Treffer kennzeichnen oder die explizite Zuordnung aus PR #68 verwenden. Keine bestätigte Auftragszuordnung behaupten. |
+| Gemeinsamer Exportfilter berücksichtigt Testaufträge und Papierkorb, nicht `recordsRestriction`. | Freigaberegel für externe Ausgabe gesperrter/anonymisierter Akten festlegen und testen. Kein daraus abgeleiteter Nachweis eines unberechtigten Betreiberzugriffs. |
+| Vorhanden ist `limit/offset/nextOffset`; Aufträge sind nach `updated_at` sortiert. | Änderungen zwischen Seiten auf Auslassungen/Duplikate prüfen. Entweder stabile Pagination nachweisen oder die Konsistenzgrenze ausdrücklich melden; keine vollständige Momentaufnahme versprechen. |
+| Client-/Callback-Einrichtung und tatsächlicher ChatGPT-Aufruf sind nicht nachgewiesen. | Konkrete Verbindung und Wiederverbindung separat belegen. Ein grüner Unit-Test ist keine eingerichtete App. |
+
+Keine Dateiüberschneidung mit dem Agentenfix in PR #70. Dennoch müssen diese
+Verhaltensverträge vor gemeinsamem Release geprüft werden. Bei verändertem PR-Head
+die Befunde neu prüfen; sie sind kein dauerhaft gültiges Urteil über spätere Fassungen.
+
 ### Keine Fachänderung beim Lesen
 
 Ein Werkzeugabruf darf keine Kunden-, Auftrags-, Termin-, Preis-, Status- oder
@@ -111,7 +137,7 @@ sind separat zu definieren: keine Kundentexte, Zugangstokens oder vollständigen
 Werkzeugantworten protokollieren. Bestehende HTTP-GET-Routen nicht pauschal wiederverwenden,
 weil dort Sitzungsaktualisierung oder Wartung auftreten kann.
 
-## Umsetzungsschritte und Abnahme
+## Abnahmereihenfolge für den vorhandenen Draft
 
 | Schritt | Ergebnis | Erforderlicher Nachweis |
 | --- | --- | --- |
