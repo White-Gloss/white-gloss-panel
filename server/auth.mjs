@@ -17,7 +17,8 @@ export async function authSchema(env){await init(env);await env.DB.batch([
   'CREATE TABLE IF NOT EXISTS auth_passwords(owner_hash TEXT PRIMARY KEY,salt TEXT NOT NULL,derived TEXT NOT NULL,revision TEXT NOT NULL,changed_at INTEGER NOT NULL)',
   'CREATE TABLE IF NOT EXISTS auth_customer_pins(login_hash TEXT PRIMARY KEY,pin_digest TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0)',
   'CREATE TABLE IF NOT EXISTS auth_customer_credentials(email TEXT PRIMARY KEY,salt TEXT NOT NULL,derived TEXT NOT NULL,revision TEXT NOT NULL,changed_at INTEGER NOT NULL)',
-  'CREATE TABLE IF NOT EXISTS auth_customer_sessions(session_hash TEXT PRIMARY KEY,revision TEXT NOT NULL)'
+  'CREATE TABLE IF NOT EXISTS auth_customer_sessions(session_hash TEXT PRIMARY KEY,revision TEXT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS auth_customer_remembered(session_hash TEXT PRIMARY KEY,revision TEXT NOT NULL)'
 ].map(query=>env.DB.prepare(query)));}
 export const REMEMBER_DEVICE_MS=30*86400000;
 export const sessionHash=request=>digest(cookie(request,'__Host-wg-session'));
@@ -25,9 +26,11 @@ export function sessionCookie(result,raw,remember=false){result.headers.set('Set
 export async function sessionIdentity(env,request,now=Date.now()){
   const raw=cookie(request,'__Host-wg-session');if(!/^[a-f0-9]{64}$/.test(raw))return null;const hash=digest(raw);
   const row=await env.DB.prepare('SELECT s.email,s.expires_at,s.last_at,EXISTS(SELECT 1 FROM auth_session_preferences p WHERE p.session_hash=s.hash AND p.remember=1) AS remembered FROM auth_sessions s WHERE s.hash=?').bind(hash).first();
-  const owner=row&&digest(row.email)===env.OWNER_EMAIL_SHA256,remembered=owner&&row.remembered===1,idle=remembered?REMEMBER_DEVICE_MS:4*3600000;
-  // Only an explicitly remembered owner device gets the longer lifetime. Existing sessions and
-  // every customer session retain the four-hour inactivity limit, even if a preference was forged.
+  const owner=row&&digest(row.email)===env.OWNER_EMAIL_SHA256;
+  const customerRemembered=row&&!owner&&await env.DB.prepare('SELECT 1 FROM auth_customer_remembered m JOIN auth_customer_credentials c ON c.email=? AND c.revision=m.revision JOIN auth_customer_sessions p ON p.session_hash=m.session_hash AND p.revision=m.revision WHERE m.session_hash=?').bind(row.email,hash).first();
+  const remembered=owner&&row.remembered===1||Boolean(customerRemembered),idle=remembered?REMEMBER_DEVICE_MS:4*3600000;
+  // Legacy customer preferences never extend a session. Password-authenticated customer
+  // devices need an explicit marker bound to their current credential revision.
   if(!row||row.expires_at<=now||row.last_at+idle<=now)return null;
   if(!owner){const credential=await env.DB.prepare('SELECT revision FROM auth_customer_credentials WHERE email=?').bind(row.email).first();if(credential){const proof=await env.DB.prepare('SELECT revision FROM auth_customer_sessions WHERE session_hash=?').bind(hash).first();if(proof?.revision!==credential.revision)return null;}}
   await env.DB.prepare('UPDATE auth_sessions SET last_at=? WHERE hash=?').bind(now,hash).run();return row.email;
@@ -97,9 +100,11 @@ export function loginPage(){return new Response('<!doctype html><html lang="de" 
 export async function pruneAuth(env,now=Date.now()){await env.DB.batch([
   env.DB.prepare('DELETE FROM auth_tokens WHERE expires_at<?').bind(now-86400000),
   env.DB.prepare('DELETE FROM auth_customer_pins WHERE NOT EXISTS(SELECT 1 FROM auth_tokens WHERE hash=login_hash)'),
-  env.DB.prepare('DELETE FROM auth_sessions WHERE expires_at<? OR (last_at<? AND NOT EXISTS(SELECT 1 FROM auth_session_preferences p WHERE p.session_hash=auth_sessions.hash AND p.remember=1)) OR (last_at<? AND EXISTS(SELECT 1 FROM auth_session_preferences p WHERE p.session_hash=auth_sessions.hash AND p.remember=1))').bind(now,now-4*3600000,now-REMEMBER_DEVICE_MS),
+  env.DB.prepare('DELETE FROM auth_sessions WHERE expires_at<? OR (last_at<? AND NOT EXISTS(SELECT 1 FROM auth_session_preferences p WHERE p.session_hash=auth_sessions.hash AND p.remember=1) AND NOT EXISTS(SELECT 1 FROM auth_customer_remembered m JOIN auth_customer_credentials c ON c.email=auth_sessions.email AND c.revision=m.revision WHERE m.session_hash=auth_sessions.hash)) OR last_at<?').bind(now,now-4*3600000,now-REMEMBER_DEVICE_MS),
   env.DB.prepare('DELETE FROM auth_session_preferences WHERE NOT EXISTS(SELECT 1 FROM auth_sessions WHERE hash=session_hash)'),
   env.DB.prepare('DELETE FROM auth_session_proofs WHERE NOT EXISTS(SELECT 1 FROM auth_sessions WHERE hash=session_hash)'),
   env.DB.prepare('DELETE FROM auth_customer_sessions WHERE NOT EXISTS(SELECT 1 FROM auth_sessions WHERE hash=session_hash)'),
+  env.DB.prepare('DELETE FROM auth_customer_remembered WHERE NOT EXISTS(SELECT 1 FROM auth_sessions WHERE hash=session_hash)'),
   env.DB.prepare('DELETE FROM auth_rates WHERE bucket<?').bind(Math.floor(now/3600000)-24)
 ]);}
+

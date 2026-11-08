@@ -14,16 +14,16 @@ export async function browserFixture(t,{viewport={width:1280,height:720},identit
   t.mock.method(globalThis,'fetch',async()=>{throw Error('External provider requests are forbidden in browser fixtures.');});
   const files=new Map(),env={PANEL_ORIGIN:origin,OWNER_EMAIL_SHA256:digest(owner),CONFIG_KEY:Buffer.alloc(32,7).toString('base64'),DB:new PanelDatabase(':memory:'),ASSETS:new StaticAssets(resolve('dist/client')),BUCKET:{async put(id,bytes,options){files.set(id,{body:new Uint8Array(bytes),httpMetadata:options?.httpMetadata??{}});},async get(id){return files.get(id)??null;},async delete(id){files.delete(id);}}};
   const app=await createApplication(env),raw=randomBytes(32).toString('hex');
-  await env.DB.prepare('INSERT INTO auth_sessions VALUES(?,?,?,?)').bind(digest(raw),identity,Date.now()+3600000,Date.now()).run();
+  if(identity!==null)await env.DB.prepare('INSERT INTO auth_sessions VALUES(?,?,?,?)').bind(digest(raw),identity,Date.now()+3600000,Date.now()).run();
   const browser=await chromium.launch({headless:true}),context=await browser.newContext({viewport,serviceWorkers:'block',reducedMotion:'reduce',...(colorScheme?{colorScheme}:{})}),errors=[],requests=[];
-  await context.addCookies([{name:'__Host-wg-session',value:raw,url:origin,secure:true,httpOnly:true,sameSite:'Lax'}]);
+  if(identity!==null)await context.addCookies([{name:'__Host-wg-session',value:raw,url:origin,secure:true,httpOnly:true,sameSite:'Lax'}]);
   await context.route('**/*',async route=>{
     const request=route.request(),url=new URL(request.url());
     if(url.origin!==origin){errors.push('Unexpected external browser request: '+url.origin);await route.abort();return;}
     try{
       const headers=new Headers(await request.allHeaders());
       const otherCookies=(headers.get('cookie')??'').split(';').map(x=>x.trim()).filter(x=>x&&!x.startsWith('__Host-wg-session='));
-      headers.set('cookie',[...otherCookies,'__Host-wg-session='+raw].join('; '));
+      if(identity!==null)headers.set('cookie',[...otherCookies,'__Host-wg-session='+raw].join('; '));
       if(!['GET','HEAD'].includes(request.method()))headers.set('origin',origin);
       // Avoid long-polling against a fixture which has no background process.
       if(url.searchParams.has('wait'))url.searchParams.set('wait','0');
@@ -42,3 +42,4 @@ export async function browserFixture(t,{viewport={width:1280,height:720},identit
   const screenshot=async(name,{fullPage=true}={})=>{await mkdir('test-results',{recursive:true});await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:'test-results/'+name+'.png',fullPage});};
   return {env,app,page,context,files,errors,requests,seedOrder,screenshot};
 }
+
