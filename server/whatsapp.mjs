@@ -8,6 +8,7 @@ import {assistantCredentials,completeAssistant} from './assistant.mjs';
 import {notifyOwner} from './push.mjs';
 import {readLimitedPhoto} from './booking-photos.mjs';
 import {assertRecordOperation} from '../src/record-compat.mjs';
+import {whatsappReplySchema,customerReplyTime,deliveryStatements,replyAvailability,outgoingReplyViews,sendWhatsAppReply,WhatsAppReplyNotSentError} from './whatsapp-replies.mjs';
 
 const ROOT='/api/whatsapp',WEBHOOK=ROOT+'/webhook';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -79,6 +80,7 @@ export async function whatsappSchema(env){
   await env.DB.batch(tables.map(sql=>env.DB.prepare(sql)));
   const columns=(await env.DB.prepare('PRAGMA table_info(whatsapp_messages)').all()).results.map(column=>column.name);
   for(const column of ['media_id','media_mime','media_name','media_sha256'])if(!columns.includes(column))await env.DB.prepare('ALTER TABLE whatsapp_messages ADD COLUMN '+column+' TEXT').run();
+  await whatsappReplySchema(env);
 }
 function safeEqual(left,right){const a=Buffer.from(String(left??'')),b=Buffer.from(String(right??''));return a.length===b.length&&timingSafeEqual(a,b);}
 async function bodyJSON(request,maximum=16000){
@@ -191,24 +193,25 @@ export async function ingestWhatsAppWebhook(env,raw,signature,{synthetic=false}=
   const expected='sha256='+createHmac('sha256',appSecret).update(bytes).digest('hex');need(safeEqual(signature,expected),'Webhook-Signatur ist ungültig.',401);
   let payload;try{payload=JSON.parse(bytes.toString('utf8'));}catch{throw new AppError('Webhook enthält kein gültiges JSON.',400);}
   need(payload?.object==='whatsapp_business_account'&&Array.isArray(payload.entry)&&payload.entry.length<=50,'Webhook-Objekt ist ungültig.',400);
-  const at=new Date().toISOString(),statements=[];let received=0,duplicates=0,ignored=0,count=0;
+  const at=new Date().toISOString(),statements=[],statuses=[];let received=0,duplicates=0,ignored=0,count=0;
   for(const entry of payload.entry){
     need(Array.isArray(entry?.changes)&&entry.changes.length<=50,'Webhook-Änderungen sind ungültig.',400);
     for(const change of entry.changes){
       const value=change?.value;if(!value||typeof value!=='object')continue;
       if(value.metadata?.phone_number_id!==row.phone_number_id){ignored++;continue;}
-      const messages=Array.isArray(value.messages)?value.messages:[];count+=messages.length;need(count<=100,'Webhook enthält zu viele Nachrichten.',413);
+      const messages=Array.isArray(value.messages)?value.messages:[],events=Array.isArray(value.statuses)?value.statuses:[];count+=messages.length+events.length;need(count<=100,'Webhook enthält zu viele Nachrichten.',413);
+      if(!synthetic&&change.field==='messages'&&value.messaging_product==='whatsapp'&&!value.is_echo&&!value.echo)statuses.push(...deliveryStatements(env,events,row.phone_number_id,at));
       const contacts=Array.isArray(value.contacts)?value.contacts:[];
       for(const message of messages){
         const providerId=text(message?.id,180),from=text(message?.from,30),digits=from.replace(/\D/g,'');need(providerId&&/^\d{6,20}$/.test(digits),'WhatsApp-Nachrichtenadresse ist ungültig.',400);
         const senderKey=phoneKey('+'+digits)||digits,contact=contacts.find(item=>String(item?.wa_id??'')===from),type=text(message?.type,40)||'unknown',media=message?.[type]&&typeof message[type]==='object'?message[type]:null;
         const body=type==='text'?text(message?.text?.body,20000):text(media?.caption,20000),id=randomUUID(),sentAt=messageTime(message?.timestamp,at);
-        statements.push(env.DB.prepare(`INSERT OR IGNORE INTO whatsapp_messages(id,provider_message_id,synthetic,conversation_key,sender_phone,sender_key,profile_name,message_type,body,sent_at,received_at,phone_number_id,media_id,media_mime,media_name,media_sha256)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,providerId,synthetic?1:0,senderKey,'+'+digits,senderKey,text(contact?.profile?.name,180),type,body,sentAt,at,row.phone_number_id,text(media?.id,180)||null,text(media?.mime_type,100)||null,text(media?.filename,250)||null,text(media?.sha256,128)||null));
+        statements.push(env.DB.prepare(`INSERT OR IGNORE INTO whatsapp_messages(id,provider_message_id,synthetic,conversation_key,sender_phone,sender_key,profile_name,message_type,body,sent_at,received_at,phone_number_id,media_id,media_mime,media_name,media_sha256,reply_window_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,providerId,synthetic?1:0,senderKey,'+'+digits,senderKey,text(contact?.profile?.name,180),type,body,sentAt,at,row.phone_number_id,text(media?.id,180)||null,text(media?.mime_type,100)||null,text(media?.filename,250)||null,text(media?.sha256,128)||null,synthetic||change.field!=='messages'||value.messaging_product!=='whatsapp'||value.is_echo||value.echo?null:customerReplyTime(message,Date.parse(at))));
       }
     }
   }
-  if(statements.length){const results=await env.DB.batch(statements);for(const result of results)result.meta.changes?received++:duplicates++;if(received)await env.DB.prepare('UPDATE whatsapp_settings SET last_received_at=?,updated_at=? WHERE id=1').bind(at,at).run();}
+  if(statements.length||statuses.length){const results=await env.DB.batch([...statements,...statuses]);for(const result of results.slice(0,statements.length))result.meta.changes?received++:duplicates++;if(received)await env.DB.prepare('UPDATE whatsapp_settings SET last_received_at=?,updated_at=? WHERE id=1').bind(at,at).run();}
   if(received&&!synthetic)await notifyOwner(env,'whatsapp').catch(()=>({sent:0,failed:0,removed:0}));
   return {ok:true,received,duplicates,ignored};
 }
@@ -228,7 +231,7 @@ export async function handleWhatsAppWebhook(env,request){
   }
   return response({error:'Methode nicht erlaubt.'},405);
 }
-function messageView(row){return {id:row.id,providerMessageId:row.provider_message_id,profileName:row.profile_name,messageType:row.message_type,body:row.body,sentAt:row.sent_at,receivedAt:row.received_at,hasMedia:Boolean(row.media_id),mediaMime:row.media_mime??'',mediaName:row.media_name??'',assignedOrderId:row.assigned_order_id??null};}
+function messageView(row){return {id:row.id,providerMessageId:row.provider_message_id,direction:'incoming',profileName:row.profile_name,messageType:row.message_type,body:row.body,sentAt:row.sent_at,receivedAt:row.received_at,hasMedia:Boolean(row.media_id),mediaMime:row.media_mime??'',mediaName:row.media_name??'',assignedOrderId:row.assigned_order_id??null};}
 function suggestionView(row){return {id:row.id,conversationKey:row.conversation_key,sourceHash:row.source_hash,model:row.model,result:JSON.parse(row.result_json),createdAt:row.created_at,decisionOrderId:row.order_id??null};}
 async function inbox(env,synthetic,conversationKey=''){
   const row=await env.DB.prepare('SELECT * FROM whatsapp_settings WHERE id=1').first(),policy=reviewPolicy(env);
@@ -244,9 +247,11 @@ async function inbox(env,synthetic,conversationKey=''){
   if(conversationKey){
     need(result.conversations.some(item=>item.conversationKey===conversationKey),'WhatsApp-Unterhaltung nicht gefunden.',404);
     result.messages=(await env.DB.prepare(`SELECT m.*,(SELECT a.order_id FROM whatsapp_media_assignments a WHERE a.message_id=m.id ORDER BY a.created_at LIMIT 1) assigned_order_id
-      FROM whatsapp_messages m WHERE m.synthetic=? AND m.conversation_key=? ORDER BY m.sent_at,m.received_at LIMIT 500`).bind(synthetic,conversationKey).all()).results.map(messageView);
+      FROM whatsapp_messages m WHERE m.synthetic=? AND m.conversation_key=? ORDER BY m.sent_at DESC,m.received_at DESC,m.rowid DESC LIMIT 500`).bind(synthetic,conversationKey).all()).results.reverse().map(messageView);
+    result.messages=[...result.messages,...await outgoingReplyViews(env,conversationKey,synthetic)].sort((a,b)=>a.sentAt.localeCompare(b.sentAt)||a.receivedAt.localeCompare(b.receivedAt)).slice(-500);
     result.suggestions=(await env.DB.prepare('SELECT s.*,d.order_id FROM whatsapp_suggestions s LEFT JOIN whatsapp_decisions d ON d.suggestion_id=s.id WHERE s.synthetic=? AND s.conversation_key=? ORDER BY s.created_at DESC LIMIT 20').bind(synthetic,conversationKey).all()).results.map(suggestionView);
   }
+  result.reply=await replyAvailability(env,row,conversationKey,synthetic,Boolean(policy));
   return result;
 }
 async function sourceMessages(env,key,synthetic){
@@ -352,6 +357,10 @@ export async function handleWhatsApp(env,request,isOwner){
   if(request.method==='POST'&&path===ROOT+'/settings')return response(await saveSettings(env,await bodyJSON(request)));
   if(request.method==='POST'&&path===ROOT+'/check'){await bodyJSON(request);need(!synthetic,'Im Testbereich wird keine echte Verbindung abgerufen.',409);return response(await check(env));}
   if(request.method==='POST'&&path===ROOT+'/test-send')return response(await sendTest(env,await bodyJSON(request),synthetic));
+  if(request.method==='POST'&&path===ROOT+'/reply'){
+    try{return response(await sendWhatsAppReply(env,await bodyJSON(request),synthetic,()=>credentials(env,{outbound:true})));}
+    catch(error){if(error instanceof WhatsAppReplyNotSentError)return response({error:error.message,notSent:true},error.status);throw error;}
+  }
   if(request.method==='POST'&&path===ROOT+'/analyze')return response(await analyze(env,await bodyJSON(request,20000),synthetic));
   if(request.method==='POST'&&path===ROOT+'/apply')return response(await applySuggestion(env,await bodyJSON(request,30000),synthetic));
   if(request.method==='POST'&&path===ROOT+'/media/assign')return response(await assignMedia(env,await bodyJSON(request),synthetic));
