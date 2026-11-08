@@ -18,7 +18,7 @@ import {handleBookkeeping} from './bookkeeping.mjs';
 import {mailboxSchema,handleMailbox,mailboxBackground} from './mailbox.mjs';
 import {assistantSchema,handleAssistant} from './assistant.mjs';
 import {agentSchema,agentMaintenance,handleAgent,handleAgentBridge} from './agent.mjs';
-import {whatsappSchema,handleWhatsApp,handleWhatsAppWebhook} from './whatsapp.mjs';
+import {whatsappSchema,initializeWhatsAppReview,handleWhatsApp,handleWhatsAppWebhook} from './whatsapp.mjs';
 import {pushSchema,handlePush,notifyOwner,revokePushSession,prunePush} from './push.mjs';
 import {releaseCommit} from './release.mjs';
 const lockedHeaders={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Strict-Transport-Security':'max-age=31536000','Permissions-Policy':'camera=(), microphone=(), geolocation=()','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com"};
@@ -27,6 +27,7 @@ export async function createApplication(env){
   const origin=new URL(env.PANEL_ORIGIN);if(origin.protocol!=='https:'||origin.origin!==env.PANEL_ORIGIN||origin.username||origin.password)throw Error('PANEL_ORIGIN muss ein eindeutiger HTTPS-Ursprung sein.');
   if(!/^[a-f0-9]{64}$/.test(env.OWNER_EMAIL_SHA256??''))throw Error('Betreiberidentität fehlt.');
   await init(env);await orderMediaSchema(env);await authSchema(env);await calendarOAuthSchema(env);await providerSchema(env);await chatSchema(env);await portalSchema(env);await businessPortalSchema(env);await accountingSchema(env);await bankAccountingSchema(env);await advisorSchema(env);await bookkeepingSchema(env);await mailboxSchema(env);await assistantSchema(env);await agentSchema(env);await whatsappSchema(env);await pushSchema(env);
+  await initializeWhatsAppReview(env);
   env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=Object.create(providerOperations);env.operations.ownerActivity=notifyOwner;
   const handle=async request=>{
     try{
