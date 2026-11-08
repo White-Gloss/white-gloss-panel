@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+test('a portal request and its generated chat notice count once while a separate unread reply remains actionable',()=>{
+ const requests=[{id:'request',order_id:'a',kind:'termin',status:'offen',created_at:'2035-01-01T10:00:00.000Z'}],messages=[{id:'notice',channel:'Kundenchat',orderId:'a',unread:true,portalNotice:true,at:requests[0].created_at}];
+ assert.equal(customerRecordModel({requests,messages}).tasks.length,1);
+ messages.push({id:'real-message',channel:'Kundenchat',orderId:'a',unread:true,at:'2035-01-01T11:00:00.000Z'});assert.equal(customerRecordModel({requests,messages}).tasks.length,2);
+});
+
 test('customer dossier retains explicit multi-order message links and derives invoice payment from recorded payments',()=>{
  const r=customerRecordModel({orders:[{id:'a',wg:'WG-A',invoice:{provider:'qonto',status:'unpaid',totalCents:10000},payments:[{amountCents:10000}]}],messages:[{id:'same',channel:'WhatsApp',orderId:'a'},{id:'same',channel:'WhatsApp',orderId:'b'}]});
  assert.equal(r.orders[0].invoice.status,'Bezahlt');assert.equal(r.messages.length,2);
