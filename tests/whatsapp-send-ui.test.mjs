@@ -61,4 +61,3 @@ test('failed connection check clears the stale verified badge and disables test 
   assert.equal(f.root.querySelector('.badge').textContent,'Nicht geprüft');assert.equal(f.$('[data-whatsapp-test-prepare]').disabled,true);
   assert.match(f.$('[data-whatsapp-message]').textContent,/HTTP 401/);
 });
-
