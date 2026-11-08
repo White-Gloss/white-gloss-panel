@@ -34,8 +34,9 @@ test('bridge authenticates bearer only and returns bounded safe real order conte
   assert.equal((await f.call(path,{},'anonymous',auth)).status,405);
   const response=await f.call(path,undefined,'anonymous',auth);assert.equal(response.status,200);
   const view=await response.json();assert.equal(view.mode,'read-only');assert.equal(view.counts.total,21);assert.equal(view.counts.byStatus.Neu,21);assert.equal(view.orders.length,20);assert.equal(view.truncated,true);
-  assert.deepEqual(Object.keys(view.orders[0]).sort(),['id','wg','status','name','vehicle','package','totalCents','priceBasis','pricesReviewed','agreedTotalCents','appointment','updatedAt'].sort());
-  assert.deepEqual(view.orders[0].appointment,{start:'2026-11-10T10:00:00Z',end:'2026-11-10T12:00:00Z'});
+  assert.deepEqual(Object.keys(view.orders[0]).sort(),['id','wg','status','name','vehicle','package','totalCents','priceBasis','pricesReviewed','agreedTotalCents','appointment','appointmentProposal','updatedAt'].sort());
+  assert.equal(view.orders[0].appointment,null);
+  assert.deepEqual(view.orders[0].appointmentProposal,{start:'2026-11-10T10:00:00Z',end:'2026-11-10T12:00:00Z'});
   assert.doesNotMatch(JSON.stringify(view),/SECRET|PRIVATE-EMAIL|bridge-secret/);
   const found=await (await f.call(path+'?q=WG-20',undefined,'anonymous',auth)).json();assert.equal(found.orders.length,1);assert.equal(found.counts.total,1);assert.equal(found.truncated,false);
   assert.equal((await f.call(path+'?q='+ 'x'.repeat(101),undefined,'anonymous',auth)).status,400);
@@ -281,3 +282,4 @@ test('a populated compatible agent table gains the missing time column without l
   assert.equal((await db.prepare('SELECT request_id,created_at FROM agent_requests').first()).request_id,'keep');
   assert.equal((await db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='agent_requests_created'").first()).name,'agent_requests_created');
 });
+
