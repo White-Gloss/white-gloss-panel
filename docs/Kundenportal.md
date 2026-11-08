@@ -3,6 +3,8 @@
 Stand: 17. Oktober 2026. Dieser Stand beschreibt den Code. Live verfügbar ist er erst nach einem
 eigenen, freigegebenen IONOS-Release mit Live-Nachweis.
 
+Aktualisierung WG-QA-004 (07.11.2026): Der aktuelle bestätigte Release läuft auf Hostinger (PR #65 / `edaac91`). Das reguläre Angebot mit enthaltenem Termin wird durch **eine gemeinsame Kundenunterschrift** angenommen. Eine separate Terminbestätigung bleibt für Bestands-/Ausnahmefälle erhalten. Die folgenden älteren Einzelablaufbeschreibungen sind insoweit historisch. Galerie-Originale unterstützen JPEG/PNG/WebP bis 50 MiB; HEIC und tatsächliche produktive Proxygrenze sind weiterhin nicht abgenommen. Siehe [QA-Matrix](WG-QA-004.md).
+
 Adresse: **https://panel.white-gloss.de/kunde**
 
 Der Kunde meldet sich einmal mit der E-Mail-Adresse seiner Anfrage an (persönlicher Link + PIN,
