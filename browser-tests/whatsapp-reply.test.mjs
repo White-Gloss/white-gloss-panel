@@ -22,10 +22,17 @@ async function refreshThread(page){
   await page.locator('#whatsapp-root[aria-busy]').waitFor({state:'detached'});
 }
 async function assertReplyLayout(page,viewport){
+  await page.evaluate(async()=>{await document.fonts.ready;});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'WhatsApp view has no horizontal overflow');
   for(const selector of ['#whatsapp-reply-form textarea','[data-wa-reply-send]']){
-    const element=page.locator(selector);await element.scrollIntoViewIfNeeded();
-    const box=await element.evaluate(element=>{const rect=element.getBoundingClientRect(),style=getComputedStyle(element);return {left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,width:rect.width,height:rect.height,fontSize:parseFloat(style.fontSize)};});
+    const element=page.locator(selector);
+    const box=await element.evaluate(async element=>{
+      // Center all scroll ancestors instead of accepting a fractional clip at the nearest edge.
+      element.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});
+      await new Promise(resolve=>requestAnimationFrame(resolve));
+      const rect=element.getBoundingClientRect(),style=getComputedStyle(element);
+      return {left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,width:rect.width,height:rect.height,fontSize:parseFloat(style.fontSize)};
+    });
     assert.ok(box.left>=-1&&box.right<=viewport.width+1,selector+' fits horizontally: '+JSON.stringify(box));
     assert.ok(box.top>=-1&&box.bottom<=viewport.height+1,selector+' fits vertically after scrolling: '+JSON.stringify(box));
     assert.ok(box.width>=140,selector+' remains wide enough to read');
