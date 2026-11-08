@@ -1,3 +1,4 @@
+import {mailOrderSchema,mailOrderTarget,guardMailOrder,mailOrderStatement} from './mail-order-link.mjs';
 // Eigenes IMAP-/SMTP-Postfach. Eingänge werden lesend übernommen; Versand nur
 // nach ausdrücklicher Betreiberaktion. Beleganhänge bleiben unklassifiziert.
 import {createHash,randomUUID} from 'node:crypto';
@@ -59,7 +60,7 @@ export async function mailboxSchema(env){
   // Postfach gewonnene Neuaufbereitung liegt getrennt; der unveränderliche Nachweis bleibt unberührt.
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS mail_message_render(
     message_id TEXT PRIMARY KEY REFERENCES mail_messages(id),html_body TEXT,cc_json TEXT,reply_to_json TEXT,message_id_header TEXT,references_header TEXT,fetched_at TEXT NOT NULL,error TEXT)`).run();
-  await mailCenterSchema(env);
+  await mailCenterSchema(env);await mailOrderSchema(env);
 }
 
 async function bodyJSON(request,maximum=100000){
@@ -197,6 +198,7 @@ async function sendMail(env,input){
   const {row,password}=await accountCredentials(env);need(row.smtp_verified_at,'SMTP-Verbindung zuerst erfolgreich prüfen.',409);
   const previous=await env.DB.prepare('SELECT * FROM mail_deliveries WHERE request_id=?').bind(input.requestId).first();
   if(previous){need(previous.status==='SENT'||previous.status==='PARTIAL','Dieser Versand ist noch ungeklärt. Kein automatischer Neuversuch; bitte zuerst das Postfach prüfen.',409);return {ok:true,status:previous.status,duplicate:true};}
+  const target=await mailOrderTarget(env,input.orderId,recipients);
   const resolved=await resolveAttachments(env,input.attachments??[],0),files=[];
   for(const item of resolved){const file=await env.BUCKET.get(item.id);need(file&&hash(file.body)===item.sha256,'Anhang „'+item.filename+'“ ist nicht verfügbar oder beschädigt.',503);files.push({...item,content:Buffer.from(file.body),storedId:randomUUID()});}
   need(files.reduce((sum,item)=>sum+item.content.length,0)<=ATTACHMENT_LIMITS.totalBytes,'Anhänge sind zusammen größer als 15 MB.',413);
@@ -209,10 +211,13 @@ async function sendMail(env,input){
     env.DB.prepare(`INSERT INTO mail_messages(id,dedupe_key,synthetic,direction,folder,uid,uid_validity,message_id_hash,from_name,from_address,to_json,subject,text_body,html_body,received_at,imported_at,cc_json,bcc_json,message_id_header,references_header)
       VALUES(?,?,0,'OUTBOUND','Sent',NULL,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,key,hash(providerId),row.display_name,row.email,JSON.stringify(recipients.map(address=>({name:'',address}))),subject,body,html,at,at,JSON.stringify(copies.map(address=>({name:'',address}))),JSON.stringify(blind.map(address=>({name:'',address}))),providerId,references),
     env.DB.prepare("INSERT INTO mail_deliveries(request_id,message_id,status,created_at,updated_at) VALUES(?,?,'PENDING',?,?)").bind(input.requestId,id,at,at),
+    ...mailOrderStatement(env,target,id,at),
     ...files.map(file=>env.DB.prepare('INSERT INTO mail_attachments(id,message_id,filename,mime,size,sha256,archived,document_id,inline) VALUES(?,?,?,?,?,?,1,NULL,0)').bind(file.storedId,id,file.filename,file.mime,file.content.length,file.sha256))
   ];if(original?.message_id_hash)statements.push(env.DB.prepare('INSERT INTO mail_thread_links VALUES(?,?)').bind(id,original.message_id_hash));
   try{await env.DB.batch(statements);}catch(error){for(const storedId of copied)await env.BUCKET.delete(storedId).catch(()=>{});throw error;}
   const message={from:row.display_name?`"${row.display_name.replace(/["\\\r\n]/g,'')}" <${row.email}>`:row.email,to:recipients.join(', '),...(copies.length?{cc:copies.join(', ')}:{}),...(blind.length?{bcc:blind.join(', ')}:{}),subject,text:body,...(html?{html:outboundHtml(html)}:{}),messageId:providerId,...(inReplyTo?{inReplyTo,references}:{}),...(files.length?{attachments:files.map(file=>({filename:file.filename,content:file.content,contentType:file.mime}))}:{})};
+  // Recheck immediately before SMTP; a concurrent block/change cancels this attempt.
+  try{guardMailOrder(env,target);}catch(error){await env.DB.prepare("UPDATE mail_deliveries SET status='FAILED',error=?,updated_at=? WHERE request_id=?").bind(error.message,new Date().toISOString(),input.requestId).run();throw error;}
   const transporter=env.MAILBOX_ADAPTERS?.sendMail?null:nodemailer.createTransport(smtpConfig(row,password));
   try{
     const result=transporter?await transporter.sendMail(message):await env.MAILBOX_ADAPTERS.sendMail(smtpConfig(row,password),message);

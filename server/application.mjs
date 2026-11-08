@@ -4,6 +4,7 @@ import {AppError} from '../src/domain.mjs';
 import {authSchema,sessionIdentity,requestLogin,redeemLogin,logout,loginPage,pruneAuth,digest} from './auth.mjs';
 import {passwordLogin,savePassword,passwordPage} from './password-auth.mjs';
 import {customerAuthSchema,customerAuth,customerAuthPage,deliverCustomerCodes,accountInviteStatements} from './customer-auth.mjs';
+import {readCustomerRecord} from './customer-record.mjs';
 import {calendarOAuthSchema,calendarAuthorize,calendarCallback,calendarAccessToken} from './calendar-oauth.mjs';
 import {createStorage} from './storage.mjs';
 import {providerOperations,providerSchema} from './providers.mjs';
@@ -51,6 +52,11 @@ export async function createApplication(env){
       if(!identity&&request.method==='GET'&&url.pathname===PORTAL_PATH)return Response.redirect(new URL('/auth/customer',env.PANEL_ORIGIN),303);
       if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/(?:angebot|dokument|rechnung|chat)\/[a-f0-9]{64}$/.test(url.pathname)||url.pathname==='/vor-ort'||url.pathname===PORTAL_PATH)login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
       const isOwner=digest(identity)===env.OWNER_EMAIL_SHA256;
+      if(url.pathname.startsWith('/api/customer-record/')){
+        if(!isOwner)return errorResponse('Nur für den Betreiber vorgesehen.',403);
+        if(request.method!=='GET')return errorResponse('Nur lesender Zugriff vorgesehen.',405);
+        return Response.json(await readCustomerRecord(env,decodeURIComponent(url.pathname.slice('/api/customer-record/'.length))));
+      }
       if(url.pathname==='/api/push'||url.pathname.startsWith('/api/push/')){const sessionCookie=(request.headers.get('cookie')??'').split(';').map(x=>x.trim()).find(x=>x.startsWith('__Host-wg-session='))?.slice(18)??'';const push=await handlePush(env,request,isOwner,digest(sessionCookie));if(push)return push;}
       if(url.pathname==='/auth/password'){
         if(!isOwner)return errorResponse('Nur für den Betreiber vorgesehen.',403);

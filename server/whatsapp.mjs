@@ -12,6 +12,8 @@ import {assertRecordOperation} from '../src/record-compat.mjs';
 const ROOT='/api/whatsapp',WEBHOOK=ROOT+'/webhook';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GRAPH=/^v\d{1,3}\.\d{1,2}$/;
+const CONFIG_MATCH='phone_number_id=? AND graph_version=? AND access_token=? AND app_secret=? AND verify_token=? AND updated_at=? AND verified_at IS ?';
+const configurationValues=row=>[row.phone_number_id,row.graph_version,row.access_token,row.app_secret,row.verify_token,row.updated_at,row.verified_at];
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const response=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const schema={type:'object',properties:{name:{type:'string'},vehicle:{type:'string'},city:{type:'string'},service:{type:'string'},note:{type:'string'},desiredDate:{type:'string'},timeWindow:{type:'string'},uncertainties:{type:'array',items:{type:'string'}},confidence:{type:'number'}},required:['name','vehicle','city','service','note','desiredDate','timeWindow','uncertainties','confidence'],additionalProperties:false};
@@ -23,6 +25,10 @@ export async function whatsappSchema(env){
       id INTEGER PRIMARY KEY CHECK(id=1),phone_number_id TEXT NOT NULL,graph_version TEXT NOT NULL,
       access_token TEXT NOT NULL,app_secret TEXT NOT NULL,verify_token TEXT NOT NULL,
       verified_at TEXT,verified_name TEXT,display_phone_number TEXT,last_error TEXT,last_received_at TEXT,updated_at TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS whatsapp_test_sends(
+      request_id TEXT PRIMARY KEY,request_hash TEXT NOT NULL,phone_number_id TEXT NOT NULL,created_at INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending','accepted','uncertain')),provider_message_id TEXT,completed_at TEXT)`,
+    'CREATE INDEX IF NOT EXISTS whatsapp_test_sends_created ON whatsapp_test_sends(created_at DESC)',
     `CREATE TABLE IF NOT EXISTS whatsapp_messages(
       id TEXT PRIMARY KEY,provider_message_id TEXT NOT NULL UNIQUE,synthetic INTEGER NOT NULL CHECK(synthetic IN (0,1)),
       conversation_key TEXT NOT NULL,sender_phone TEXT NOT NULL,sender_key TEXT NOT NULL,profile_name TEXT NOT NULL,
@@ -93,10 +99,62 @@ async function check(env){
     need(result?.id===row.phone_number_id,'Die bestätigte Phone Number ID stimmt nicht mit der Einstellung überein.',502);
   }catch(error){
     const message=error instanceof AppError?error.message:'WhatsApp-Verbindung ist nicht erreichbar. Die Verbindung wurde nicht bestätigt.';
-    await env.DB.prepare('UPDATE whatsapp_settings SET verified_at=NULL,verified_name=NULL,display_phone_number=NULL,last_error=?,updated_at=? WHERE id=1').bind(message,at).run();throw error instanceof AppError?error:new AppError(message,502);
+    const updated=await env.DB.prepare('UPDATE whatsapp_settings SET verified_at=NULL,verified_name=NULL,display_phone_number=NULL,last_error=?,updated_at=? WHERE id=1 AND '+CONFIG_MATCH).bind(message,at,...configurationValues(row)).run();
+    need(updated.meta.changes===1,'WhatsApp-Zugang wurde inzwischen geändert. Bitte die aktuelle Verbindung erneut prüfen.',409);throw error instanceof AppError?error:new AppError(message,502);
   }
-  await env.DB.prepare('UPDATE whatsapp_settings SET verified_at=?,verified_name=?,display_phone_number=?,last_error=NULL,updated_at=? WHERE id=1').bind(at,text(result.verified_name,180)||null,text(result.display_phone_number,80)||null,at).run();
+  const updated=await env.DB.prepare('UPDATE whatsapp_settings SET verified_at=?,verified_name=?,display_phone_number=?,last_error=NULL,updated_at=? WHERE id=1 AND '+CONFIG_MATCH).bind(at,text(result.verified_name,180)||null,text(result.display_phone_number,80)||null,at,...configurationValues(row)).run();
+  need(updated.meta.changes===1,'WhatsApp-Zugang wurde inzwischen geändert. Bitte die aktuelle Verbindung erneut prüfen.',409);
   return {ok:true,message:'WhatsApp Business erfolgreich lesend geprüft. Es wurde keine Nachricht gesendet.'};
+}
+function previousTestSend(row,requestHash){
+  need(row.request_hash===requestHash,'Diese Versand-ID wurde bereits für andere Angaben verwendet.',409);
+  need(row.status==='accepted','Dieser Testversand wurde bereits gestartet. Sein Ergebnis ist noch offen oder unklar. Nicht erneut senden; zuerst WhatsApp prüfen.',409);
+  return {ok:true,accepted:true,duplicate:true,providerMessageId:row.provider_message_id,message:'Meta hat diesen Testversand bereits angenommen. Die Zustellung bitte in WhatsApp prüfen.'};
+}
+async function sendTest(env,input,synthetic){
+  need(!synthetic,'Im Testbereich werden keine echten WhatsApp-Nachrichten gesendet.',409);
+  need(input.confirmed===true,'Bitte den einmaligen Versand an deine eigene Testnummer ausdrücklich bestätigen.');
+  need(typeof input.requestId==='string'&&input.requestId.length===36&&UUID.test(input.requestId),'Versand-ID fehlt oder ist ungültig.');
+  need(typeof input.recipient==='string'&&input.recipient===input.recipient.trim()&&/^\+[1-9]\d{7,14}$/.test(input.recipient),'Eigene Testnummer im internationalen Format eingeben, zum Beispiel +491701234567.');
+  need(typeof input.phoneNumberId==='string'&&input.phoneNumberId===input.phoneNumberId.trim()&&/^\d{3,30}$/.test(input.phoneNumberId),'Phone Number ID fehlt oder ist ungültig.');
+  const requestHash=createHmac('sha256',Buffer.from(env.CONFIG_KEY,'base64')).update('whatsapp-test-send\0'+JSON.stringify({phoneNumberId:input.phoneNumberId,recipient:input.recipient,template:'hello_world',language:'en_US'})).digest('hex');
+  const previous=await env.DB.prepare('SELECT * FROM whatsapp_test_sends WHERE request_id=?').bind(input.requestId).first();
+  if(previous)return previousTestSend(previous,requestHash);
+  const {row,accessToken}=await credentials(env);
+  need(row.verified_at,'WhatsApp-Verbindung zuerst erfolgreich lesend prüfen.',409);
+  need(row.phone_number_id===input.phoneNumberId,'Die Absendernummer wurde inzwischen geändert. Einstellungen neu laden und erneut prüfen.',409);
+  need(GRAPH.test(row.graph_version),'Gespeicherte Graph-Version ist ungültig. Einstellungen erneut prüfen.',409);
+  const at=Date.now();
+  // One atomic statement reserves both the request and the global 60-second cooldown.
+  // The pending row survives a process crash or an uncertain provider response.
+  const reserved=await env.DB.prepare(`INSERT INTO whatsapp_test_sends(request_id,request_hash,phone_number_id,created_at,status)
+    SELECT ?,?,?,?,'pending' WHERE EXISTS(SELECT 1 FROM whatsapp_settings WHERE id=1 AND ${CONFIG_MATCH})
+    AND NOT EXISTS(SELECT 1 FROM whatsapp_test_sends WHERE created_at>?) ON CONFLICT(request_id) DO NOTHING`)
+    .bind(input.requestId,requestHash,row.phone_number_id,at,...configurationValues(row),at-60000).run();
+  if(reserved.meta.changes!==1){
+    const existing=await env.DB.prepare('SELECT * FROM whatsapp_test_sends WHERE request_id=?').bind(input.requestId).first();
+    if(existing)return previousTestSend(existing,requestHash);
+    const current=await env.DB.prepare('SELECT id FROM whatsapp_settings WHERE id=1 AND '+CONFIG_MATCH).bind(...configurationValues(row)).first();
+    need(current,'WhatsApp-Zugang wurde inzwischen geändert. Bitte die aktuelle Verbindung erneut prüfen.',409);
+    throw new AppError('Es wurde gerade ein Testversand gestartet. Mindestens 60 Sekunden warten und zuerst den Eingang in WhatsApp prüfen.',429);
+  }
+  const config={phoneNumberId:row.phone_number_id,graphVersion:row.graph_version,accessToken},payload={messaging_product:'whatsapp',to:input.recipient,type:'template',template:{name:'hello_world',language:{code:'en_US'}}};
+  try{
+    let result;
+    if(env.WHATSAPP_ADAPTERS?.sendTest)result=await env.WHATSAPP_ADAPTERS.sendTest(config,payload);
+    else{
+      const fetched=await fetch(`https://graph.facebook.com/${config.graphVersion}/${config.phoneNumberId}/messages`,{method:'POST',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},body:JSON.stringify(payload),redirect:'manual',signal:AbortSignal.timeout(15000)});
+      need(fetched.ok,'Meta hat den Testversand nicht bestätigt.',502);result=await fetched.json();
+    }
+    const providerMessageId=result?.messages?.[0]?.id;
+    need(Array.isArray(result?.messages)&&result.messages.length===1&&typeof providerMessageId==='string'&&providerMessageId===providerMessageId.trim()&&/^wamid\.[\x21-\x7e]{1,1000}$/.test(providerMessageId),'Meta hat keine gültige Nachrichten-ID bestätigt.',502);
+    const saved=await env.DB.prepare("UPDATE whatsapp_test_sends SET status='accepted',provider_message_id=?,completed_at=? WHERE request_id=? AND status='pending'").bind(providerMessageId,new Date().toISOString(),input.requestId).run();
+    need(saved.meta.changes===1,'Die Versandbestätigung konnte nicht gespeichert werden.',502);
+    return {ok:true,accepted:true,providerMessageId,message:'Meta hat die Testnachricht angenommen. Die Zustellung bitte in WhatsApp prüfen.'};
+  }catch{
+    await env.DB.prepare("UPDATE whatsapp_test_sends SET status='uncertain',completed_at=? WHERE request_id=? AND status='pending'").bind(new Date().toISOString(),input.requestId).run().catch(()=>{});
+    throw new AppError('Der Testversand wurde gestartet, sein Ergebnis ist jedoch unklar. Nicht erneut senden; zuerst den Eingang in WhatsApp und die Meta-Einstellungen prüfen.',502);
+  }
 }
 function messageTime(value,fallback){const stamp=Number(value);return Number.isFinite(stamp)&&stamp>0&&stamp<=86400000000?new Date(stamp*1000).toISOString():fallback;}
 export async function ingestWhatsAppWebhook(env,raw,signature,{synthetic=false}={}){
@@ -259,6 +317,7 @@ export async function handleWhatsApp(env,request,isOwner){
   if(request.method==='GET'&&path===ROOT)return response(await inbox(env,synthetic?1:0,text(url.searchParams.get('conversation'),40)));
   if(request.method==='POST'&&path===ROOT+'/settings')return response(await saveSettings(env,await bodyJSON(request)));
   if(request.method==='POST'&&path===ROOT+'/check'){await bodyJSON(request);need(!synthetic,'Im Testbereich wird keine echte Verbindung abgerufen.',409);return response(await check(env));}
+  if(request.method==='POST'&&path===ROOT+'/test-send')return response(await sendTest(env,await bodyJSON(request),synthetic));
   if(request.method==='POST'&&path===ROOT+'/analyze')return response(await analyze(env,await bodyJSON(request,20000),synthetic));
   if(request.method==='POST'&&path===ROOT+'/apply')return response(await applySuggestion(env,await bodyJSON(request,30000),synthetic));
   if(request.method==='POST'&&path===ROOT+'/media/assign')return response(await assignMedia(env,await bodyJSON(request),synthetic));
