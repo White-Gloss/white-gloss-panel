@@ -23,7 +23,8 @@ export const MCP_TOOLS=specs.map(([name,description,properties])=>({name,descrip
 export function mcpArguments(name,args){
  const tool=MCP_TOOLS.find(t=>t.name===name);if(!tool||!args||typeof args!=='object'||Array.isArray(args))throw new McpError('invalid_params');
  for(const [key,value] of Object.entries(args)){
-  const p=tool.inputSchema.properties[key];if(!p)throw new McpError('invalid_params');
+  if(!Object.hasOwn(tool.inputSchema.properties,key))throw new McpError('invalid_params');
+  const p=tool.inputSchema.properties[key];
   if(p.type==='integer'){if(!Number.isInteger(value)||value<p.minimum||value>p.maximum)throw new McpError('invalid_params');}
   else if(typeof value!=='string'||value.length>(p.maxLength??100)||p.pattern&&!new RegExp(p.pattern).test(value)||p.enum&&!p.enum.includes(value))throw new McpError('invalid_params');
  }
@@ -78,8 +79,10 @@ export async function mcpRead(env,name,rawArgs,identity){
  }
  if(name==='panel_messages'){
   if(args.channel==='requests'){
-   const result=await rows(env,`SELECT r.id,r.kind,r.status,r.created_at createdAt,o.wg,substr(json_extract(r.data,'$.wish'),1,2000) wish FROM (SELECT id,order_id,kind,data,status,created_at FROM portal_requests UNION ALL SELECT id,order_id,'details' kind,data,status,created_at FROM portal_change_requests) r JOIN orders o ON o.id=r.order_id WHERE ${visible} AND r.status='offen' AND (?='' OR o.wg=?) AND (?='' OR instr(lower(r.data),lower(?))>0) ORDER BY r.created_at DESC,r.id LIMIT ? OFFSET ?`,[args.wg??'',args.wg??'',args.q,args.q,args.limit+1,args.offset]);
-   return {...page(result,args),channel:'requests',untrustedContent:true};
+   const result=await rows(env,`SELECT r.id,r.kind,r.status,r.created_at createdAt,o.wg,substr(json_extract(r.data,'$.wish'),1,2000) wish,substr(json_extract(r.data,'$.note'),1,2000) note,
+    (SELECT json_group_array(json_object('name',substr(json_extract(value,'$.name'),1,300),'priceCents',json_extract(value,'$.priceCents'),'inspect',json_extract(value,'$.inspect'))) FROM (SELECT value FROM json_each(r.data,'$.extras') LIMIT 20)) extras
+    FROM (SELECT id,order_id,kind,data,status,created_at FROM portal_requests UNION ALL SELECT id,order_id,'details' kind,data,status,created_at FROM portal_change_requests) r JOIN orders o ON o.id=r.order_id WHERE ${visible} AND r.status='offen' AND (?='' OR o.wg=?) AND (?='' OR instr(lower(r.data),lower(?))>0) ORDER BY r.created_at DESC,r.id LIMIT ? OFFSET ?`,[args.wg??'',args.wg??'',args.q,args.q,args.limit+1,args.offset]);
+   return {...page(result.map(r=>({...r,extras:JSON.parse(r.extras).map(e=>({name:str(e.name),priceCents:amount(e.priceCents),inspect:e.inspect===1}))})),args),channel:'requests',requestedOnly:true,untrustedContent:true};
   }
   if(args.channel==='email'){
    const result=await rows(env,`SELECT m.id,m.direction,substr(m.from_name,1,180) fromName,m.from_address fromAddress,substr(m.subject,1,500) subject,substr(m.text_body,1,4000) body,m.received_at receivedAt,(SELECT status FROM mail_deliveries WHERE message_id=m.id ORDER BY created_at DESC LIMIT 1) deliveryStatus FROM mail_messages m WHERE m.synthetic=0 AND (?='' OR instr(lower(m.subject),lower(?))>0) AND (?='' OR EXISTS(SELECT 1 FROM orders o WHERE ${visible} AND o.wg=? AND (lower(m.from_address)=lower(json_extract(o.data,'$.source.email')) OR EXISTS(SELECT 1 FROM json_each(m.to_json) recipient WHERE lower(CASE WHEN recipient.type='object' THEN json_extract(recipient.value,'$.address') ELSE recipient.value END)=lower(json_extract(o.data,'$.source.email')))))) ORDER BY m.received_at DESC,m.id LIMIT ? OFFSET ?`,[args.q,args.q,args.wg??'',args.wg??'',args.limit+1,args.offset]);

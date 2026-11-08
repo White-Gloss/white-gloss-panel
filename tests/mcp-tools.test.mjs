@@ -18,6 +18,7 @@ test('MCP negotiates version, lists read-only tools and rejects unknown/write re
  assert.equal((await (await f.rpc('orders/delete')).json()).error.code,-32601);
  assert.equal((await (await f.rpc('tools/call',{name:'panel_delete',arguments:{}})).json()).error.code,-32602);
  assert.equal((await (await f.rpc('tools/call',{name:'panel_orders',arguments:{sql:'DELETE FROM orders'}})).json()).error.code,-32602);
+ assert.equal((await (await f.rpc('tools/call',{name:'panel_orders',arguments:{constructor:'unexpected'}})).json()).error.code,-32602);
 });
 test('profile contains identity only; orders isolate wishes, proposals, confirmed appointments and secrets',async t=>{
  const f=await setup(t);await f.seed('000050',{source:{name:'Fixture',email:'fixture@example.test',vehicle:'Car',requestedDate:'2026-11-09',requestedTimeWindow:'Vormittags'},appointment:{start:'2026-11-09T09:00:00Z',end:'2026-11-09T10:00:00Z',duration:60},appointmentOptions:[{start:'2026-11-10T09:00:00Z'}],offer:{token:'never-leak',totalCents:20000},acceptance:{signature:'private-signature'},remoteHandover:{location:'secret-key-location'},assessment:{totalCents:10000}});
@@ -66,4 +67,13 @@ test('open customer requests remain distinguishable from completed requests',asy
  await f.env.DB.prepare('INSERT INTO portal_requests VALUES(?,?,?,?,?,?)').bind('done','000077','termin',JSON.stringify({wish:'Already handled'}),'erledigt','2026-11-08').run();
  const result=await (await f.rpc('tools/call',{name:'panel_messages',arguments:{channel:'requests'}})).json();
  assert.equal(result.result?.isError,false);assert.equal(result.result.structuredContent.items.length,1);assert.equal(result.result.structuredContent.items[0].wish,'Please reschedule');
+});
+
+test('extras requests retain bounded services and note without presenting them as booked',async t=>{
+ const f=await setup(t);await f.seed('000078',{source:{name:'Fixture'}});
+ f.env.DB.sql.exec("CREATE TABLE portal_requests(id TEXT,order_id TEXT,kind TEXT,data TEXT,status TEXT,created_at TEXT); CREATE TABLE portal_change_requests(id TEXT,order_id TEXT,data TEXT,status TEXT,created_at TEXT)");
+ const extras=Array.from({length:25},(_,i)=>({id:String(i),name:'Requested polish '+i,priceCents:2500,inspect:true}));
+ await f.env.DB.prepare('INSERT INTO portal_requests VALUES(?,?,?,?,?,?)').bind('extras','000078','extras',JSON.stringify({extras,note:'Please check paint',privateField:'never-return'}),'offen','2026-11-08').run();
+ const response=await (await f.rpc('tools/call',{name:'panel_messages',arguments:{channel:'requests'}})).json();
+ const item=response.result.structuredContent.items[0];assert.equal(item.note,'Please check paint');assert.equal(item.extras.length,20);assert.equal(item.extras[0].name,'Requested polish 0');assert.equal(item.extras[0].priceCents,2500);assert.equal(item.status,'offen');assert.equal(response.result.structuredContent.requestedOnly,true);assert.doesNotMatch(JSON.stringify(response),/never-return/);
 });

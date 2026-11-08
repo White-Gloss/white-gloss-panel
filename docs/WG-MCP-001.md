@@ -16,9 +16,11 @@ DNS-Wechsel oder produktive Autorisierung durch diesen Entwicklungsauftrag.
 - Gezielte Plugin-Suche und installierte Pluginliste: kein Panel-Lesewerkzeug
   aufrufbar; `White-Gloss Website Control` stellt GitHub-Werkzeuge bereit.
   Der Live-Abruf ist in diesem Turn nicht verfügbar (authentifizierte Paneldaten).
-- ChatGPT-Plugin-Einstellungen sind im angemeldeten Browser erreichbar. Ein konkreter
-  MCP-Erstellungsdialog mit Konto-Berechtigung, Callback und Client-ID ist damit
-  **nicht** nachgewiesen. Keine Kontosperre oder Planbeschränkung wird erfunden.
+- Im angemeldeten ChatGPT-Konto ist unter Plugins > Hinzufügen der Dialog
+  „Benutzerdefinierten MCP-Server hinzufügen“ erreichbar: Server-URL, OAuth und
+  „Als Plugin erstellen“. Nur angesehen, nichts eingetragen oder registriert.
+  Erweiterte OAuth-Einstellungen sind ohne Server-URL deaktiviert; konkrete
+  Callback-/Client-Werte und erfolgreicher OAuth-Verbindungsaufbau bleiben offen.
 
 ## Architektur und Grenzen
 
@@ -145,10 +147,10 @@ sie werden nicht nachträglich als vollständiger TDD-Nachweis bezeichnet.
 | Kategorie | Stand |
 | --- | --- |
 | Implementiert | Deaktivierte MCP/OAuth-Leseschicht und Betriebsdokumentation im Entwicklungsbranch |
-| Getestet | 16 serverfreie fokussierte Tests lokal bestanden; vollständige CI-Belege im Draft-PR |
+| Getestet | 17 serverfreie fokussierte Tests lokal bestanden; vollständige CI-Belege am aktuellen Commit im Draft-PR |
 | Mit ChatGPT verbunden | Nein; kein echter Toolaufruf aus registrierter Panel-App nachgewiesen |
 | Produktiv veröffentlicht | Nein; kein Merge/Deployment/DNS-/Berechtigungswechsel |
-| Noch offen | CI-Abnahme, konkrete Kontoregistrierung/Callback, Freigabe, Live-OAuth, echte Leseabfrage, Dienstneustart/Wiederverbindung, Geräteprüfung |
+| Noch offen | Konkrete Kontoregistrierung/Callback, Freigabe, Live-OAuth, echte Leseabfrage, Dienstneustart/Wiederverbindung, Geräteprüfung |
 
 ## Offizielle Quellen, geprüft 08.11.2026
 
