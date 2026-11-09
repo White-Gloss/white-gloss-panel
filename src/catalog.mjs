@@ -5,7 +5,7 @@ function catalogNeed(ok,message){if(!ok)throw Object.assign(new Error(message),{
 export const priceNote='Stellt sich der Aufwand vor Ort als höher heraus, kann sich der Preis nach Absprache mit dem Kunden noch ändern.';
 // Ausdrückliches Verlangen des sofortigen Beginns samt Kenntnis vom Erlöschen des Widerrufsrechts (§ 356 Abs. 4 BGB).
 export const immediateStartNotice='Ich verlange ausdrücklich, dass White Gloss vor Ablauf der Widerrufsfrist mit der Ausführung beginnt. Mir ist bekannt, dass mein Widerrufsrecht bei vollständiger Vertragserfüllung erlischt.';
-// Richtwerte für die Termindauer je Paket in Minuten (Keramikschutz ca. 2 Tage).
+// Richtwerte für die Termindauer je Paket in Minuten (White-Gloss Ceramic ca. 2 Tage).
 export const packageMinutes={basis:180,premium:360,keramik:2880};
 export const vehiclePanels=['Motorhaube','Dach','Heckklappe / Kofferraum','Kotflügel vorne links','Kotflügel vorne rechts','Tür vorne links','Tür vorne rechts','Tür hinten links','Tür hinten rechts','Seitenteil hinten links','Seitenteil hinten rechts','Stoßfänger vorne','Stoßfänger hinten','Schweller links','Schweller rechts','A-Säule links','A-Säule rechts','Außenspiegel links','Außenspiegel rechts','Felgen','Scheiben','Innenraum'];
 export const damageKinds=['Kratzer','Delle','Steinschlag','Lackabplatzer','Riss','Swirls / Hologramme','Ätzung / Vogelkot','Wasserflecken','Rost','Fleck / Verschmutzung','Brandloch','Sonstiges'];
@@ -72,10 +72,10 @@ export const vehicleClasses = [
 export const packages = [
   {
     "id": "basis",
-    "name": "Basisreinigung",
+    "name": "White-Gloss Classic",
     "priceCents": 14900,
     "duration": "ca. 3 Std.",
-    "scopeSummary": "Innenreinigung · Außenwäsche · Sprühversiegelung",
+    "scopeSummary": "Innen- und Außenreinigung",
     "conditionNote": "Verschmutzung und Materialzustand vor Beginn prüfen.",
     "items": [
       "Handwäsche mit pH-neutralem Shampoo",
@@ -88,13 +88,13 @@ export const packages = [
   },
   {
     "id": "premium",
-    "name": "Reinigung & Politur",
+    "name": "White-Gloss Signature",
     "priceCents": 34900,
     "duration": "ca. 6 Std.",
-    "scopeSummary": "Tiefenreinigung innen · Lackaufbereitung und einstufige Politur · Wachs",
+    "scopeSummary": "Tiefenreinigung & Lackpolitur – ideal zur Leasingrückgabe",
     "conditionNote": "Umfang und Eignung der Politur nach Prüfung des Lackzustands festlegen.",
     "items": [
-      "Alle Leistungen des Pakets Basisreinigung",
+      "Alle Leistungen des Pakets White-Gloss Classic",
       "Entfernung von Lackablagerungen mit Reinigungsknete und Eisenentferner",
       "Einstufige Lackpolitur für gleichmäßigen Glanz",
       "Tiefenreinigung von Innenraum und Textilien",
@@ -104,13 +104,13 @@ export const packages = [
   },
   {
     "id": "keramik",
-    "name": "Keramikschutz",
+    "name": "White-Gloss Ceramic",
     "priceCents": 89900,
     "duration": "ca. 2 Tage",
-    "scopeSummary": "Innen- und Außenaufbereitung · Lackkorrektur · Keramik statt Wachs",
+    "scopeSummary": "Alle Leistungen aus Signature inklusive mehrstufiger Lackkorrektur & Keramikversiegelung",
     "conditionNote": "Umfang der Lackkorrektur nach Lackzustand und Messwerten festlegen; Keramik ersetzt den Wachsauftrag.",
     "items": [
-      "Reinigung und Innenraumpflege wie im Paket Reinigung & Politur; Keramikversiegelung ersetzt den Wachsauftrag",
+      "Reinigung und Innenraumpflege wie im Paket White-Gloss Signature; Keramikversiegelung ersetzt den Wachsauftrag",
       "Mehrstufige Lackkorrektur zur Reduzierung feiner Waschkratzer und Hologramme, soweit der Lackzustand es zulässt",
       "Keramikversiegelung mit Abperleffekt und passenden Pflegehinweisen",
       "Glas- und Felgenversiegelung für Rundumschutz",
