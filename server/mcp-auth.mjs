@@ -52,7 +52,7 @@ function verified(env,value){
   const supplied=Buffer.from(signature,'base64url');requireValue(supplied.length===expected.length&&timingSafeEqual(expected,supplied),'invalid_consent',403);
   try{return JSON.parse(Buffer.from(body,'base64url').toString());}catch{throw new McpError('invalid_consent',403);}
 }
-const html=body=>new Response('<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>White-Gloss · ChatGPT-Verbindung</title><body><main>'+body+'</main></body></html>',{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'origin','Content-Security-Policy':"default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"}});
+const html=(config,body)=>new Response('<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>White-Gloss · ChatGPT-Verbindung</title><body><main>'+body+'</main></body></html>',{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'origin','Content-Security-Policy':`default-src 'none'; form-action 'self' ${new URL(config.redirect).origin}; frame-ancestors 'none'; base-uri 'none'`}});
 async function ownerIdentity(env,request,resolveIdentity){
   const identity=await resolveIdentity(request);if(!identity)return null;
   requireValue(mcpHash(identity)===env.OWNER_EMAIL_SHA256,'owner_required',403);return identity;
@@ -87,10 +87,10 @@ export async function handleMcpOAuth(env,request,config,resolveIdentity){
   }
   if(path==='/auth/mcp/authorize'&&request.method==='GET'){
     const params=authorizeParams(config,url.searchParams),identity=await ownerIdentity(env,request,resolveIdentity);
-    if(!identity)return html('<h1>Betreiberanmeldung erforderlich</h1><p><a href="/auth/login" target="_blank" rel="noopener noreferrer">Im Panel anmelden</a>. Anschließend diesen Tab neu laden. Kundenkonten können keine ChatGPT-Verbindung freigeben.</p>');
+    if(!identity)return html(config,'<h1>Betreiberanmeldung erforderlich</h1><p><a href="/auth/login" target="_blank" rel="noopener noreferrer">Im Panel anmelden</a>. Anschließend diesen Tab neu laden. Kundenkonten können keine ChatGPT-Verbindung freigeben.</p>');
     await mcpLimit(env,'consent:'+config.owner,60);
     const consent=signed(env,{params,session:mcpHash(request.headers.get('cookie')??''),expires:Date.now()+300000,nonce:random()});
-    return html('<h1>White-Gloss Panel mit ChatGPT verbinden</h1><p>ChatGPT darf Aufträge, Kunden, Fahrzeuge, bestätigte Termine, Nachrichten und Finanzdaten lesen. Keine Änderungen oder Nachrichtenversände. Nur freigeben, wenn du diese Verbindung selbst in ChatGPT gestartet hast.</p><form method="post" action="/auth/mcp/authorize"><input type="hidden" name="consent" value="'+consent+'"><button name="decision" value="allow">Lesezugriff erlauben</button> <button name="decision" value="deny">Ablehnen</button></form>');
+    return html(config,'<h1>White-Gloss Panel mit ChatGPT verbinden</h1><p>ChatGPT darf Aufträge, Kunden, Fahrzeuge, bestätigte Termine, Nachrichten und Finanzdaten lesen. Keine Änderungen oder Nachrichtenversände. Nur freigeben, wenn du diese Verbindung selbst in ChatGPT gestartet hast.</p><form method="post" action="/auth/mcp/authorize"><input type="hidden" name="consent" value="'+consent+'"><button name="decision" value="allow">Lesezugriff erlauben</button> <button name="decision" value="deny">Ablehnen</button></form>');
   }
   if(!['/auth/mcp/authorize','/auth/mcp/token','/auth/mcp/revoke'].includes(path))return mcpJson({error:'not_found'},404);
   if(request.method!=='POST')return mcpJson({error:'method_not_allowed'},405,{Allow:'POST'});
