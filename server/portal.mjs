@@ -7,7 +7,7 @@
 import {randomUUID} from 'node:crypto';
 import {AppError,need,transition,text,appointmentSnapshot} from '../src/domain.mjs';
 import {getOrder,saveOrder,settings,documentLinkUpdate,storeDataSignature} from '../src/worker.mjs';
-import {packages,extras,vehicleClasses,extraIncluded} from '../src/catalog.mjs';
+import {packages,findPackage,extras,vehicleClasses,extraIncluded} from '../src/catalog.mjs';
 import {COMPANY} from '../src/company.mjs';
 import {digest,limited} from './auth.mjs';
 import {recordOperationIssue,assertRecordOperation} from '../src/record-compat.mjs';
@@ -70,7 +70,7 @@ async function validLink(env,table,token,orderId){
   return Boolean(row&&Date.parse(row.expires_at)>Date.now());
 }
 function classOf(o){return vehicleClasses.find(c=>c.id===o.source?.classId)??vehicleClasses.find(c=>c.label===o.source?.vehicleClass)??null;}
-function packageOf(o){return o.source?.packageId??(o.offer??o.assessment)?.lines?.find(l=>l.kind==='package')?.catalogId??packages.find(p=>p.name===o.source?.package)?.id??'';}
+function packageOf(o){return o.source?.packageId??(o.offer??o.assessment)?.lines?.find(l=>l.kind==='package')?.catalogId??findPackage(o.source?.package)?.id??'';}
 // Bereits enthaltene Zusatzleistungen werden nicht erneut angeboten.
 function bookedExtras(o){const ids=new Set(o.source?.extraIds??[]);for(const doc of [o.offer,o.assessment,o.pending?.offer?.content])for(const l of doc?.lines??[])if(l.kind==='extra'&&l.catalogId)ids.add(l.catalogId);return ids;}
 // requested: Extras aus offenen oder übernommenen Kundenwünschen werden nicht erneut angeboten.

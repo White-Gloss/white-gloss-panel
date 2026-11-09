@@ -1,4 +1,4 @@
-import {catalogQuote, packages, vehicleClasses, extras} from './catalog.mjs';
+import {catalogQuote, packages, findPackage, vehicleClasses, extras} from './catalog.mjs';
 
 function assessmentNeed(ok,message){if(!ok)throw Object.assign(new Error(message),{status:400});}
 function assessmentCents(value){assessmentNeed(Number.isSafeInteger(value)&&value>=0&&value<=100000000,'Jede Position benötigt einen ganzen, nicht negativen Centbetrag.');return value;}
@@ -25,7 +25,7 @@ export function normalizeAssessment(input){
 }
 export function assessmentSeed(source){
   const raw=source.raw??source;
-  const packageId=source.packageId??raw.package_id??packages.find(p=>p.name===source.package)?.id;
+  const packageId=source.packageId??raw.package_id??findPackage(source.package)?.id;
   const classId=source.classId??raw.class_id??vehicleClasses.find(c=>c.label===source.vehicleClass)?.id;
   const extraIds=source.extraIds??raw.extra_ids??(source.extras??[]).map(name=>extras.find(e=>e.id===name||e.name===name)?.id).filter(Boolean);
   let quote=source.catalogQuote;

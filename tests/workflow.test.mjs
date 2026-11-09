@@ -64,7 +64,7 @@ test('manual catalogue choices persist with verified prices and an atomic audit'
   const e=env();const selection={packageId:'premium',classId:'suv',extraIds:['tierhaar'],delivery:'Abholung',citySlug:'calw'};
   const r=await req(e,'create',{synthetic:true,source:{name:'Katalogtest',vehicle:'Testfahrzeug',amountCents:1,pickupCents:1},selection});
   assert.equal(r.status,200);const order=await r.json();assert.equal(order.status,'Preise prüfen');
-  assert.equal(order.source.package,'Reinigung & Politur');assert.equal(order.source.vehicleClass,'SUV / Limousine');
+  assert.equal(order.source.package,'White-Gloss Signature');assert.equal(order.source.vehicleClass,'SUV / Limousine');
   assert.deepEqual(order.source.extras,['Tierhaarentfernung']);assert.equal(order.source.city,'Calw');
   assert.equal(order.source.pickupCents,7000);assert.equal(order.source.amountCents,63000);assert.equal(order.source.delivery,'Abholung');
   const stored=await(await req(e,'state')).json();assert.equal(stored.orders[0].source.catalogQuote.totalCents,63000);
