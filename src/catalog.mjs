@@ -7,6 +7,12 @@ export const priceNote='Stellt sich der Aufwand vor Ort als höher heraus, kann 
 export const immediateStartNotice='Ich verlange ausdrücklich, dass White Gloss vor Ablauf der Widerrufsfrist mit der Ausführung beginnt. Mir ist bekannt, dass mein Widerrufsrecht bei vollständiger Vertragserfüllung erlischt.';
 // Richtwerte für die Termindauer je Paket in Minuten (White-Gloss Ceramic ca. 2 Tage).
 export const packageMinutes={basis:180,premium:360,keramik:2880};
+// Existing requests may store only the pre-rename display name. Never rewrite their source.
+const packageLegacyNames={basis:'Basisreinigung',premium:'Reinigung & Politur',keramik:'Keramikschutz'};
+export function findPackage(nameOrId){
+  if(typeof nameOrId!=='string')return undefined;
+  return packages.find(p=>p.id===nameOrId||p.name===nameOrId||packageLegacyNames[p.id]===nameOrId);
+}
 export const vehiclePanels=['Motorhaube','Dach','Heckklappe / Kofferraum','Kotflügel vorne links','Kotflügel vorne rechts','Tür vorne links','Tür vorne rechts','Tür hinten links','Tür hinten rechts','Seitenteil hinten links','Seitenteil hinten rechts','Stoßfänger vorne','Stoßfänger hinten','Schweller links','Schweller rechts','A-Säule links','A-Säule rechts','Außenspiegel links','Außenspiegel rechts','Felgen','Scheiben','Innenraum'];
 export const damageKinds=['Kratzer','Delle','Steinschlag','Lackabplatzer','Riss','Swirls / Hologramme','Ätzung / Vogelkot','Wasserflecken','Rost','Fleck / Verschmutzung','Brandloch','Sonstiges'];
 export const soilingLevels=['','1 · Leicht','2 · Normal','3 · Stark','4 · Extrem'];
