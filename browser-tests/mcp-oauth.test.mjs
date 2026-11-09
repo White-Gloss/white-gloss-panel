@@ -4,11 +4,15 @@ import {browserFixture,origin} from './harness.mjs';
 import {challenge,verifier} from '../tests/mcp-fixture.mjs';
 
 const redirect='https://chatgpt.com/connector_platform_oauth_redirect';
-for(const decision of ['allow','deny'])test(`MCP consent ${decision} reaches the registered ChatGPT callback in Chromium`,async t=>{
+for(const decision of ['allow','deny'])test(`MCP consent ${decision} permits the registered ChatGPT callback navigation in Chromium`,async t=>{
   const f=await browserFixture(t);
+  // Playwright does not re-route 3xx hops. Offline mode prevents external traffic
+  // while fulfilled panel requests still exercise real browser CSP/navigation.
+  await f.context.setOffline(true);
   Object.assign(f.env,{PANEL_MCP_ENABLED:'true',PANEL_MCP_CLIENT_ID:'test-client',PANEL_MCP_REDIRECT_URI:redirect});
   const params={response_type:'code',client_id:'test-client',redirect_uri:redirect,scope:'panel:read',state:'browser-fixture',resource:origin+'/mcp',code_challenge:challenge,code_challenge_method:'S256'};
-  let callback,submittedOrigin;
+  let callbackRequest,submittedOrigin;
+  f.page.on('request',request=>{const url=new URL(request.url());if(url.origin+url.pathname===redirect)callbackRequest=request;});
   // Override the generic harness route: this test must use the real browser Origin.
   await f.page.route(origin+'/auth/mcp/**',async route=>{
     const request=route.request(),headers=await request.allHeaders();
@@ -16,16 +20,13 @@ for(const decision of ['allow','deny'])test(`MCP consent ${decision} reaches the
     const response=await f.app.fetch(new Request(request.url(),{method:request.method(),headers,body:request.postDataBuffer()??undefined}));
     await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:Buffer.from(await response.arrayBuffer())});
   });
-  // The callback is intercepted; no request, credential or fixture leaves the runner.
-  await f.page.route(redirect+'?*',async route=>{
-    callback=new URL(route.request().url());
-    assert.equal(route.request().method(),'GET');
-    await route.fulfill({contentType:'text/html',body:'<h1>ChatGPT callback reached</h1>'});
-  });
   await f.page.goto(origin+'/auth/mcp/authorize?'+new URLSearchParams(params));
   await f.page.getByRole('button',{name:decision==='allow'?'Lesezugriff erlauben':'Ablehnen',exact:true}).click();
   await f.page.waitForURL(url=>url.origin+url.pathname===redirect,{timeout:5000});
   assert.equal(submittedOrigin,origin);
+  assert.ok(callbackRequest,'The browser must attempt the registered callback');
+  assert.equal(callbackRequest.method(),'GET');
+  const callback=new URL(f.page.url());
   assert.equal(callback.searchParams.get('state'),params.state);
   assert.equal(callback.searchParams.get('iss'),origin);
   if(decision==='deny'){
