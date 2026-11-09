@@ -7,11 +7,29 @@ import {JSDOM} from 'jsdom';
 import {PanelDatabase} from '../server/storage.mjs';
 import {createApplication} from '../server/application.mjs';
 import {digest} from '../server/auth.mjs';
+import {systemStatusHTML} from '../public/system-status.js';
+import {protect,setting} from '../src/worker.mjs';
 
 const origin='https://panel.example.invalid';
 const owner='owner@example.invalid';
 const customer='kunde@example.invalid';
 let loads=0;
+
+test('website inbox distinguishes existing, trashed, historical and genuinely new inquiries',()=>{
+  const data={orders:[{id:'active',wg:'WG-1'}],trash:[{id:'trash',wg:'WG-2'}],settings:{websiteBaseline:{maxId:57}},websiteInbox:[
+    {website_id:'67',order_id:'active',validation:'ready'},
+    {website_id:'66',order_id:'trash',validation:'ready'},
+    {website_id:'57',order_id:null,validation:'ready'},
+    {website_id:'68',order_id:null,validation:'ready'},
+    {website_id:'69',order_id:'missing',validation:'ready'}
+  ]};
+  const dom=new JSDOM(systemStatusHTML(data));
+  const rows=[...dom.window.document.querySelectorAll('.system-inbox-table tbody tr')].map(row=>row.textContent);
+  assert.match(rows[0],/Zugeordnet/);assert.match(rows[1],/Im Papierkorb/);assert.match(rows[1],/WG-2/);
+  assert.match(rows[2],/Altbestand/);assert.match(rows[3],/Bereit/);assert.match(rows[4],/Zuordnung prüfen/);
+  for(const index of [0,1,2,4])assert.doesNotMatch(rows[index],/Bereit|Vollständig; noch kein neuer Auftrag/);
+  dom.window.close();
+});
 
 function memoryBucket(){
   const files=new Map();
@@ -46,7 +64,7 @@ async function setup(t,{withEvidence=false}={}){
   const ownerCookie=await session(owner),customerCookie=await session(customer);
   if(withEvidence){
     const at=new Date().toISOString(),id=randomUUID();
-    const order={id,wg:'WG-004321',version:1,status:'Preise prüfen',synthetic:false,source:{id:'431',name:'Erika Muster',vehicle:'VW Golf'},notes:[],payments:[],createdAt:at,updatedAt:at};
+    const order={id,wg:'WG-004321',version:1,status:'Preise prüfen',synthetic:false,source:{id:'431',name:'Erika Muster',vehicle:'VW Golf',email:customer},notes:[],payments:[],createdAt:at,updatedAt:at};
     await env.DB.prepare('INSERT INTO orders(id,wg,website_id,status,data,updated_at,actor,action,synthetic) VALUES(?,?,?,?,?,?,?,?,0)').bind(id,order.wg,'431',order.status,JSON.stringify(order),at,'test','fixture').run();
     await env.DB.prepare('INSERT INTO jobs(id,order_id,kind,state,created_at,updated_at,provider_id,detail) VALUES(?,?,?,?,?,?,?,?)').bind(randomUUID(),id,'offer','sent',at,at,'re_offer_123','An den Versanddienst übergeben. Die Zustellung ist noch nicht bestätigt.').run();
     await env.DB.prepare('INSERT INTO jobs(id,order_id,kind,state,created_at,updated_at,provider_id,detail) VALUES(?,?,?,?,?,?,?,?)').bind(randomUUID(),id,'invoice-mail','failed',at,at,null,'Resend HTTP 422: Empfängeradresse abgelehnt.').run();
@@ -62,7 +80,23 @@ async function call(app,cookie,path,init={}){
   return app.fetch(new Request(origin+path,{...init,headers}));
 }
 
-async function boot(t,{app,cookie,websiteResponse}){
+test('delivery lookup is owner-only, GET-only and never changes jobs or orders',async t=>{
+  const f=await setup(t,{withEvidence:true});
+  await setting(f.env,'resendKey',await protect(f.env,'synthetic-provider-key'));
+  const job=await f.env.DB.prepare("SELECT * FROM jobs WHERE kind='offer'").first(),path='/api/system/mail-delivery?id='+job.id;
+  const snapshot=async()=>Promise.all(['orders','jobs'].map(async table=>(await f.env.DB.prepare('SELECT * FROM '+table+' ORDER BY rowid').all()).results));
+  const before=await snapshot();let calls=0,status=200;
+  t.mock.method(globalThis,'fetch',async(url,options)=>{calls++;assert.equal(options.method,'GET');assert.equal(options.redirect,'manual');assert.equal(url,'https://api.resend.com/emails/'+job.provider_id);return new Response(JSON.stringify({id:job.provider_id,to:[customer],last_event:'bounced',html:'private-content'}),{status});});
+  assert.equal((await call(f.app,null,path)).status,401);assert.equal((await call(f.app,f.customerCookie,path)).status,403);
+  assert.equal((await call(f.app,f.ownerCookie,path,{method:'POST'})).status,405);assert.equal(calls,0);
+  const response=await call(f.app,f.ownerCookie,path);assert.equal(response.status,200,await response.clone().text());const result=await response.json();
+  assert.equal(result.providerStatus,'bounced');assert.match(result.detail,/Nicht zugestellt/);assert.doesNotMatch(JSON.stringify(result),/private-content|synthetic-provider-key|customer@example/);
+  assert.deepEqual(await snapshot(),before);
+  status=404;const unavailable=await call(f.app,f.ownerCookie,path);assert.equal(unavailable.status,404);assert.match((await unavailable.json()).error,/aktuellen Resend-Zugang/);
+  assert.deepEqual(await snapshot(),before);
+});
+
+async function boot(t,{app,cookie,websiteResponse,deliveryResponse}){
   const html=readFileSync(new URL('../dist/client/index.html',import.meta.url),'utf8').replace(/<script[^>]*><\/script>/g,'');
   const dom=new JSDOM(html,{url:origin+'/',pretendToBeVisual:true});
   const w=dom.window;
@@ -73,6 +107,7 @@ async function boot(t,{app,cookie,websiteResponse}){
   const errors=[],websiteRequests=[];
   const fetchImpl=async(url,options={})=>{
     const target=new URL(url,origin);
+    if(target.origin==='https://api.resend.com'&&deliveryResponse)return deliveryResponse(url,options);
     if(target.origin==='https://white-gloss.de'){
       websiteRequests.push({url:target.href,options});
       pending++;
@@ -141,6 +176,18 @@ test('system status separates measured probes, website bookings and the mail tra
   await ui.click('.system-test [data-click="test"]');
   assert.ok(ui.$('.system-test [data-click="create"]'));
   assert.equal(ui.$('.system-test [data-click="test"]').textContent,'Testbereich verlassen');
+  assert.deepEqual(ui.errors,[]);
+});
+
+test('system mail lookup shows provider rejection without saving or sending',async t=>{
+  const f=await setup(t,{withEvidence:true});await setting(f.env,'resendKey',await protect(f.env,'test-only-key'));
+  const before=(await f.env.DB.prepare('SELECT * FROM jobs ORDER BY id').all()).results;
+  let requests=0;
+  const ui=await boot(t,{...f,cookie:f.ownerCookie,websiteResponse:()=>new Response('Website'),deliveryResponse:(url,options)=>{requests++;assert.equal(options.method,'GET');return new Response(JSON.stringify({id:'re_offer_123',to:[customer],last_event:'suppressed'}));}});
+  await ui.click('[data-view="system"]');assert.equal(requests,0);
+  await ui.click('[data-mail-check]');assert.equal(requests,1);
+  const row=ui.$('[data-mail-check]').closest('tr');assert.match(row.textContent,/Versand unterdrückt/);assert.ok(row.querySelector('.system-state.bad'));
+  assert.deepEqual((await f.env.DB.prepare('SELECT * FROM jobs ORDER BY id').all()).results,before);
   assert.deepEqual(ui.errors,[]);
 });
 

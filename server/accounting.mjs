@@ -8,6 +8,11 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MIMES={'application/pdf':'pdf','image/jpeg':'jpg','image/png':'png','image/webp':'webp'};
 export const CATEGORIES=['UNCLEAR','SERVICE_INCOME','PRIVATE_CONTRIBUTION','PRIVATE_WITHDRAWAL','CLEANING_SUPPLIES','RENT','OTHER_EXPENSE','PRIVATE_PAID_EXPENSE'];
 export const PAYMENT_PATHS=['UNKNOWN','QONTO_TRANSFER','QONTO_CARD','CASH','CUSTOMER_CARD','PRIVATE','UNPAID'];
+// Deliberate receipt uploads remain shared; automatic email attachments need release.
+// The outer accounting_documents table must use alias d.
+export const ADVISOR_DOCUMENT_VISIBLE=`COALESCE((SELECT e.action='ADVISOR_SHARED' FROM accounting_events e
+  WHERE e.document_id=d.id AND e.action IN ('ADVISOR_SHARED','ADVISOR_WITHHELD') ORDER BY e.id DESC LIMIT 1),
+  NOT EXISTS(SELECT 1 FROM mail_attachments ma WHERE ma.document_id=d.id))`;
 const response=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 
@@ -66,9 +71,9 @@ export async function handleAccounting(env,request,isOwner){
   if(request.method==='GET'&&path===ROOT){
     const synthetic=url.searchParams.get('test')==='true'?1:0;
     const profile=await env.DB.prepare('SELECT * FROM accounting_profile WHERE id=1').first();
-    const docs=(await env.DB.prepare(`SELECT d.*,ma.message_id AS mail_message_id, (SELECT COUNT(*) FROM accounting_documents duplicate WHERE duplicate.sha256=d.sha256 AND duplicate.synthetic=d.synthetic) AS duplicate_count
+    const docs=(await env.DB.prepare(`SELECT d.*,${ADVISOR_DOCUMENT_VISIBLE} AS advisor_shared,ma.message_id AS mail_message_id, (SELECT COUNT(*) FROM accounting_documents duplicate WHERE duplicate.sha256=d.sha256 AND duplicate.synthetic=d.synthetic) AS duplicate_count
       FROM accounting_documents d LEFT JOIN mail_attachments ma ON ma.document_id=d.id WHERE d.synthetic=? ORDER BY d.received_at DESC LIMIT 200`).bind(synthetic).all()).results;
-    const result=[];for(const doc of docs){const last=await env.DB.prepare('SELECT * FROM accounting_classifications WHERE document_id=? ORDER BY version DESC LIMIT 1').bind(doc.id).first();result.push({id:doc.id,filename:doc.filename,mime:doc.mime,size:doc.size,sha256:doc.sha256,receivedAt:doc.received_at,source:doc.mail_message_id?'EMAIL':doc.source,mailMessageId:doc.mail_message_id??null,duplicateCount:doc.duplicate_count,classification:classification(last)});}
+    const result=[];for(const doc of docs){const last=await env.DB.prepare('SELECT * FROM accounting_classifications WHERE document_id=? ORDER BY version DESC LIMIT 1').bind(doc.id).first();result.push({id:doc.id,filename:doc.filename,mime:doc.mime,size:doc.size,sha256:doc.sha256,receivedAt:doc.received_at,source:doc.mail_message_id?'EMAIL':doc.source,mailMessageId:doc.mail_message_id??null,advisorShared:!!doc.advisor_shared,duplicateCount:doc.duplicate_count,classification:classification(last)});}
     return response({profile:{legalForm:profile.legal_form,profitMethod:profile.profit_method,vatRegime:profile.vat_regime,vatTiming:profile.vat_timing,vatTimingEvidence:profile.vat_timing_evidence,reserveMode:profile.reserve_mode,reserveTargetAccountId:profile.reserve_target_account_id,reservePolicy:profile.reserve_policy,datevTarget:profile.datev_target,ownerName:profile.owner_name,vatId:profile.vat_id},documents:result});
   }
   if(request.method==='GET'&&path.startsWith(ROOT+'/document/')){
@@ -87,6 +92,14 @@ export async function handleAccounting(env,request,isOwner){
       env.DB.prepare('INSERT INTO accounting_events(document_id,at,actor,action,payload) VALUES(?,?,?,?,?)').bind(id,at,'owner','RECEIVED',JSON.stringify({sha256:digest,size:bytes.length,mime,source:'PANEL'}))
     ]);}catch(error){await env.BUCKET.delete(id).catch(()=>{});throw error;}
     return response({ok:true,id,sha256:digest});
+  }
+  if(request.method==='POST'&&path===ROOT+'/advisor-share'){
+    const input=await bodyJSON(request);need(UUID.test(input.documentId??''),'Beleg nicht gefunden.',404);
+    need(typeof input.shared==='boolean','Freigabe muss ausdrücklich gewählt werden.');
+    const doc=await env.DB.prepare('SELECT id FROM accounting_documents WHERE id=?').bind(input.documentId).first();need(doc,'Beleg nicht gefunden.',404);
+    await env.DB.prepare('INSERT INTO accounting_events(document_id,at,actor,action,payload) VALUES(?,?,?,?,?)')
+      .bind(doc.id,new Date().toISOString(),'owner',input.shared?'ADVISOR_SHARED':'ADVISOR_WITHHELD','{}').run();
+    return response({ok:true,shared:input.shared});
   }
   if(request.method==='POST'&&path===ROOT+'/classify'){
     const input=await bodyJSON(request);need(UUID.test(input.documentId??''),'Beleg nicht gefunden.',404);

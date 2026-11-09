@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {need} from '../src/domain.mjs';
-import {CATEGORIES,PAYMENT_PATHS,validDay} from './accounting.mjs';
+import {CATEGORIES,PAYMENT_PATHS,validDay,ADVISOR_DOCUMENT_VISIBLE} from './accounting.mjs';
 import {CREDIT,DEBIT} from './bank-accounting.mjs';
 import {digest} from './auth.mjs';
 import {inputFor} from './password-auth.mjs';
@@ -14,10 +14,10 @@ const queries={
     c.version,c.category,c.payment_path,c.amount_minor,c.document_date,c.partner,c.note
     FROM accounting_documents d LEFT JOIN accounting_classifications c ON c.document_id=d.id
     AND c.version=(SELECT MAX(version) FROM accounting_classifications WHERE document_id=d.id)
-    WHERE d.synthetic=0`,
+    WHERE d.synthetic=0 AND ${ADVISOR_DOCUMENT_VISIBLE}`,
   bank:`SELECT r.revision_id AS cursor,r.revision_id AS id,r.account_iban,r.provider_id,r.status,r.side,
     r.amount_minor,r.currency,r.label,r.reference,r.settled_at,r.provider_updated_at,
-    c.version,c.category,c.document_id,c.note FROM accounting_bank_revisions r
+    c.version,c.category,(SELECT d.id FROM accounting_documents d WHERE d.id=c.document_id AND ${ADVISOR_DOCUMENT_VISIBLE}) AS document_id,c.note FROM accounting_bank_revisions r
     LEFT JOIN accounting_bank_classifications c ON c.bank_revision_id=r.revision_id
     AND c.version=(SELECT MAX(version) FROM accounting_bank_classifications WHERE bank_revision_id=r.revision_id)
     WHERE ${latestBank}`,
@@ -52,7 +52,7 @@ async function target(env,kind,id,latest=true){
   need(['document','bank'].includes(kind),'Ziel ungültig.');
   if(kind==='document'){
     need(UUID.test(id??''),'Beleg nicht gefunden.',404);
-    const row=await env.DB.prepare('SELECT id FROM accounting_documents WHERE id=? AND synthetic=0').bind(id).first();
+    const row=await env.DB.prepare(`SELECT d.id FROM accounting_documents d WHERE d.id=? AND d.synthetic=0 AND ${ADVISOR_DOCUMENT_VISIBLE}`).bind(id).first();
     need(row,'Beleg nicht gefunden.',404);return row;
   }
   const n=numeric(id,0);need(n>0,'Bankumsatz nicht gefunden.',404);
@@ -203,7 +203,9 @@ export async function handleAdvisorFinance(env,request,context){
   if(route==='/proposals'&&request.method==='GET'){
     const rows=(await env.DB.prepare(`SELECT p.rowid AS cursor,p.*,a.company,a.email,d.decision,d.created_at AS decided_at
       FROM advisor_proposals p LEFT JOIN advisor_decisions d ON d.proposal_id=p.id LEFT JOIN advisor_accounts a ON p.actor='advisor:'||a.id
-      WHERE p.rowid<? ORDER BY p.rowid DESC LIMIT 51`).bind(numeric(url.searchParams.get('cursor'),Number.MAX_SAFE_INTEGER)).all()).results;
+      WHERE p.rowid<? AND (p.target_kind!='document' OR EXISTS(SELECT 1 FROM accounting_documents d WHERE d.id=p.target_id AND ${ADVISOR_DOCUMENT_VISIBLE}))
+      AND (p.target_kind!='bank' OR json_extract(p.payload,'$.documentId') IS NULL OR EXISTS(SELECT 1 FROM accounting_documents d WHERE d.id=json_extract(p.payload,'$.documentId') AND ${ADVISOR_DOCUMENT_VISIBLE}))
+      ORDER BY p.rowid DESC LIMIT 51`).bind(numeric(url.searchParams.get('cursor'),Number.MAX_SAFE_INTEGER)).all()).results;
     const items=[];
     for(const row of rows.slice(0,50)){
       const document=row.target_kind==='document';

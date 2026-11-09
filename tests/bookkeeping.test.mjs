@@ -24,6 +24,22 @@ async function fixture(t){
 const sourceInput=s=>({sourceKey:s.key,sourceHash:s.hash});
 const line={amount:11900,side:'S',account:'1200',counter:'10000',tax:'',date:'2026-09-18',reference:'RG-1',text:'Müller; "September"'};
 
+test('withdrawing receipt access also protects existing month snapshots and DATEV downloads',async t=>{
+  const f=await fixture(t),id=randomUUID(),at='2026-09-18T10:00:00Z';
+  await f.env.DB.prepare('INSERT INTO accounting_documents VALUES(?,0,?,?,?,35,?,?)').bind(id,'Privater-Beleg.pdf','application/pdf','fixture-sha',at,'PANEL').run();
+  await f.env.DB.prepare('INSERT INTO accounting_classifications VALUES(?,?,1,?,?,?,?,?,?,?,?)').bind(randomUUID(),id,'RENT','QONTO_TRANSFER',11900,'2026-09-18','Fixture','Fixture',at,'owner').run();
+  await f.post('/settings',config);const source=(await f.view()).view.items.find(s=>s.id===id);
+  await f.post('/resolve',{month,...sourceInput(source),kind:'post',lines:[line],note:'Synthetischen Beleg geprüft'});
+  await f.post('/close',{month,note:'Synthetischer Monatsabschluss',complete:true});
+  const period=(await f.view()).view.period.id,exported=await f.post('/export',{month});
+  const routes=['?month='+month,'/period?id='+period,'/download?id='+exported.id];
+  for(const path of routes)assert.equal((await f.call(path,undefined,'advisor')).status,200,path);
+  await f.env.DB.prepare("INSERT INTO accounting_events(document_id,at,actor,action,payload) VALUES(?,?,'owner','ADVISOR_WITHHELD','{}')").bind(id,at).run();
+  for(const path of routes){assert.equal((await f.call(path,undefined,'advisor')).status,403,path);assert.equal((await f.call(path)).status,200,path);}
+  await f.env.DB.prepare("INSERT INTO accounting_events(document_id,at,actor,action,payload) VALUES(?,?,'owner','ADVISOR_SHARED','{}')").bind(id,at).run();
+  for(const path of routes)assert.equal((await f.call(path,undefined,'advisor')).status,200,path);
+});
+
 test('bookkeeping is private, advisor read-only, CSRF protected and views redact operational data',async t=>{
   const f=await fixture(t);await f.order();
   for(const role of ['anonymous','customer'])assert.equal((await f.call('',undefined,role)).status,401);

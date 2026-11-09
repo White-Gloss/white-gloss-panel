@@ -3,7 +3,7 @@ import { AppError,need,cents,text,berlin,STATES,CLOSED_STATES,normalizeSource,pr
 import {COMPANY} from './company.mjs';
 import { SCHEMA } from './schema.mjs';
 import {manualCatalogSource,priceNote,packageMinutes} from './catalog.mjs';
-import {resolveOrderLink,linkStatement,linkUnlinkedOrders,searchCustomers,saveCustomer,saveVehicle,customerDetail,orderLink,getCustomer,getVehicle} from './customers.mjs';
+import {resolveOrderLink,linkStatement,searchCustomers,saveCustomer,saveVehicle,customerDetail,orderLink,getCustomer,getVehicle} from './customers.mjs';
 import {calendarExport} from './calendar.mjs';
 import {recordOperationIssue,assertRecordOperation,assertCurrentRecordOperation} from './record-compat.mjs';
 import {sealMigration} from './migration.mjs';
@@ -32,7 +32,7 @@ function integrationStatus(s,env){return {website:s.hubVerified?'Lesender Zugrif
 function slimOrder(o,row={}){const {offerToken:_token,offerHistory:_offers,intakeHistory:_intakes,returnHistory:_returns,sourceHistory:_sources,statusHistory:_statuses,pendingHistory:_pendingHistory,assessment,...rest}=o;const brief=p=>p?{at:p.at??null,plate:p.plate??'',signed:isSigned(p),savedAt:p.savedAt??null}:undefined;const {raw:_raw,...source}=o.source??{};return {...rest,source,assessment:assessment?{totalCents:assessment.totalCents}:undefined,acceptance:o.acceptance?{at:o.acceptance.at,mode:o.acceptance.mode??'online'}:undefined,intake:brief(o.intake),return:brief(o.return),pending:o.pending?Object.fromEntries(Object.entries(o.pending).map(([kind,value])=>[kind,{createdAt:value.createdAt,linked:Boolean(value.token)}])):undefined,customerId:row.customer_id||null,vehicleId:row.vehicle_id||null,slim:true};}
 async function orderDetail(env,id){const o=await getOrder(env,id);const link=await orderLink(env,id);const invoiceInfo=o.invoice&&env.operations?.invoiceInfo?await env.operations.invoiceInfo(env,o).catch(()=>null):null;const changeLog=(await env.DB.prepare('SELECT version,at,actor,action,status FROM audit WHERE order_id=? ORDER BY version DESC LIMIT 30').bind(id).all()).results;return {...o,customerId:link.customer?.id??null,vehicleId:link.vehicle?.id??null,customer:link.customer,vehicleData:link.vehicle,changeLog,...(invoiceInfo?{invoiceInfo}:{})};}
 async function state(env){
-  await linkUnlinkedOrders(env);const s=await settings(env);
+  const s=await settings(env);
   const rows=await env.DB.prepare('SELECT o.*,l.customer_id,l.vehicle_id FROM orders o LEFT JOIN customer_orders l ON l.order_id=o.id ORDER BY o.updated_at DESC LIMIT 3000').all();
   const jobs=await env.DB.prepare('SELECT id,order_id,kind,state,created_at,updated_at,provider_id,detail FROM jobs ORDER BY created_at DESC LIMIT 100').all();
   const mailJobs=jobs.results.filter(job=>isMailJob(job.kind));
@@ -179,7 +179,7 @@ export default {
     if(request.method==='GET'&&u.pathname==='/api/calendar.ics'){const rows=await env.DB.prepare("SELECT * FROM orders WHERE status IN ('Termin verbindlich','In Arbeit','Erledigt','Bezahlt') AND json_extract(data,'$.appointment.start') IS NOT NULL ORDER BY updated_at DESC").all();const synthetic=u.searchParams.get('test')==='true';return new Response(calendarExport(rows.results.map(parse).filter(o=>o.synthetic===synthetic&&!isTrashedOrder(o))),{headers:{...security,'Content-Type':'text/calendar; charset=utf-8','Content-Disposition':'attachment; filename=white-gloss-termine.ics'}});}
     if(request.method==='GET'&&u.pathname==='/api/bookingphotos'&&env.operations)return json(await env.operations.endpoint(env,u));if(request.method==='GET'&&u.pathname==='/api/qonto/clients'&&env.operations)return json(await env.operations.endpoint(env,u));if(request.method==='GET'&&u.pathname==='/api/state')return json(await state(env));
     if(request.method==='GET'&&u.pathname.startsWith('/api/order/'))return json(await orderDetail(env,decodeURIComponent(u.pathname.split('/').pop())));
-    if(request.method==='GET'&&u.pathname==='/api/customers'){await linkUnlinkedOrders(env);return json({customers:await searchCustomers(env,u.searchParams.get('q')??'',u.searchParams.get('test')==='true')});}
+    if(request.method==='GET'&&u.pathname==='/api/customers')return json({customers:await searchCustomers(env,u.searchParams.get('q')??'',u.searchParams.get('test')==='true')});
     if(request.method==='GET'&&u.pathname.startsWith('/api/customer/'))return json(await customerDetail(env,decodeURIComponent(u.pathname.split('/').pop())));
     if(request.method==='GET'&&u.pathname==='/api/audit'){return json((await env.DB.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT 500').all()).results);}
     if(request.method==='GET'&&u.pathname.startsWith('/api/websitephotos/')){const id=u.pathname.split('/').pop();const photos=await websitePhotos(env,id);return json(photos.map((p,i)=>({name:p.name,mime:p.mime,url:'/api/websitephoto/'+id+'/'+i})));}

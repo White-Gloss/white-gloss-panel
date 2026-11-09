@@ -6,6 +6,8 @@ import {createApplication} from '../server/application.mjs';
 import {digest} from '../server/auth.mjs';
 import {csvCell} from '../server/advisor-finance.mjs';
 import ExcelJS from 'exceljs';
+import {JSDOM} from 'jsdom';
+import {mountAccounting} from '../public/accounting.js';
 
 const origin='https://panel.example.invalid',password='Ein langer Testsatz mit 24 Zeichen!',email='berater@example.invalid';
 async function fixture(t){
@@ -23,6 +25,37 @@ async function fixture(t){
   return {env,files,app,cookies,call,create,enroll,grant,doc,bank};
 }
 const documentProposal=id=>({kind:'document',targetId:id,version:0,category:'RENT',paymentPath:'QONTO_TRANSFER',amountMinor:11900,documentDate:'2026-10-18',partner:'Testlieferant',note:'Bitte prüfen'});
+
+test('email attachments require owner release for advisor lists, downloads, proposals and bookkeeping',async t=>{
+  const f=await fixture(t),id=await f.doc({name:'Privater-Anhang.pdf'}),manual=await f.doc(),message=randomUUID(),at='2026-10-18T10:00:00.000Z';
+  await f.env.DB.prepare(`INSERT INTO mail_messages(id,dedupe_key,synthetic,direction,folder,from_name,from_address,to_json,subject,text_body,received_at,imported_at) VALUES(?,?,0,'INBOUND','INBOX','Test','test@example.invalid','[]','Test','Test',?,?)`).bind(message,message,at,at).run();
+  await f.env.DB.prepare(`INSERT INTO mail_attachments(id,message_id,filename,mime,size,sha256,archived,document_id) VALUES(?,?,?,'application/pdf',35,?,1,?)`).bind(randomUUID(),message,'Privater-Anhang.pdf',digest(f.files.get(id).body),id).run();
+  const original=await f.env.DB.prepare('SELECT * FROM accounting_documents WHERE id=?').bind(id).first(),bytes=Buffer.from(f.files.get(id).body);
+  const list=async()=> (await (await f.call('/api/advisor/documents')).json()).items.map(d=>d.id);
+  assert.deepEqual(await list(),[manual]);
+  const ownerView=await (await f.call('/api/accounting','owner')).json();
+  assert.equal(ownerView.documents.find(d=>d.id===id).advisorShared,false);
+  const download='/api/advisor/document/'+id,comments='/api/advisor/comments?kind=document&targetId='+id;
+  for(const path of [download,comments])assert.equal((await f.call(path)).status,404,path);
+  assert.equal((await f.call('/api/advisor/proposals','advisor',documentProposal(id))).status,404);
+  const exportPath='/api/advisor/export?kind=documents&from=2026-10-01&to=2026-10-31';
+  assert.doesNotMatch(await (await f.call(exportPath)).text(),/Privater-Anhang/);
+  assert.equal((await f.call('/api/books?month=2026-10')).status,403);
+  assert.equal((await f.call('/api/books?month=2026-10','owner')).status,200);
+  assert.equal((await f.call('/api/accounting/advisor-share','advisor',{documentId:id,shared:true})).status,401);
+  assert.equal((await f.call('/api/accounting/advisor-share','owner',{documentId:id,shared:true},{origin:'https://evil.invalid'})).status,403);
+  assert.equal((await f.call('/api/accounting/advisor-share','owner',{documentId:id,shared:'true'})).status,400);
+  assert.equal((await f.call('/api/accounting/advisor-share','owner',{documentId:id,shared:true})).status,200);
+  assert.ok((await list()).includes(id));assert.equal((await f.call(download)).status,200);
+  assert.equal((await f.call('/api/books?month=2026-10')).status,200);
+  const proposal=await (await f.call('/api/advisor/proposals','advisor',documentProposal(id))).json();assert.ok(proposal.id);
+  assert.equal((await f.call('/api/accounting/advisor-share','owner',{documentId:id,shared:false})).status,200);
+  assert.deepEqual(await list(),[manual]);assert.equal((await f.call(download)).status,404);
+  assert.equal((await (await f.call('/api/advisor/proposals')).json()).items.length,0);
+  assert.deepEqual(await f.env.DB.prepare('SELECT * FROM accounting_documents WHERE id=?').bind(id).first(),original);
+  assert.deepEqual(Buffer.from(f.files.get(id).body),bytes);
+  assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM jobs').first()).n,0);
+});
 
 test('manual owner account setup is isolated, hashed, revocable, replay-safe and never sends mail',async t=>{
   const f=await fixture(t),row=await f.env.DB.prepare('SELECT * FROM advisor_accounts').first();
@@ -46,6 +79,19 @@ test('manual owner account setup is isolated, hashed, revocable, replay-safe and
   assert.equal((await f.call('/api/advisor/enroll','anonymous',{email,token,password,confirmation:password})).status,401);
   assert.equal((await f.call('/api/advisor/session','anonymous',undefined,{cookie:oldCookie})).status,401);
   assert.equal((await f.call('/api/advisor/login','anonymous',{email,password})).status,200);
+  assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM jobs').first()).n,0);
+});
+
+test('receipt inbox lets the owner explicitly withdraw and restore advisor access',async t=>{
+  const f=await fixture(t),id=await f.doc(),dom=new JSDOM('<main></main>',{url:origin});t.after(()=>dom.window.close());
+  t.mock.method(globalThis,'fetch',async(path,options={})=>f.call(path,'owner',options.body?JSON.parse(options.body):undefined));
+  const root=dom.window.document.querySelector('main');mountAccounting(root);
+  async function ready(label){for(let i=0;i<100;i++){const button=root.querySelector('[data-advisor-share]');if(button?.textContent===label)return button;await new Promise(resolve=>setTimeout(resolve,5));}assert.fail(root.textContent);}
+  (await ready('Kanzleifreigabe entziehen')).click();
+  (await ready('Für Kanzlei freigeben')).click();
+  await ready('Kanzleifreigabe entziehen');
+  const events=(await f.env.DB.prepare("SELECT action FROM accounting_events WHERE document_id=? ORDER BY id").bind(id).all()).results;
+  assert.deepEqual(events.map(e=>e.action),['ADVISOR_WITHHELD','ADVISOR_SHARED']);
   assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM jobs').first()).n,0);
 });
 

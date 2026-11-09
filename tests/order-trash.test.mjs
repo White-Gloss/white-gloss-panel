@@ -6,6 +6,7 @@ import {createApplication,maintenance} from '../server/application.mjs';
 import {digest} from '../server/auth.mjs';
 import {getOrder,saveOrder,setting,protect,claimJob} from '../src/worker.mjs';
 import {transitionOrderTrash,orderTrashStatements,resumePausedOrderJobs} from '../src/order-trash.mjs';
+import {resolveOrderLink,linkStatement} from '../src/customers.mjs';
 
 const origin='https://panel.example.invalid',owner='owner@example.invalid',customer='customer@example.invalid';
 async function fixture(t){
@@ -16,6 +17,8 @@ async function fixture(t){
   const expiresAt=new Date(Date.now()+14*86400000).toISOString(),offerToken=randomBytes(32).toString('hex'),documentToken=randomBytes(32).toString('hex'),invoiceToken=randomBytes(32).toString('hex'),chatToken=randomBytes(32).toString('hex');
   const o={id:randomUUID(),wg:'WG-TEST-TRASH',version:1,status:'Termin verbindlich',synthetic:false,source:{name:'Synthetischer Kunde',email:customer,vehicle:'Synthetisches Fahrzeug',reviewConsent:true},offer:{totalCents:11900,services:'Test',expiresAt},offerToken,acceptance:{at:'2026-10-01T10:00:00Z',signature:randomUUID(),snapshot:{source:{name:'Originalkunde'},offer:{totalCents:11900}}},intake:{at:'2026-10-01T11:00:00Z',customerSignature:randomUUID(),operatorSignature:randomUUID(),savedAt:'2026-10-01T11:00:00Z'},intakeHistory:[{customerSignature:randomUUID(),savedAt:'2026-09-01T11:00:00Z'}],return:{customerSignature:randomUUID(),savedAt:'2026-10-02T11:00:00Z'},invoice:{provider:'qonto',providerId:'synthetic-remote',status:'unpaid',number:'WG-TEST-TRASH',totalCents:11900},payments:[{id:randomUUID(),amountCents:1000,at:'2026-10-01T11:00:00Z'}],notes:[{at:'2026-10-01T10:00:00Z',text:'Originalnotiz'}],appointment:{start:'2026-11-05T09:00:00Z',end:'2026-11-05T10:00:00Z',location:'Synthetischer Ort'},pending:{intake:{createdAt:'2026-10-12T10:00:00Z',token:documentToken}}};
   await env.DB.prepare('INSERT INTO orders(id,wg,status,data,updated_at,actor,action) VALUES(?,?,?,?,?,?,?)').bind(o.id,o.wg,o.status,JSON.stringify(o),new Date().toISOString(),'test','Synthetischer Auftrag').run();
+  const link=await resolveOrderLink(env,{source:o.source,synthetic:false});
+  await env.DB.batch([...link.statements,linkStatement(env,o.id,link.customerId,link.vehicleId)]);
   await env.DB.prepare('INSERT INTO appointments VALUES(?,?,?)').bind(o.id,o.appointment.start,o.appointment.end).run();
   await env.DB.prepare('INSERT INTO offer_tokens VALUES(?,?,?,0)').bind(digest(offerToken),o.id,expiresAt).run();
   await env.DB.prepare('INSERT INTO document_requests(hash,order_id,kind,expires_at,created_at) VALUES(?,?,?,?,?)').bind(digest(documentToken),o.id,'intake',expiresAt,new Date().toISOString()).run();

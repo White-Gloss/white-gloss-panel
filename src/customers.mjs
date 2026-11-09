@@ -52,12 +52,6 @@ export async function resolveOrderLink(env,{source,synthetic=false,customerId=nu
   return {customerId:customer.id,vehicleId:vehicle?.id??null,statements};
 }
 export const linkStatement=(env,orderId,customerId,vehicleId)=>env.DB.prepare('INSERT INTO customer_orders(order_id,customer_id,vehicle_id) VALUES(?,?,?) ON CONFLICT(order_id) DO UPDATE SET customer_id=excluded.customer_id,vehicle_id=excluded.vehicle_id').bind(orderId,customerId,vehicleId);
-// Existing orders from before the customer master are linked step by step without changing the orders themselves.
-export async function linkUnlinkedOrders(env,limit=200){
-  const rows=await env.DB.prepare("SELECT id,data,synthetic FROM orders o WHERE json_extract(o.data,'$.trash.deletedAt') IS NULL AND NOT EXISTS(SELECT 1 FROM customer_orders l WHERE l.order_id=o.id) ORDER BY o.rowid LIMIT ?").bind(limit).all();
-  for(const row of rows.results){const o=JSON.parse(row.data);const link=await resolveOrderLink(env,{source:o.source??{},synthetic:row.synthetic===1});await env.DB.batch([...link.statements,link.customerId?linkStatement(env,row.id,link.customerId,link.vehicleId):env.DB.prepare("INSERT OR IGNORE INTO customer_orders(order_id,customer_id,vehicle_id) VALUES(?,'',NULL)").bind(row.id)]);}
-  return rows.results.length;
-}
 export async function searchCustomers(env,query,synthetic=false,limit=100){
   const q='%'+String(query??'').trim().toLowerCase().replace(/[%_\\]/g,m=>'\\'+m)+'%',qPlate='%'+plateKey(query).toLowerCase()+'%';
   const rows=await env.DB.prepare("SELECT * FROM customers c WHERE synthetic=? AND (search LIKE ? ESCAPE '\\' OR EXISTS(SELECT 1 FROM vehicles v WHERE v.customer_id=c.id AND (v.search LIKE ? ESCAPE '\\' OR (?<>'%%' AND lower(json_extract(v.data,'$.plateKey')) LIKE ?)))) ORDER BY updated_at DESC LIMIT ?").bind(synthetic?1:0,q,q,qPlate,qPlate,limit).all();

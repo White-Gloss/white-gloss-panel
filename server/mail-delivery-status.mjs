@@ -1,5 +1,6 @@
 import {AppError,need} from '../src/domain.mjs';
 import {configuration} from '../src/worker.mjs';
+import {isMailJob} from '../src/website-intake.mjs';
 
 const details={
   sent:'An den Versanddienst übergeben. Die Zustellung ist noch nicht bestätigt.',
@@ -29,6 +30,7 @@ export async function checkMailDelivery(env,job,recipient){
   }catch{
     throw new AppError('Der Zustellstatus konnte nicht gelesen werden. Der bisherige Versand bleibt unverändert.',502);
   }
+  if(response.status===404)throw new AppError('Die Versandreferenz ist mit dem aktuellen Resend-Zugang nicht auffindbar. Älteren Anbieterzugang prüfen; die Zustellung bleibt unbestätigt.',404);
   need(response.ok,'Der Zustellstatus konnte nicht gelesen werden. Der bisherige Versand bleibt unverändert.',502);
   const remote=await response.json().catch(()=>null);
   need(remote?.id===job.provider_id&&Array.isArray(remote.to)&&remote.to.some(value=>typeof value==='string'&&value.trim().toLowerCase()===expected),'Die Anbieterantwort gehört nicht eindeutig zu dieser E-Mail und Empfängeradresse.',409);
@@ -36,4 +38,13 @@ export async function checkMailDelivery(env,job,recipient){
   const multipleRecipients=remote.to.length>1||(Array.isArray(remote.cc)&&remote.cc.length>0)||(Array.isArray(remote.bcc)&&remote.bcc.length>0);
   const detail=(details[providerStatus]??'Der Versanddienst kennt die E-Mail, meldet aber keinen eindeutigen Zustellstatus. Keine neue E-Mail auslösen.')+(multipleRecipients?' Diese E-Mail hat mehrere Empfänger; der letzte Anbieterstatus belegt nicht die Zustellung an jeden Einzelnen.':'');
   return {state:'sent',providerStatus,detail};
+}
+
+export async function readMailDelivery(env,id){
+  need(typeof id==='string'&&id.length>0&&id.length<=256,'Versandnachweis nicht gefunden.',404);
+  const job=await env.DB.prepare('SELECT j.*,o.data,o.synthetic FROM jobs j JOIN orders o ON o.id=j.order_id WHERE j.id=?').bind(id).first();
+  need(job&&job.synthetic===0&&isMailJob(job.kind),'Versandnachweis nicht gefunden.',404);
+  const recipient=await env.DB.prepare('SELECT recipient FROM protocol_deliveries WHERE job_id=? UNION ALL SELECT recipient FROM acceptance_deliveries WHERE job_id=? UNION ALL SELECT recipient FROM invoice_deliveries WHERE job_id=?').bind(id,id,id).first();
+  const result=await checkMailDelivery(env,job,recipient?.recipient??JSON.parse(job.data).source?.email);
+  return {providerStatus:result.providerStatus,detail:result.detail,checkedAt:new Date().toISOString()};
 }
