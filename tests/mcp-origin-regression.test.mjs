@@ -21,7 +21,7 @@ test('application preserves OAuth consent policy, strict CSRF checks and read-on
   const response=await call(authorization,null,{cookie});
   assert.equal(response.status,200);
   assert.equal(response.headers.get('referrer-policy'),'origin');
-  assert.match(response.headers.get('content-security-policy')??'',/form-action 'self'/);
+  assert.equal(response.headers.get('content-security-policy'),"default-src 'none'; form-action 'self' https://chatgpt.com; frame-ancestors 'none'; base-uri 'none'");
   const html=await response.text();
   assert.match(html,/<form method="post" action="\/auth\/mcp\/authorize">/);
   const consent=html.match(/name="consent" value="([^"]+)"/)?.[1];
@@ -51,5 +51,6 @@ test('application preserves OAuth consent policy, strict CSRF checks and read-on
     const other=await call(path);
     assert.equal(other.status,status);
     assert.equal(other.headers.get('referrer-policy'),'no-referrer',path+' must keep the default policy');
+    assert.ok(!other.headers.get('content-security-policy').includes('https://chatgpt.com'),path+' must not allow the OAuth callback as a form target');
   }
 });
