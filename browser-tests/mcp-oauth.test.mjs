@@ -11,8 +11,7 @@ for(const decision of ['allow','deny'])test(`MCP consent ${decision} permits the
   await f.context.setOffline(true);
   Object.assign(f.env,{PANEL_MCP_ENABLED:'true',PANEL_MCP_CLIENT_ID:'test-client',PANEL_MCP_REDIRECT_URI:redirect});
   const params={response_type:'code',client_id:'test-client',redirect_uri:redirect,scope:'panel:read',state:'browser-fixture',resource:origin+'/mcp',code_challenge:challenge,code_challenge_method:'S256'};
-  let callbackRequest,submittedOrigin;
-  f.page.on('request',request=>{const url=new URL(request.url());if(url.origin+url.pathname===redirect)callbackRequest=request;});
+  let submittedOrigin;
   // Override the generic harness route: this test must use the real browser Origin.
   await f.page.route(origin+'/auth/mcp/**',async route=>{
     const request=route.request(),headers=await request.allHeaders();
@@ -21,12 +20,13 @@ for(const decision of ['allow','deny'])test(`MCP consent ${decision} permits the
     await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:Buffer.from(await response.arrayBuffer())});
   });
   await f.page.goto(origin+'/auth/mcp/authorize?'+new URLSearchParams(params));
+  const callbackAttempt=f.page.waitForEvent('requestfailed',{predicate:request=>{const url=new URL(request.url());return url.origin+url.pathname===redirect;},timeout:5000});
   await f.page.getByRole('button',{name:decision==='allow'?'Lesezugriff erlauben':'Ablehnen',exact:true}).click();
-  await f.page.waitForURL(url=>url.origin+url.pathname===redirect,{timeout:5000});
+  const callbackRequest=await callbackAttempt;
   assert.equal(submittedOrigin,origin);
-  assert.ok(callbackRequest,'The browser must attempt the registered callback');
+  assert.equal(callbackRequest.failure().errorText,'net::ERR_INTERNET_DISCONNECTED','The callback must pass CSP and stop only at the offline network boundary');
   assert.equal(callbackRequest.method(),'GET');
-  const callback=new URL(f.page.url());
+  const callback=new URL(callbackRequest.url());
   assert.equal(callback.searchParams.get('state'),params.state);
   assert.equal(callback.searchParams.get('iss'),origin);
   if(decision==='deny'){
