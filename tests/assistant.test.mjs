@@ -47,6 +47,21 @@ test('text correction requires explicit data release and does not alter an order
   assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM audit').first()).n,auditBefore);assert.deepEqual(JSON.parse((await f.env.DB.prepare('SELECT data FROM orders').first()).data),data);
 });
 
+test('chat-compatible providers receive the required correction fields and empty corrections fail closed',async t=>{
+  const f=await fixture(t,{async check(){}}),calls=[];
+  await f.call('/api/assistant/settings',{provider:'gemini',apiKey:'synthetic-assistant-secret',model:'gemini-3.1-flash-lite',dataApproved:true});
+  await f.call('/api/assistant/check',{});
+  t.mock.method(globalThis,'fetch',async(_url,options)=>{calls.push(JSON.parse(options.body));return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({correctedText:'Das Auto ist sauber.',changes:['Satzanfang korrigiert'],note:''})}}]});});
+  const request={requestId:randomUUID(),kind:'text',text:'das Auto ist sauber.',confirmed:true};
+  const response=await f.call('/api/assistant/analyze',request);assert.equal(response.status,200);
+  assert.equal((await response.json()).suggestion.result.correctedText,'Das Auto ist sauber.');
+  const instruction=calls[0].messages[0].content.map(p=>p.text??'').join('\n');
+  for(const field of ['correctedText','changes','note','required'])assert.ok(instruction.includes('"'+field+'"'),field+' is missing from provider contract');
+  t.mock.method(globalThis,'fetch',async()=>Response.json({choices:[{finish_reason:'stop',message:{content:'{"korrigierter_text":"Das Auto ist sauber."}'}}]}));
+  assert.equal((await f.call('/api/assistant/analyze',{...request,requestId:randomUUID()})).status,502);
+  assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM assistant_suggestions').first()).n,1);
+});
+
 test('vehicle analysis is limited to an owned image and validates provider output',async t=>{
   let fail=false;const f=await fixture(t,{async check(){},async analyze(){return fail?{id:'resp_bad',status:'completed',output:[{type:'message',content:[{type:'refusal',refusal:'Nicht möglich'}]}]}:providerResult({conditionSummary:'Leichte oberflächliche Spuren sichtbar.',findings:[{area:'Tür',observation:'Feine Spuren im reflektierten Licht',severity:'leicht',calculationHint:'Vor Ort Lack und Tiefe prüfen'}],uncertainties:['Foto zeigt nur einen Ausschnitt'],calculationNote:'Kein Festpreis aus dem Foto ableiten.'});}});
   await settings(f);const orderId=randomUUID(),assetId=randomUUID(),data={id:orderId,wg:'WG-2',version:1,status:'Preise prüfen',synthetic:false,source:{name:'Testkunde'},notes:[],payments:[]},image=Buffer.concat([Buffer.from([0xff,0xd8,0xff,0xe0]),Buffer.alloc(100,1),Buffer.from([0xff,0xd9])]);await f.env.DB.prepare('INSERT INTO orders(id,wg,status,data,updated_at,actor,action,synthetic) VALUES(?,?,?,?,?,?,?,0)').bind(orderId,data.wg,data.status,JSON.stringify(data),new Date().toISOString(),'test','fixture').run();await f.env.DB.prepare('INSERT INTO assets VALUES(?,?,?,?,?,?,?)').bind(assetId,orderId,'booking','image/jpeg',sha256(image),image.length,new Date().toISOString()).run();await f.files.set(assetId,{body:image,httpMetadata:{contentType:'image/jpeg'}});
@@ -67,7 +82,7 @@ test('assistant can use another provider and rejects an unsafe address',async t=
   assert.equal(JSON.stringify(view).includes('synthetic-assistant-secret'),false);
   assert.ok(view.settings.providers.some(item=>item.id==='compatible'));
   assert.deepEqual(view.settings.providers.find(item=>item.id==='xai').models,['grok-4','grok-3']);
-  assert.deepEqual(view.settings.providers.find(item=>item.id==='gemini').models,['gemini-3.8-flash','gemini-2.5-flash-lite']);
+  assert.deepEqual(view.settings.providers.find(item=>item.id==='gemini').models,['gemini-3.1-flash-lite','gemini-2.5-flash','gemini-3.8-flash','gemini-2.5-flash-lite']);
   assert.equal((await f.call('/api/assistant/check',{})).status,200);
   assert.equal(checks[0].provider,'xai');assert.equal(checks[0].base,'https://api.x.ai/v1');assert.equal(checks[0].mode,'chat');
 });
@@ -75,7 +90,8 @@ test('assistant can use another provider and rejects an unsafe address',async t=
 test('gemini reads one pdf receipt and other chat providers still refuse it',async()=>{
   const {completeAssistant}=await import('../server/assistant.mjs');
   const file='data:application/pdf;base64,'+Buffer.from('%PDF-1.7 synthetic').toString('base64');
-  const payload={model:'gemini-3.8-flash',input:[{role:'user',content:[{type:'input_file',filename:'beleg.pdf',file_data:file},{type:'input_text',text:'Lies den Beleg'}]}]};
+  const schema={type:'object',properties:{category:{type:'string',enum:['UNCLEAR','RENT']},amountMinor:{type:['integer','null']}},required:['category','amountMinor']};
+  const payload={model:'gemini-3.8-flash',input:[{role:'user',content:[{type:'input_file',filename:'beleg.pdf',file_data:file},{type:'input_text',text:'Lies den Beleg'}]}],text:{format:{type:'json_schema',schema}}};
   const calls=[];
   const original=globalThis.fetch;
   globalThis.fetch=async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify({id:'ix_1',steps:[{content:[{text:'{"ok":true}'}]}]}),{status:200});};
@@ -91,6 +107,7 @@ test('gemini reads one pdf receipt and other chat providers still refuse it',asy
     const body=JSON.parse(calls[0].options.body);
     assert.equal(body.input[0].mime_type,'application/pdf');
     assert.equal(body.input[0].data.startsWith('data:'),false);
+    assert.ok(body.input[1].text.includes(JSON.stringify(schema)),'PDF request must preserve the result fields and category enum');
     await assert.rejects(()=>completeAssistant({},{provider:'xai',mode:'chat',base:'https://api.x.ai/v1',apiKey:'x'},payload),/OpenAI oder Google Gemini/);
   }finally{globalThis.fetch=original;}
 });

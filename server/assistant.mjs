@@ -27,7 +27,7 @@ const PROVIDERS={
   openrouter:{label:'OpenRouter',base:'https://openrouter.ai/api/v1',mode:'chat',models:['openai/gpt-4o-mini','x-ai/grok-4']},
   groq:{label:'Groq',base:'https://api.groq.com/openai/v1',mode:'chat',models:['llama-3.3-70b-versatile']},
   mistral:{label:'Mistral',base:'https://api.mistral.ai/v1',mode:'chat',models:['mistral-large-latest','pixtral-large-latest']},
-  gemini:{label:'Google / Gemini',base:'https://generativelanguage.googleapis.com/v1beta/openai',mode:'chat',models:['gemini-3.8-flash','gemini-2.5-flash-lite']},
+  gemini:{label:'Google / Gemini',base:'https://generativelanguage.googleapis.com/v1beta/openai',mode:'chat',models:['gemini-3.1-flash-lite','gemini-2.5-flash','gemini-3.8-flash','gemini-2.5-flash-lite']},
   compatible:{label:'Andere KI',base:null,mode:'chat',models:[]}
 };
 export function assistantProviderChoices(){return Object.entries(PROVIDERS).map(([id,item])=>({id,label:item.label,models:item.models}));}
@@ -38,6 +38,7 @@ function providerTarget(input,old){
   need(url.protocol==='https:'&&!url.username&&!url.password&&!url.search&&!url.hash&&(url.pathname==='/'||url.pathname===''),'KI-Adresse muss ein reiner HTTPS-Ursprung ohne Schlüssel sein.',400);
   return {provider,base:url.origin+'/v1',mode:'chat',stored:url.origin};
 }
+function schemaInstruction(payload){return payload.text?.format?.schema?'Antworte ausschließlich mit einem JSON-Objekt nach diesem Schema. Verwende exakt diese Feldnamen und erlaubten Werte: '+JSON.stringify(payload.text.format.schema):'';}
 function chatBody(payload){
   const content=[];
   for(const part of payload.input?.[0]?.content??[]){
@@ -46,6 +47,7 @@ function chatBody(payload){
     else if(part.type==='input_file')throw new AppError('PDF-Belege kann diese KI nicht direkt lesen. Dafür OpenAI oder Google Gemini nutzen oder ein Foto senden.',409);
     else throw new AppError('Diese KI unterstützt den Inhalt nicht.',409);
   }
+  const contract=schemaInstruction(payload);if(contract)content.push({type:'text',text:contract});
   return {model:payload.model,messages:[{role:'user',content}],response_format:{type:'json_object'},max_tokens:payload.max_output_tokens??2000};
 }
 function asResponses(data){
@@ -66,7 +68,7 @@ async function geminiDocument(config,payload){
   need(match,'PDF-Beleg hat kein lesbares Format.',409);
   const bytes=Buffer.from(match[1],'base64');
   need(bytes.length>0&&bytes.length<=12000000,'PDF-Beleg ist leer oder zu groß für die direkte Gemini-Prüfung.',413);
-  const prompt=parts.filter(part=>part.type==='input_text').map(part=>part.text).join('\n')+'\nAntworte ausschließlich mit dem JSON-Objekt, ohne Markdown.';
+  const prompt=parts.filter(part=>part.type==='input_text').map(part=>part.text).join('\n')+'\nAntworte ausschließlich mit dem JSON-Objekt, ohne Markdown.\n'+schemaInstruction(payload);
   const result=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(90000),headers:{'Content-Type':'application/json','x-goog-api-key':config.apiKey,'Api-Revision':'2026-05-20'},body:JSON.stringify({model:payload.model,input:[{type:'document',data:match[1].replace(/\s/g,''),mime_type:'application/pdf'},{type:'text',text:prompt}]})});
   need(![301,302,303,307,308].includes(result.status),'Weiterleitung der KI-Adresse ist nicht erlaubt.',502);
   need(result.ok,'KI-Analyse fehlgeschlagen: HTTP '+result.status,502);
@@ -139,7 +141,10 @@ function validateResult(kind,value){
     need(Number.isFinite(value.confidence)&&value.confidence>=0&&value.confidence<=1,'KI-Konfidenz ist ungültig.',502);
     return {category:value.category,paymentPath:value.paymentPath,amountMinor:value.amountMinor,documentDate:value.documentDate,partner:text(value.partner,180),note:text(value.note,1000),confidence:value.confidence,warnings:Array.isArray(value.warnings)?value.warnings.slice(0,12).map(item=>text(item,500)):[]};
   }
-  if(kind==='text')return {correctedText:text(value.correctedText,20000),changes:Array.isArray(value.changes)?value.changes.slice(0,30).map(item=>text(item,500)):[],note:text(value.note,1000)};
+  if(kind==='text'){
+    need(typeof value.correctedText==='string'&&value.correctedText.trim(),'KI-Antwort enthält keinen korrigierten Text.',502);
+    return {correctedText:text(value.correctedText,20000),changes:Array.isArray(value.changes)?value.changes.slice(0,30).map(item=>text(item,500)):[],note:text(value.note,1000)};
+  }
   return {conditionSummary:text(value.conditionSummary,5000),findings:Array.isArray(value.findings)?value.findings.slice(0,30).map(item=>({area:text(item?.area,180),observation:text(item?.observation,1500),severity:['keine','leicht','mittel','stark','unklar'].includes(item?.severity)?item.severity:'unklar',calculationHint:text(item?.calculationHint,1000)})):[],uncertainties:Array.isArray(value.uncertainties)?value.uncertainties.slice(0,20).map(item=>text(item,1000)):[],calculationNote:text(value.calculationNote,2000)};
 }
 function outputJSON(data){
