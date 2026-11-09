@@ -712,7 +712,7 @@ export function invoiceMail(env, order, kind, today = berlinDay()) {
       (portal ? "\n\nIhr Kundenbereich mit allen Rechnungsdaten (Anmeldung mit Ihrer E-Mail-Adresse):\n" + portal : "") +
       (portal ? "\n\nAlle Aufträge, Dokumente und Nachrichten finden Sie in Ihrem Kundenportal:\n" + env.PANEL_ORIGIN + "/kunde" : ""),
     signature =
-      "\n\nBei Rückfragen antworten Sie bitte auf diese E-Mail.\n\nMit freundlichen Grüßen\n" +
+      "\n\nWenn Sie eine Frage haben, antworten Sie einfach auf diese E-Mail.\n\nViele Grüße\n" +
       [COMPANY.name, COMPANY.owner, COMPANY.street, COMPANY.city, COMPANY.phone, COMPANY.email].join("\n");
   const issued = germanDay(inv.issueDate),
     total = euro(inv.totalCents);
@@ -721,7 +721,7 @@ export function invoiceMail(env, order, kind, today = berlinDay()) {
       return {
         subject: "White Gloss · Rechnung und Quittung " + inv.number,
         text:
-          "Guten Tag " +
+          "Hallo " +
           name +
           ",\n\nvielen Dank für Ihren Auftrag. Anbei erhalten Sie Ihre Rechnung " +
           inv.number +
@@ -739,7 +739,7 @@ export function invoiceMail(env, order, kind, today = berlinDay()) {
     return {
       subject: "White Gloss · Rechnung " + inv.number,
       text:
-        "Guten Tag " +
+        "Hallo " +
         name +
         ",\n\nvielen Dank für Ihren Auftrag. Anbei erhalten Sie Ihre Rechnung " +
         inv.number +
@@ -776,7 +776,7 @@ export function invoiceMail(env, order, kind, today = berlinDay()) {
   return {
     subject: "White Gloss · " + stage.label + " · Rechnung " + inv.number,
     text:
-      "Guten Tag " +
+      "Hallo " +
       name +
       ",\n\n" +
       intro +

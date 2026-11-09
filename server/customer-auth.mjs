@@ -20,11 +20,6 @@ export async function customerAuthSchema(env){await env.DB.batch([
  env.DB.prepare("CREATE TABLE IF NOT EXISTS auth_customer_invites(email TEXT PRIMARY KEY,created_at INTEGER NOT NULL,state TEXT NOT NULL DEFAULT 'queued')")
 ]);}
 
-export function accountInviteStatements(env,email,synthetic=false,now=Date.now()){
- email=emailKey(email);if(synthetic||!validEmail(email)||digest(email)===env.OWNER_EMAIL_SHA256)return [];
- return [env.DB.prepare("INSERT OR IGNORE INTO auth_customer_invites(email,created_at) SELECT ?,? WHERE NOT EXISTS(SELECT 1 FROM auth_customer_credentials WHERE email=?)").bind(email,now,email)];
-}
-
 async function eligible(env,email){
  if(digest(email)===env.OWNER_EMAIL_SHA256)return false;
  return Boolean(await env.DB.prepare(`SELECT 1 FROM orders WHERE synthetic=0 AND lower(trim(json_extract(data,'$.source.email')))=? AND json_extract(data,'$.trash.deletedAt') IS NULL AND COALESCE(json_extract(data,'$.recordsRestriction.status'),'') NOT IN ('blocked','anonymized') AND COALESCE(json_array_length(data,'$.documentCancellations'),0)=0 LIMIT 1`).bind(email).first()||await env.DB.prepare(`SELECT 1 FROM customers c WHERE c.synthetic=0 AND lower(trim(json_extract(c.data,'$.email')))=? AND NOT EXISTS(SELECT 1 FROM customer_orders l WHERE l.customer_id=c.id) LIMIT 1`).bind(email).first());
@@ -35,7 +30,7 @@ async function rate(env,request,email,kind,now,max=10){
  if(ipLimit||emailLimit)throw new AppError('Zu viele Versuche. Bitte später erneut versuchen.',429);
 }
 
-// Used by both explicit self-service and new-record onboarding. No provider call here.
+// Only explicit customer self-service queues a code. No provider call here.
 export async function queueCustomerCode(env,email,purpose='setup',now=Date.now()){
  email=emailKey(email);if(!validEmail(email)||!['setup','reset'].includes(purpose)||!await eligible(env,email))return false;
  const credential=await env.DB.prepare('SELECT revision FROM auth_customer_credentials WHERE email=?').bind(email).first();
@@ -49,13 +44,8 @@ export async function queueCustomerCode(env,email,purpose='setup',now=Date.now()
 export async function deliverCustomerCodes(env,now=Date.now()){
  const config=await configuration(env,['resendKey']);
  if(!config.emailVerified||!config.sendApproved||!config.resendKey||!config.sender)return;
- const invitations=(await env.DB.prepare("SELECT email FROM auth_customer_invites WHERE state='queued' ORDER BY created_at LIMIT 10").all()).results;
- for(const invitation of invitations){
-  // Only new record events enter this queue; opening lists and migrating old records never enqueue.
-  const existing=await env.DB.prepare('SELECT 1 FROM auth_customer_codes WHERE email=? AND expires_at>?').bind(invitation.email,now).first();
-  if(!existing)await queueCustomerCode(env,invitation.email,'setup',now);
-  await env.DB.prepare("UPDATE auth_customer_invites SET state='processed' WHERE email=? AND state='queued'").bind(invitation.email).run();
- }
+ // Legacy invitation rows remain as history, but never initiate another email.
+ // Website receipts and explicitly sent offers already explain customer access.
  const rows=(await env.DB.prepare("SELECT * FROM auth_customer_codes WHERE state='queued' AND expires_at>? ORDER BY created_at LIMIT 10").bind(now).all()).results;
  for(const row of rows){
   if(!await eligible(env,row.email)){await env.DB.prepare("UPDATE auth_customer_codes SET state='cancelled',payload=NULL WHERE id=? AND state='queued'").bind(row.id).run();continue;}
@@ -67,7 +57,7 @@ export async function deliverCustomerCodes(env,now=Date.now()){
    const active=env.DB.sql.prepare("SELECT 1 FROM orders WHERE synthetic=0 AND lower(trim(json_extract(data,'$.source.email')))=? AND json_extract(data,'$.trash.deletedAt') IS NULL AND COALESCE(json_extract(data,'$.recordsRestriction.status'),'') NOT IN ('blocked','anonymized') AND COALESCE(json_array_length(data,'$.documentCancellations'),0)=0 LIMIT 1").get(row.email)||env.DB.sql.prepare("SELECT 1 FROM customers c WHERE c.synthetic=0 AND lower(trim(json_extract(c.data,'$.email')))=? AND NOT EXISTS(SELECT 1 FROM customer_orders l WHERE l.customer_id=c.id) LIMIT 1").get(row.email);
    const credential=env.DB.sql.prepare('SELECT revision FROM auth_customer_credentials WHERE email=?').get(row.email);
    if(!active||(row.purpose==='setup'?Boolean(credential):credential?.revision!==row.credential_revision)){await env.DB.prepare("UPDATE auth_customer_codes SET state='cancelled' WHERE id=? AND state='sending'").bind(row.id).run();continue;}
-   const result=await fetch('https://api.resend.com/emails',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(20000),headers:{Authorization:'Bearer '+config.resendKey,'Content-Type':'application/json','Idempotency-Key':'wg-account-'+row.id},body:JSON.stringify({from:config.sender,to:[row.email],subject:row.purpose==='reset'?'White-Gloss: Passwort zurücksetzen':'Ihr dauerhaftes White-Gloss-Kundenkonto',text:'Ihr einmaliger Bestätigungscode: '+code+'\n\nÖffnen Sie '+env.PANEL_ORIGIN+'/auth/customer und wählen Sie „Code eingeben“. Bestätigen Sie Ihre E-Mail-Adresse und wählen Sie anschließend Ihr persönliches Passwort. Der Code gilt 10 Minuten. Später melden Sie sich mit E-Mail-Adresse und Passwort an.\n\nWenn Sie keine Einrichtung oder Wiederherstellung angefordert haben und keine neue Anfrage gestellt wurde, ignorieren Sie diese Nachricht.'})});
+   const result=await fetch('https://api.resend.com/emails',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(20000),headers:{Authorization:'Bearer '+config.resendKey,'Content-Type':'application/json','Idempotency-Key':'wg-account-'+row.id},body:JSON.stringify({from:config.sender,to:[row.email],subject:row.purpose==='reset'?'Ihr Code für ein neues White-Gloss-Passwort':'Ihr Code für den White-Gloss-Kundenbereich',text:'Hallo,\n\n'+(row.purpose==='reset'?'mit diesem Code können Sie ein neues Passwort festlegen:':'schön, dass Sie Ihren Kundenbereich nutzen möchten. Hier ist Ihr Bestätigungscode:')+'\n\n'+code+'\n\nÖffnen Sie '+env.PANEL_ORIGIN+'/auth/customer und wählen Sie „Code eingeben“. Danach legen Sie Ihr persönliches Passwort fest. Der Code ist 10 Minuten gültig und kann einmal verwendet werden.\n\nAnschließend können Sie sich jederzeit mit Ihrer E-Mail-Adresse und Ihrem Passwort anmelden.\n\nFalls Sie diesen Code nicht angefordert haben, brauchen Sie nichts zu tun.\n\nViele Grüße\nLars Hägele\nWhite-Gloss Detailing'})});
    const data=await result.json();if(!result.ok||typeof data.id!=='string'||!data.id)throw Error('Unconfirmed delivery');
    await env.DB.prepare("UPDATE auth_customer_codes SET state='sent',provider_id=? WHERE id=? AND state='sending'").bind(data.id,row.id).run();
   }catch{await env.DB.prepare("UPDATE auth_customer_codes SET state='unknown' WHERE id=? AND state='sending'").bind(row.id).run();}
