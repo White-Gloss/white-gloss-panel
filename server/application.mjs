@@ -25,6 +25,7 @@ import {agentSchema,agentMaintenance,handleAgent,handleAgentBridge} from './agen
 import {whatsappSchema,initializeWhatsAppReview,handleWhatsApp,handleWhatsAppWebhook} from './whatsapp.mjs';
 import {pushSchema,handlePush,notifyOwner,revokePushSession,prunePush} from './push.mjs';
 import {releaseCommit} from './release.mjs';
+import {readMailDelivery} from './mail-delivery-status.mjs';
 const lockedHeaders={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Strict-Transport-Security':'max-age=31536000','Permissions-Policy':'camera=(), microphone=(), geolocation=()','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com"};
 function errorResponse(message,status=500){return new Response(JSON.stringify({error:message}),{status,headers:{'Content-Type':'application/json'}});}
 export async function createApplication(env){
@@ -57,6 +58,11 @@ export async function createApplication(env){
       if(!identity&&request.method==='GET'&&url.pathname===PORTAL_PATH)return Response.redirect(new URL('/auth/customer',env.PANEL_ORIGIN),303);
       if(!identity){if(request.method==='GET'&&!url.pathname.startsWith('/api/')){const login=new URL('/auth/login',env.PANEL_ORIGIN);if(/^\/(?:angebot|dokument|rechnung|chat)\/[a-f0-9]{64}$/.test(url.pathname)||url.pathname==='/vor-ort'||url.pathname===PORTAL_PATH)login.searchParams.set('returnTo',url.pathname);if(url.pathname==='/auth/password')login.searchParams.set('setup','1');return Response.redirect(login,303);}return errorResponse('Bitte persönlich anmelden.',401);}
       const isOwner=digest(identity)===env.OWNER_EMAIL_SHA256;
+      if(url.pathname==='/api/system/mail-delivery'){
+        if(!isOwner)return errorResponse('Nur für den Betreiber vorgesehen.',403);
+        if(request.method!=='GET')return errorResponse('Nur lesender Zugriff vorgesehen.',405);
+        return Response.json(await readMailDelivery(env,url.searchParams.get('id')));
+      }
       if(url.pathname.startsWith('/api/customer-record/')){
         if(!isOwner)return errorResponse('Nur für den Betreiber vorgesehen.',403);
         if(request.method!=='GET')return errorResponse('Nur lesender Zugriff vorgesehen.',405);

@@ -34,6 +34,20 @@ test('manual customer creation queues one invitation while reading existing cust
  const f=await fixture(t);assert.equal((await f.env.DB.prepare('SELECT count(*) n FROM auth_customer_invites').first()).n,1);
  await f.env.DB.prepare('DELETE FROM auth_customer_invites').run();await f.call('/api/customer-record/'+f.customer.id);assert.equal((await f.env.DB.prepare('SELECT count(*) n FROM auth_customer_invites').first()).n,0);
 });
+
+test('reading dashboard and customer search never creates customers or links legacy orders',async t=>{
+ const f=await fixture(t),id=randomUUID(),at=new Date().toISOString();
+ const order={id,wg:'WG-LEGACY',status:'Preise prüfen',source:{name:'Legacy fixture',email:'legacy@example.invalid',vehicle:'Legacy car'},notes:[]};
+ await f.env.DB.prepare('INSERT INTO orders(id,wg,status,data,updated_at,actor,action) VALUES(?,?,?,?,?,?,?)').bind(id,order.wg,order.status,JSON.stringify(order),at,'test','fixture').run();
+ const snapshot=async()=>Promise.all(['customers','vehicles','customer_orders','auth_customer_invites'].map(async table=>(await f.env.DB.prepare('SELECT * FROM '+table+' ORDER BY rowid').all()).results));
+ const before=await snapshot();
+ for(const path of ['/api/state','/api/customers','/api/customers?q=Legacy']){
+  const response=await f.call(path);assert.equal(response.status,200,await response.clone().text());
+  assert.deepEqual(await snapshot(),before,path+' must not backfill business data');
+ }
+ assert.equal((await (await f.call('/api/order/'+id)).json()).wg,'WG-LEGACY');
+ assert.equal(f.sent.length,0);
+});
 test('explicit SMTP links only the selected order, saves draft attribution and refuses a different recipient',async t=>{
  const f=await fixture(t),at=new Date().toISOString();
  await f.env.DB.prepare('INSERT INTO mailbox_accounts(id,email,display_name,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password,smtp_verified_at,updated_at) VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?)').bind(owner,'Synthetic','imap.example.invalid',993,1,'smtp.example.invalid',465,1,owner,await protect(f.env,'synthetic-password'),at,at).run();

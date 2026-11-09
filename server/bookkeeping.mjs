@@ -4,6 +4,13 @@ import {inputFor} from './password-auth.mjs';
 import {advisorContext,advisorStillActive,advisorJSON} from './advisor-auth.mjs';
 import {bookData,hash,day,monthValid,monthView,lastResolution,lastPeriod,openMonth} from './bookkeeping-data.mjs';
 import {datevConfig,datevLine,datevFile,fiscalContains} from './datev.mjs';
+import {ADVISOR_DOCUMENT_VISIBLE} from './accounting.mjs';
+
+async function requireSharedDocuments(env,context,keys){
+  if(context.isOwner)return;
+  const hidden=(await env.DB.prepare(`SELECT d.id FROM accounting_documents d WHERE d.synthetic=0 AND NOT ${ADVISOR_DOCUMENT_VISIBLE}`).all()).results;
+  need(!hidden.some(d=>keys.includes('document:'+d.id)),'Diese Monatsansicht enthält Belege ohne Kanzleifreigabe. Der Betreiber muss die Belege zuerst prüfen und freigeben.',403);
+}
 
 function reason(value){need(typeof value==='string'&&value.trim().length>=8&&value.length<=800,'Bitte eine nachvollziehbare Begründung mit 8–800 Zeichen eingeben.');return value.trim();}
 const statement=(env,sql,...params)=>env.DB.prepare(sql).bind(...params);
@@ -91,13 +98,18 @@ export async function handleBookkeeping(env,request){
   if(path==='/buchhaltung'){need(request.method==='GET','Methode nicht erlaubt.',405);return env.ASSETS.fetch(new Request(new URL('/bookkeeping.html',env.PANEL_ORIGIN)));}
   if(request.method==='GET'&&path==='/api/books/download'){
     const row=await env.DB.prepare('SELECT * FROM book_exports WHERE id=?').bind(url.searchParams.get('id')).first();need(row,'Export nicht gefunden.',404);need(hash(Buffer.from(row.bytes_base64,'base64'))===row.sha256,'Gespeicherter Export ist beschädigt.',503);await advisorStillActive(env,context);
+    const period=await env.DB.prepare('SELECT snapshot FROM book_periods WHERE id=?').bind(row.period_id).first();
+    await requireSharedDocuments(env,context,JSON.parse(period.snapshot).evidence.sources.map(s=>s.key));
     return new Response(Buffer.from(row.bytes_base64,'base64'),{headers:{'Content-Type':'text/csv; charset=windows-1252','Content-Disposition':'attachment; filename="'+row.filename+'"','Cache-Control':'no-store'}});
   }
   if(request.method==='GET'&&path==='/api/books/period'){
-    const row=await env.DB.prepare('SELECT * FROM book_periods WHERE id=?').bind(Number(url.searchParams.get('id'))).first();need(row,'Abschluss nicht gefunden.',404);need(hash(row.snapshot)===row.sha256,'Abschlussnachweis ist beschädigt.',503);await advisorStillActive(env,context);return advisorJSON({id:row.id,month:row.month,kind:row.kind,sha256:row.sha256,snapshot:JSON.parse(row.snapshot)});
+    const row=await env.DB.prepare('SELECT * FROM book_periods WHERE id=?').bind(Number(url.searchParams.get('id'))).first();need(row,'Abschluss nicht gefunden.',404);need(hash(row.snapshot)===row.sha256,'Abschlussnachweis ist beschädigt.',503);await advisorStillActive(env,context);
+    const snapshot=JSON.parse(row.snapshot);await requireSharedDocuments(env,context,(snapshot.evidence?.sources??[]).map(s=>s.key));
+    return advisorJSON({id:row.id,month:row.month,kind:row.kind,sha256:row.sha256,snapshot});
   }
   if(request.method==='GET'&&path==='/api/books'){
     const data=await bookData(env),month=url.searchParams.get('month')??day(new Date().toISOString()).slice(0,7),view=monthView(data,month);await advisorStillActive(env,context);
+    await requireSharedDocuments(env,context,[...view.items.map(s=>s.key),...view.items.filter(s=>s.classification?.documentId).map(s=>'document:'+s.classification.documentId),...data.resolutions.filter(r=>r.month===month).map(r=>r.source_key)]);
     return advisorJSON({isOwner:context.isOwner,version:data.version,settings:data.settings,view,invoices:data.invoices,periods:data.periods.map(p=>({id:p.id,month:p.month,kind:p.kind,sha256:p.sha256}))});
   }
   need(context.isOwner,'Freigaben, Zahlungsabgleich, Abschluss und DATEV-Einstellungen sind dem Betreiber vorbehalten.',403);need(request.method==='POST','Methode nicht erlaubt.',405);
