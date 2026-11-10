@@ -359,3 +359,32 @@ button.primary,a.button.primary{border-radius:980px}
   html[data-area="operator"] .sidebar .navgroup{min-height:44px;font-size:13px}
   html[data-area="operator"] .sidebar-close{border-radius:50%}
 }
+
+/* WG-IOS-001 Phase 2: Auftragsdetail. Schnellkontakt im Kopf (alle Breiten), auf dem Handy ruhige Befehlszeile,
+   „Nächster Schritt“ als eigene Fläche mit Knopf in voller Breite, Kennzahlen bündig. */
+.order-contact{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.order-contact .button{min-height:40px}
+@media (max-width:760px){
+  html[data-area="operator"] .order-commandbar{align-items:center;margin-bottom:12px}
+  html[data-area="operator"] .order-commandbar>.button{min-height:44px;padding:0 12px 0 4px;border:0;background:transparent;color:var(--gold);font-size:17px;font-weight:500;letter-spacing:-.015em}
+  html[data-area="operator"] .order-more>summary{min-height:44px;padding:0 16px;border:0;border-radius:980px;background:color-mix(in srgb,var(--fg) 9%,transparent);color:var(--fg);font-size:15px;font-weight:600;list-style:none}
+  html[data-area="operator"] .order-more>summary::-webkit-details-marker{display:none}
+  html[data-area="operator"] .order-more>div{padding:8px;border-radius:16px;box-shadow:var(--shadow-2)}
+  html[data-area="operator"] .order-more>div .button,html[data-area="operator"] .order-more>div button{min-height:48px;border:0;border-radius:12px;font-size:16px}
+  html[data-area="operator"] .content .detail-header h2{font-size:26px;font-weight:700;line-height:1.15;letter-spacing:-.022em}
+  html[data-area="operator"] .content .detail-header .heading p{font-size:15px;line-height:1.4}
+  html[data-area="operator"] .order-contact{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:8px;margin-top:16px}
+  html[data-area="operator"] .content .order-contact .button{justify-content:center;min-width:0;min-height:48px;padding:0 6px;border:0;border-radius:12px;background:color-mix(in srgb,var(--fg) 9%,transparent);color:var(--fg);font-size:14px;font-weight:600;letter-spacing:-.01em}
+  html[data-area="operator"] .order-overview dt{font-size:13px}
+  html[data-area="operator"] .order-overview dd{font-size:17px;font-weight:600}
+  html[data-area="operator"] .order-overview dd.hint{font-size:13px;font-weight:400}
+  html[data-area="operator"] .order-overview>div{border-radius:14px}
+  html[data-area="operator"] .order-next{flex-direction:column;align-items:stretch;gap:12px;margin:0 16px 16px;padding:16px;border:1px solid color-mix(in srgb,var(--gold) 40%,var(--line));border-radius:16px;background:color-mix(in srgb,var(--gold) 9%,transparent)}
+  html[data-area="operator"] .order-next strong{font-size:17px;line-height:1.3;letter-spacing:-.015em}
+  html[data-area="operator"] .content .order-next button{max-width:none;justify-content:center;min-height:50px;border:0;border-radius:980px;background:var(--accent);color:var(--on-accent);font-size:17px}
+  html[data-area="operator"] .tabs.order-tabs{border-top:1px solid var(--line)}
+  html[data-area="operator"] .tabs.order-tabs button strong{font-size:15px;letter-spacing:-.01em}
+  html[data-area="operator"] .tabs.order-tabs button small{font-size:12px}
+  html[data-area="operator"] .overview-shell>.stats>.stat{display:flex;flex-direction:column}
+  html[data-area="operator"] .overview-shell>.stats>.stat .top{flex:1;min-height:0}
+}
