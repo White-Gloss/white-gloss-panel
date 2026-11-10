@@ -121,8 +121,20 @@ test('mail header is compact on phones: one title, no kicker, status as a dot', 
   assert.match(css, /\.cc-connection>span:last-child\s*\{[^}]*display:\s*none/);
 });
 
-test('phone content leaves room for the floating tasks button', () => {
-  assert.match(phoneRules(), /\.content\s*\{[^}]*padding-bottom:\s*calc\(var\(--dock-height\)\s*\+\s*(9\d|1\d\d)px/);
+test('the tasks button sits in the top bar and no longer floats over the content', () => {
+  const css = phoneRules();
+  assert.doesNotMatch(css, /\.mobile-task\s*\{[^}]*position:\s*fixed/);
+  assert.match(css, /\.content\s*\{[^}]*padding-bottom:\s*calc\(var\(--dock-height\)\s*\+\s*28px/);
+  const app = read('app.js'), top = app.slice(app.indexOf('<header class="topbar"'), app.indexOf('</header>', app.indexOf('<header class="topbar"')));
+  assert.match(top, /class="mobile-task"/);
+});
+
+test('phone shell follows the iOS rules: 44px targets, 11px tab labels, gold tint for the active tab', () => {
+  const css = phoneRules();
+  assert.match(css, /\.topbar \.mobile-task\s*\{[^}]*width:\s*44px[^}]*min-height:\s*44px/);
+  assert.match(css, /html\[data-area="operator"\] \.mobile-dock button\s*\{[^}]*font-size:\s*11px/);
+  assert.match(css, /\.mobile-dock button\[aria-current=page\][^{]*\{[^}]*background:\s*transparent[^}]*color:\s*var\(--gold\)/);
+  assert.match(css, /\.heading \.heading-brand\s*\{[^}]*display:\s*none/);
 });
 
 test('the overview header buttons share one height', () => {

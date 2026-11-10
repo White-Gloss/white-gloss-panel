@@ -28,16 +28,40 @@ test('phone layout: equal header buttons, content clear of the tasks button, com
     assert.ok(buttons.every(b => b.inside), 'header buttons stay inside the screen');
   }
 
+  // Der Aufgaben-Knopf sitzt in der Kopfleiste und schwebt nicht mehr über dem Inhalt.
+  const tasks = await page.evaluate(() => {
+    const pill = document.querySelector('.topbar .mobile-task'), bar = document.querySelector('.topbar').getBoundingClientRect();
+    if (!pill) return null;
+    const r = pill.getBoundingClientRect();
+    return {w: Math.round(r.width), h: Math.round(r.height), inBar: r.top >= bar.top && r.bottom <= bar.bottom, position: getComputedStyle(pill).position};
+  });
+  log('tasks', tasks);
+  assert.ok(tasks, 'tasks button is part of the top bar');
+  assert.deepEqual([tasks.w, tasks.h, tasks.inBar], [44, 44, true], 'tasks button is a 44px target inside the bar');
+  assert.notEqual(tasks.position, 'fixed');
+  // Tab-Leiste: fünf gleich breite Ziele, Beschriftung mindestens 11 px, aktiv über die Tönungsfarbe statt über einen Kasten.
+  const dock = await page.evaluate(() => [...document.querySelectorAll('.mobile-dock > button')].map(b => { const r = b.getBoundingClientRect(), c = getComputedStyle(b); return {w: Math.round(r.width), h: Math.round(r.height), font: parseFloat(c.fontSize), bg: c.backgroundColor, current: b.getAttribute('aria-current') === 'page', color: c.color}; }));
+  log('dock', dock);
+  assert.ok(dock.every(b => b.h >= 44 && b.w >= 44 && b.font >= 11), 'every tab is a 44px target with a readable label');
+  assert.ok(dock.every(b => b.bg === 'rgba(0, 0, 0, 0)'), 'no box behind a tab');
+  assert.equal(dock.filter(b => b.current).length, 1); assert.notEqual(dock.find(b => b.current).color, dock.find(b => !b.current).color, 'the active tab has its own tint');
+  assert.equal(await page.locator('.content .heading-brand').evaluateAll(nodes => nodes.filter(n => n.getBoundingClientRect().height > 0).length), 0, 'no company line above the title on phones');
+  await f.screenshot('ios-start-390-dark', {fullPage: false});
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   const clearance = await page.evaluate(() => {
-    const pill = document.querySelector('.mobile-task');
-    if (!pill) return {pill: false};
-    const top = pill.getBoundingClientRect().top;
+    const top = document.querySelector('.mobile-dock').getBoundingClientRect().top;
     const last = [...document.querySelectorAll('.content *')].filter(el => el.getBoundingClientRect().height > 0 && getComputedStyle(el).position !== 'fixed').reduce((m, el) => Math.max(m, el.getBoundingClientRect().bottom), 0);
-    return {pill: true, pillTop: Math.round(top), contentBottom: Math.round(last)};
+    return {dockTop: Math.round(top), contentBottom: Math.round(last)};
   });
   log('clearance', clearance);
-  if (clearance.pill) assert.ok(clearance.contentBottom <= clearance.pillTop, 'last content ends above the tasks button');
+  assert.ok(clearance.contentBottom <= clearance.dockTop, 'last content ends above the tab bar');
+  await page.locator('.mobile-dock [data-view="requests"]').click(); await page.locator('#content h1').first().waitFor();
+  await f.screenshot('ios-requests-390-dark', {fullPage: false});
+  await page.locator('.mobile-dock [data-view="active"]').click(); await page.locator('#content h1').first().waitFor();
+  await f.screenshot('ios-active-390-dark');
+  await page.locator('.mobile-dock [data-click="menu"]').click(); await page.locator('.sidebar.open').waitFor();
+  await f.screenshot('ios-menu-390-dark', {fullPage: false});
+  await page.keyboard.press('Escape');
 
   await page.goto(origin + '/#mailbox'); await page.locator('.cc-head').waitFor();
   // Der kompakte Kopf gilt im Mail-Bereich: erst den Posteingang öffnen (Start des Postfachs ist die Übersicht).
