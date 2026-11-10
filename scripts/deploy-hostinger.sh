@@ -68,11 +68,11 @@ live_commit=$(awk 'tolower($1)=="x-panel-commit:" {gsub("\r", "", $2); print $2}
 [[ $live_commit == "$commit" ]] || { echo 'Die öffentliche HTTPS-Antwort bestätigt den Release-Commit nicht.' >&2; exit 1; }
 curl "${curl_options[@]}" --output "$temporary/login.html" https://panel.white-gloss.de/auth/login
 [[ $(< "$temporary/login.html") == *'White Gloss'* ]] || { echo 'Panel-Anmeldung nicht erreichbar.' >&2; exit 1; }
-for asset in app.js premium.js premium.css agency.css; do
+for asset in app.js index.html style.css enterprise.css surface.css; do
     curl "${curl_options[@]}" --output "$temporary/$asset" "https://panel.white-gloss.de/$asset?release=$commit"
     cmp --silent "dist/client/$asset" "$temporary/$asset" || { echo "Öffentliche Paneldatei stimmt nicht überein: $asset" >&2; exit 1; }
 done
 printf 'Hostinger-Panel veröffentlicht und über HTTPS geprüft: %s\n' "$commit"
 if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
-    printf 'Panel-Commit `%s` auf Hostinger aktiv. HTTPS, Commitheader, Anmeldung, Premium-Assets, Dienste und Timer geprüft.\n' "$commit" >> "$GITHUB_STEP_SUMMARY"
+    printf 'Panel-Commit `%s` auf Hostinger aktiv. HTTPS, Commitheader, Anmeldung, aktive Paneldateien, Dienste und Timer geprüft.\n' "$commit" >> "$GITHUB_STEP_SUMMARY"
 fi

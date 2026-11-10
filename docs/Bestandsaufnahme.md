@@ -1,8 +1,8 @@
 # Bestandsaufnahme des Betriebspanels
 
-Stand: 03.11.2026. Grundlage: Code auf `main` (`999a667`), Dokumentation, Tests und
-GitHub-Läufe. Jede Aussage nennt die Stelle im Code oder die Quelle. Nicht Geprüftes ist als
-offen markiert. Die Reihenfolge der Aufgaben steht in der [Roadmap](Roadmap.md).
+Stand: 10.11.2026. Ausgangsbasis: Code auf `main` (`e41906e`), Dokumentation, Tests und
+GitHub-Lauf 42891989349. Jede Aussage nennt die Stelle im Code oder die Quelle. Nicht
+Geprüftes ist als offen markiert. Die Reihenfolge der Aufgaben steht in der [Roadmap](Roadmap.md).
 
 ## Prüfbasis
 
@@ -26,11 +26,12 @@ offen markiert. Die Reihenfolge der Aufgaben steht in der [Roadmap](Roadmap.md).
   ([Handlungszentrale](Handlungszentrale.md)). Fällige Mahnstufen fehlen (Roadmap V7).
 
 ### Navigation
-- **Stand:** 23 Menüpunkte in 4 Gruppen (`menus`, `navigationSections` in `public/app.js`).
-  Mobile Leiste: Kalender, Start, Anfragen, Laufend, Finanzen, Mehr.
+- **Stand:** Aufträge erscheinen als eine Liste mit Gruppenfiltern für Anfragen, laufende und
+abgeschlossene Arbeit. Die mobile Leiste enthält Start, Mail, Nachrichten und Aufträge;
+weitere Bereiche liegen unter „Mehr“ (`menus`, `navigationSections` in `public/app.js`).
 - **Stärken:** Gruppen merken ihren Zustand, Tastatur und Fokus sind geprüft.
-- **Schwächen:** Kundenanfragen, Laufende und Alle Aufträge zeigen dieselbe Tabelle mit anderem
-  Filter (`table()`). „Nachrichten“ fehlt in der mobilen Leiste (V3, V5).
+- **Stand:** Die früher getrennten Einstiege Kundenanfragen, Laufende und Alle Aufträge sind
+zusammengeführt. „Nachrichten“ ist mobil direkt erreichbar.
 
 ### Kunden
 - **Stand:** Karten mit Suche, Kundenakte als Fenster mit Fahrzeugen und Aufträgen
@@ -46,7 +47,7 @@ offen markiert. Die Reihenfolge der Aufgaben steht in der [Roadmap](Roadmap.md).
 ### Anfragen
 - **Stand:** Website-Import (`website_inbox`), WhatsApp-Übernahme, manuell, Vor-Ort-Sofortbuchung.
 - **Stärken:** Prüfung und Dublettenschutz (`website_id UNIQUE`).
-- **Schwächen:** Die Liste hat keine Spalte für das Alter einer Anfrage.
+- **Stand:** Die gemeinsame Auftragsliste zeigt bei offenen Anfragen auch ihr Alter.
 
 ### Angebote
 - **Stand:** Preisprüfung mit Katalog, Link mit PIN, gemeinsame Unterschrift für Angebot und
@@ -62,10 +63,8 @@ offen markiert. Die Reihenfolge der Aufgaben steht in der [Roadmap](Roadmap.md).
 
 ### Aufträge
 - **Stand:** 10 Status, serverseitige Logik (`transition`), Versionen, Änderungsprotokoll,
-  Papierkorb, Testbereich.
-- **Schwächen:** Ablauf-Leiste, Reiter und Feld „Arbeitsschritt“ bilden drei Navigationsebenen.
-  Der Kundenchat liegt unter „Weitere Aktionen“ (V2). Der Text „Nächster Schritt“ steht in
-  `src/domain.mjs`, `public/app.js` und im ungenutzten `public/premium.js` (V8).
+  Papierkorb, Testbereich. Die sechs Auftragsbereiche teilen sich eine Tab-Leiste; Angebot und
+  Termin liegen im selben Bereich. „Nächster Schritt“ ist an einer Stelle definiert (V2, V8).
 
 ### Rechnungen
 - **Stand:** Qonto, Nummer = WG-Nummer, Summenprüfung, Mehrarbeitsentwurf, Kundenlink.
@@ -115,5 +114,5 @@ offen markiert. Die Reihenfolge der Aufgaben steht in der [Roadmap](Roadmap.md).
   sind Hostinger-Sicherungen aktiv. Umfang und Wiederherstellung sind ungeprüft (V13).
 - **Server-Härtung:** Laut [Hostinger-Umzug](Hostinger-Umzug.md) vom 25.10.2026 sind SSH per
   Passwort und offene Ports von KI-Containern offen. Aktueller Stand ungeprüft.
-- **Tote Dateien:** `premium.js`, `premium.css` und `agency.css` lädt keine Seite mehr
-  (seit `1c3faab`). `scripts/deploy-hostinger.sh` prüft sie beim Release noch (V8).
+- **Bereinigt:** Die ungenutzten Dateien `premium.js`, `premium.css` und `agency.css` sind
+  entfernt. Der Hostinger-Release prüft stattdessen aktive Paneldateien (V8).

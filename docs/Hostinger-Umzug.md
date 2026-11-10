@@ -89,9 +89,9 @@ Enthalten sind:
    erforderliche Probe-Release.
 
 Der Weg gilt erst als betriebsbereit, wenn dieser Lauf den exakten Commit, den Header
-`x-panel-commit`, die Anmeldung sowie `app.js`, `premium.js`, `premium.css` und `agency.css`
-gegen das Releasepaket geprüft hat und die Statusprüfung Dienste, Timer und Caddy-Container
-bestätigt. Bei einem Fehler ist der Release nicht als erfolgreich zu betrachten.
+`x-panel-commit`, die Anmeldung sowie `app.js`, `index.html`, `style.css`, `enterprise.css`
+und `surface.css` gegen das Releasepaket geprüft hat und die Statusprüfung Dienste, Timer und
+Caddy-Container bestätigt. Bei einem Fehler ist der Release nicht als erfolgreich zu betrachten.
 
 ## Weitere bekannte Lücken
 
