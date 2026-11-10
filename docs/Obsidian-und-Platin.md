@@ -45,3 +45,12 @@ Kundenchat, Steuerberaterzugang und die Anmeldeseiten. Spec:
   Test (`tests/device-pwa.test.mjs`) prüft, dass jede Server-Meldung dort bekannt ist. Einrichten: Einstellungen oder
   Vor-Ort-Startseite, „App & Benachrichtigungen“. Auf dem iPhone funktioniert Web-Push nur bei installierter App
   (Zum Home-Bildschirm).
+
+## Stand 10.11.2026: iOS-Hülle auf dem Handy (WG-IOS-001, Phase 1)
+
+- Plan und Phasen: `docs/plans/2026-11-10-wg-ios-001.md`.
+- **Aufgaben** steht als runder Knopf in der Kopfleiste. Über dem Inhalt schwebt nichts mehr.
+- **Tab-Leiste:** aktiver Eintrag nur über Gold, kein Kasten. Beschriftung 11 px, Ziele mindestens 44 px.
+- **Schrift:** Titel 28–32 px fett, Lesetext 15–17 px, keine Firmenzeile über dem Titel (`heading-brand`).
+- Die Regeln stehen am Ende von `public/surface.css` und gelten nur bis 760 px im Bereich `operator`.
+

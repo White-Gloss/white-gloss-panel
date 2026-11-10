@@ -191,19 +191,18 @@ button.primary,a.button.primary{border-radius:980px}
 
 .mobile-task{display:none}
 @media (max-width:760px){
-  .mobile-task{display:flex;align-items:center;justify-content:center;gap:8px;position:fixed;z-index:32;left:0;right:0;width:max-content;margin:0 auto;bottom:calc(var(--dock-height) + 8px + env(safe-area-inset-bottom,0px));min-height:44px;padding:0 18px;border:1px solid color-mix(in srgb,var(--gold) 55%,var(--line));border-radius:980px;background:var(--surface);color:var(--fg);box-shadow:var(--shadow-2);font-size:14px;font-weight:650;letter-spacing:-.01em}
-  .mobile-task .icon{width:18px;height:18px}
-  .mobile-task[aria-current=page]{box-shadow:inset 0 -2px 0 var(--gold),var(--shadow-2)}
-  .mailbox-root{padding-bottom:72px}
+  .mobile-task{display:inline-flex;align-items:center;justify-content:center}
+  .mobile-task>span{display:none}
+  .mobile-task .icon{width:20px;height:20px}
 }
 
-/* Handy: ruhigerer Mail-Kopf, gleich hohe Start-Knöpfe, Platz für den Aufgaben-Knopf */
+/* Handy: ruhigerer Mail-Kopf, gleich hohe Start-Knöpfe; der Aufgaben-Knopf sitzt in der Kopfleiste */
 .overview-shell .action-center .card-title .primary,.overview-shell .action-center .card-title .smallbtn{min-height:44px;font-size:15px}
 @media (max-width:760px){
   .cc[data-section="mail"] .cc-head h1{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
   .cc-head .eyebrow{display:none}
   .cc-connection>span:last-child{display:none}
-  .content{padding-bottom:calc(var(--dock-height) + 96px + env(safe-area-inset-bottom,0px))}
+  .content{padding-bottom:calc(var(--dock-height) + 28px + env(safe-area-inset-bottom,0px))}
 }
 
 /* Tag/Nacht-Schalter: Sonne in der Nacht-Anzeige (Wechsel zu Tag), Mond in der Tag-Anzeige */
@@ -274,3 +273,89 @@ button.primary,a.button.primary{border-radius:980px}
 .evidence-media a { display: flex; align-items: center; }
 .evidence-media figcaption { margin-top: 0.5rem; font-size: 0.875rem; }
 @media (max-width: 640px) { .evidence-document { grid-template-columns: minmax(0,1fr); } .evidence-document > button { justify-self: start; } }
+
+/* WG-IOS-001 Phase 1: iOS-Hülle auf dem Handy (Plan: docs/plans/2026-11-10-wg-ios-001.md).
+   Regeln nach den Apple-Richtlinien: 44 px Trefferfläche, 11 px Mindestschrift, Lesetext 15–17 px,
+   eine Tönungsfarbe für „aktiv“ (Gold), Glasleisten statt Kästen, ein Radius je Ebene. */
+@media (max-width:760px){
+  html[data-area="operator"]{--dock-height:58px;--mobile-header-height:60px}
+
+  /* Kopfleiste: eine Reihe, runde Glyphenknöpfe, Suchfeld ohne Rahmen */
+  html[data-area="operator"] .workspace .topbar{height:calc(60px + env(safe-area-inset-top,0px));padding:calc(8px + env(safe-area-inset-top,0px)) max(12px,env(safe-area-inset-right,0px)) 8px max(12px,env(safe-area-inset-left,0px));gap:8px}
+  html[data-area="operator"] .topbar .top-actions{gap:8px;justify-content:flex-end}
+  html[data-area="operator"] .topbar .mobile-menu,html[data-area="operator"] .topbar .theme-toggle,html[data-area="operator"] .topbar .mobile-task{flex:0 0 44px;width:44px;min-width:44px;height:44px;min-height:44px;padding:0;border:0;border-radius:50%;background:color-mix(in srgb,var(--fg) 9%,transparent);color:var(--fg);box-shadow:none}
+  html[data-area="operator"] .topbar .mobile-task[hidden]{display:none}
+  html[data-area="operator"] .topbar .mobile-task[aria-current=page]{background:color-mix(in srgb,var(--gold) 20%,transparent);color:var(--gold)}
+  html[data-area="operator"] .topbar .mobile-menu .icon,html[data-area="operator"] .topbar .theme-toggle .icon{width:21px;height:21px}
+  html[data-area="operator"] .topbar .search input{height:44px;min-height:44px;padding:0 14px;border:0;border-radius:12px;background:color-mix(in srgb,var(--fg) 9%,transparent);font-size:17px;letter-spacing:-.01em}
+  html[data-area="operator"] .tabs:not(.order-tabs){top:calc(var(--mobile-header-height) + env(safe-area-inset-top,0px))}
+
+  /* Tab-Leiste: Symbol über Beschriftung, aktiv nur über die Tönungsfarbe */
+  html[data-area="operator"] .mobile-dock{gap:0;min-height:calc(var(--dock-height) + env(safe-area-inset-bottom,0px));padding:4px max(4px,env(safe-area-inset-right,0px)) calc(4px + env(safe-area-inset-bottom,0px)) max(4px,env(safe-area-inset-left,0px));box-shadow:none}
+  html[data-area="operator"] .mobile-dock button{position:relative;gap:3px;min-height:50px;padding:5px 2px 3px;border-radius:12px;background:transparent;box-shadow:none;color:var(--muted);font-size:11px;font-weight:500;line-height:1.1;letter-spacing:0}
+  html[data-area="operator"] .mobile-dock button[aria-current=page],html[data-area="operator"] .mobile-dock button.active{background:transparent;box-shadow:none;color:var(--gold);font-weight:600}
+  html[data-area="operator"] .mobile-dock .icon{width:25px;height:25px;stroke-width:1.6}
+  html[data-area="operator"] .mobile-dock button[aria-current=page] .icon{stroke-width:2}
+  html[data-area="operator"] .mobile-dock button:active{transform:scale(.94)}
+  html[data-area="operator"] .mobile-dock .dock-count{top:1px;left:calc(50% + 6px);min-width:18px;height:18px;background:var(--danger);color:var(--bg);font-size:11px}
+
+  /* Schriftstufen: großer Titel, ruhiger Untertitel, keine Firmenzeile über jedem Titel */
+  html[data-area="operator"] .workspace .content{padding-top:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+  html[data-area="operator"] .heading .heading-brand{display:none}
+  html[data-area="operator"] .content .heading h1,html[data-area="operator"] .content .overview-shell .action-center .card-title h2{margin:0 0 6px;font-size:clamp(28px,8.2vw,32px);font-weight:700;line-height:1.12;letter-spacing:-.022em}
+  html[data-area="operator"] .content .heading p{font-size:15px;line-height:1.45}
+  html[data-area="operator"] .content .card-title h2{font-size:17px;line-height:1.3;letter-spacing:-.015em}
+  html[data-area="operator"] .content .card-title small{font-size:13px;line-height:1.4;text-align:left}
+  html[data-area="operator"] .content .eyebrow{font-size:11px;letter-spacing:.06em}
+  html[data-area="operator"] .content .notice{border-radius:16px;font-size:14px;line-height:1.5}
+  html[data-area="operator"] .content .empty strong{font-size:17px}
+  html[data-area="operator"] .content .empty p{font-size:15px;line-height:1.45}
+  html[data-area="operator"] .content .endnote{font-size:12px}
+  html[data-area="operator"] .content .fieldpair{font-size:15px}
+  html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content .badge{padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600}
+
+  /* Knöpfe: eine Höhe, ein Radius, Hauptaktion als volle Kapsel */
+  html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content .smallbtn,html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content .heading>.actions>button,html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content .heading>.actions>a.button{min-height:44px;padding:10px 16px;border-radius:12px;font-size:15px;font-weight:600;letter-spacing:-.01em}
+  html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content button.primary,html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content a.button.primary{min-height:50px;padding:12px 20px;font-size:17px;font-weight:600;letter-spacing:-.015em}
+  html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content input:not([type=checkbox]):not([type=radio]),html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content select,html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content textarea{border-radius:12px}
+
+  /* Start: Titel, darunter die Hauptaktion in voller Breite, zwei Nebenaktionen teilen sich die Reihe */
+  html[data-area="operator"] .overview-shell{gap:20px}
+  html[data-area="operator"] .overview-shell .action-center .card-title{gap:8px;padding:0 0 12px}
+  html[data-area="operator"] .overview-shell .action-center .card-title>div{flex:1 0 100%}
+  html[data-area="operator"] .overview-shell .action-center .card-title .primary{flex:1 0 100%;justify-content:center;min-height:50px;font-size:17px}
+  html[data-area="operator"] .overview-shell .action-center .card-title .smallbtn{flex:1 1 0;justify-content:center;min-height:50px;border:0;border-radius:980px;background:color-mix(in srgb,var(--fg) 9%,transparent);color:var(--fg)}
+  html[data-area="operator"] .action-center .action-summary{gap:8px;padding:0 0 14px;border-bottom:0;background:transparent}
+  html[data-area="operator"] .action-center .action-summary span{padding:6px 12px;font-size:13px}
+  html[data-area="operator"] .overview-shell .agenda-empty{border:1px solid var(--line);border-radius:16px;background:var(--surface)}
+  html[data-area="operator"] .content .agenda-empty strong{font-size:17px}
+  html[data-area="operator"] .content .agenda-empty span{font-size:15px;line-height:1.45}
+
+  /* Kennzahlen und Karten: 16 px Radius, lesbare Beschriftung */
+  html[data-area="operator"] .overview-shell>.stats,html[data-area="operator"] .content .system-ribbon,html[data-area="operator"] .content .finance-subnav,html[data-area="operator"] .content .calendar-month{border-radius:16px}
+  html[data-area="operator"] .overview-shell>.stats>.stat{padding:16px}
+  html[data-area="operator"] .content .stat .top{min-height:36px;font-size:13px;line-height:1.35}
+  html[data-area="operator"] .content .stat .value{margin:6px 0 4px;font-size:28px;font-weight:700;letter-spacing:-.03em}
+  html[data-area="operator"] .content .stat .foot{font-size:12px;line-height:1.4}
+  html[data-area="operator"] .content .system-ribbon strong{font-size:15px}
+  html[data-area="operator"] .content .system-ribbon small{font-size:13px}
+
+  /* Auftragslisten: jede Zeile eine Karte mit lesbaren Beschriftungen */
+  html[data-area="operator"] .order-table tbody{padding:12px;gap:12px}
+  html[data-area="operator"] .order-table tbody tr{padding:16px;border-radius:16px}
+  html[data-area="operator"] .order-table tbody td:nth-child(1) strong{font-size:12px}
+  html[data-area="operator"] .order-table tbody td:nth-child(1) .sub{font-size:17px}
+  html[data-area="operator"] .order-table tbody td:nth-child(2){font-size:15px}
+  html[data-area="operator"] .order-table tbody td:nth-child(2) .sub{font-size:13px}
+  html[data-area="operator"] .order-table tbody td:nth-child(4){font-size:15px}
+  html[data-area="operator"] .order-table tbody td:nth-child(4)::before,html[data-area="operator"] .order-table tbody td:nth-child(5)::before{font-size:12px}
+  html[data-area="operator"] .order-table tbody td:nth-child(5){font-size:17px}
+
+  /* Blätter, Meldungen und Menü */
+  html[data-area="operator"] dialog,html[data-area="operator"] dialog .modalhead{border-radius:22px 22px 0 0}
+  html[data-area="operator"] #toast{border-radius:14px;font-size:15px}
+  html[data-area="operator"] .sidebar .nav button,html[data-area="operator"] .sidebar .nav .navlink{min-height:48px;border-radius:12px;font-size:16px}
+  html[data-area="operator"] .sidebar .nav-primary-item{min-height:56px;border-radius:12px}
+  html[data-area="operator"] .sidebar .navgroup{min-height:44px;font-size:13px}
+  html[data-area="operator"] .sidebar-close{border-radius:50%}
+}
