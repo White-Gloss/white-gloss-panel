@@ -68,7 +68,7 @@ live_commit=$(awk 'tolower($1)=="x-panel-commit:" {gsub("\r", "", $2); print $2}
 [[ $live_commit == "$commit" ]] || { echo 'Die öffentliche HTTPS-Antwort bestätigt den Release-Commit nicht.' >&2; exit 1; }
 curl "${curl_options[@]}" --output "$temporary/login.html" https://panel.white-gloss.de/auth/login
 [[ $(< "$temporary/login.html") == *'White Gloss'* ]] || { echo 'Panel-Anmeldung nicht erreichbar.' >&2; exit 1; }
-for asset in app.js style.css enterprise.css surface.css; do
+for asset in app.js unified-inbox.js style.css enterprise.css surface.css; do
     curl "${curl_options[@]}" --output "$temporary/$asset" "https://panel.white-gloss.de/$asset?release=$commit"
     cmp --silent "dist/client/$asset" "$temporary/$asset" || { echo "Öffentliche Paneldatei stimmt nicht überein: $asset" >&2; exit 1; }
 done

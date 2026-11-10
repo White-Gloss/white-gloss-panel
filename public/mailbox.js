@@ -66,9 +66,10 @@ function remembered(synthetic){
   value={section,folder:'INBOX',query:'',filter:'all',sort:'newest',openId:null,images:new Set(),hiddenImages:new Set(),noteQuery:'',noteFilter:'all',orderQuery:'',calendarDay:null,taskView:'open'};memory.set(synthetic,value);return value;
 }
 
-export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],markSaved=()=>{}}={}){
+export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],markSaved=()=>{},openMessageId=null}={}){
   if(!root)return;
   const ui=remembered(synthetic);
+  if(openMessageId){ui.section='mail';ui.folder='all';ui.query='';ui.filter='all';ui.openId=openMessageId;}
   if(root.dataset.openTasks==='1')ui.section='tasks';
   let data=null,list=[],stale=new Set(),total=0,detail=null,detailState='idle',detailError='',listState='loading',listError='',busy=false,compose=null,selection=new Set(),selectMode=false,railOpen=false,settingsOpen=false,searchTimer=null,loadToken=0,observer=null,confirmDelete=null;
 
@@ -653,5 +654,5 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   function ringAlarm(){const AudioCtx=window.AudioContext||window.webkitAudioContext;if(!AudioCtx)return;const ctx=new AudioCtx();for(const [freq,start] of [[880,0],[880,.28],[660,.56],[880,.9]]){const osc=ctx.createOscillator(),gain=ctx.createGain();osc.type='sine';osc.frequency.value=freq;gain.gain.setValueAtTime(0.0001,ctx.currentTime+start);gain.gain.exponentialRampToValueAtTime(0.25,ctx.currentTime+start+0.02);gain.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+start+0.22);osc.connect(gain).connect(ctx.destination);osc.start(ctx.currentTime+start);osc.stop(ctx.currentTime+start+0.24);}setTimeout(()=>ctx.close().catch(()=>{}),1600);}
   function checkAlarms(){const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Berlin',hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).formatToParts(new Date()).filter(part=>part.type!=='literal').map(part=>[part.type,part.value]));const day=`${parts.year}-${parts.month}-${parts.day}`,time=`${parts.hour}:${parts.minute}`;const due=(data?.tasks??[]).filter(task=>task.remind&&!task.done&&task.due&&task.time&&(task.due<day||(task.due===day&&task.time<=time))&&!rung.has(task.id));if(!due.length)return;for(const task of due)rung.add(task.id);try{ringAlarm();}catch{/* Der Systemton der Handy-Meldung bleibt der Wecker. */}message('Eine Aufgabe ist fällig.');}
   if(root._taskAlarm)clearInterval(root._taskAlarm);root._taskAlarm=setInterval(checkAlarms,30000);root._taskAlarm.unref?.();
-  load().then(()=>{drawAll();checkAlarms();if(ui.section==='mail'&&ui.openId)openMessage(ui.openId,{markRead:false});}).catch(error=>{root.innerHTML=`<div class="cc-boot card">${empty('Communication Center nicht erreichbar',error.message,'spam','<button type="button" class="smallbtn" data-cc-reload>Erneut versuchen</button>')}</div>`;root.querySelector('[data-cc-reload]')?.addEventListener('click',()=>mountMailbox(root,{synthetic,toast,orders,markSaved}),{once:true});});
+  load().then(()=>{drawAll();checkAlarms();if(ui.section==='mail'&&ui.openId)openMessage(ui.openId);}).catch(error=>{root.innerHTML=`<div class="cc-boot card">${empty('Communication Center nicht erreichbar',error.message,'spam','<button type="button" class="smallbtn" data-cc-reload>Erneut versuchen</button>')}</div>`;root.querySelector('[data-cc-reload]')?.addEventListener('click',()=>mountMailbox(root,{synthetic,toast,orders,markSaved,openMessageId}),{once:true});});
 }

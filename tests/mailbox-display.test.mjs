@@ -84,12 +84,14 @@ async function boot(t,f){
   return {w,$,click,settle,errors,requests};
 }
 
-test('communication center sits alone at the top of the menu and in the mobile bar with an unread count',async t=>{
+test('shared inbox and communication center lead navigation with channel unread counts',async t=>{
   const f=await fixture(t);await ingestMessage(f.env,original,{folder:'INBOX',uid:1,uidValidity:'menu'});const ui=await boot(t,f);
-  const first=ui.$('.sidebar [data-view]');assert.equal(first.dataset.view,'mailbox');assert.ok(first.closest('.nav-primary'));assert.equal(ui.$('.sidebar .navgroup').compareDocumentPosition(first)&ui.w.Node.DOCUMENT_POSITION_PRECEDING,ui.w.Node.DOCUMENT_POSITION_PRECEDING,'above every group');
-  assert.ok(ui.$('.mobile-dock [data-view="mailbox"]'));assert.ok(ui.requests.some(url=>url.includes('/api/mailbox/summary')));
+  const first=ui.$('.sidebar [data-view]');assert.equal(first.dataset.view,'inbox');assert.ok(first.closest('.nav-primary'));assert.equal(ui.$('.sidebar .navgroup').compareDocumentPosition(first)&ui.w.Node.DOCUMENT_POSITION_PRECEDING,ui.w.Node.DOCUMENT_POSITION_PRECEDING,'above every group');
+  assert.ok(ui.$('.sidebar .nav-primary [data-view="mailbox"]'));assert.ok(ui.$('.mobile-dock [data-view="inbox"]'));assert.ok(ui.requests.some(url=>url.includes('/api/mailbox/summary')));
   for(const badge of ui.w.document.querySelectorAll('[data-mail-count]')){assert.equal(badge.hidden,false);assert.equal(badge.textContent,'1');}
-  await ui.click('.mobile-dock [data-view="mailbox"]');assert.match(ui.$('#mailbox-root').textContent,/COMMUNICATION CENTER/);assert.equal(ui.$('.mobile-dock [data-view="mailbox"]').getAttribute('aria-current'),'page');
+  await ui.click('.mobile-dock [data-view="inbox"]');assert.match(ui.$('#unified-inbox-root').textContent,/Gemeinsamer Posteingang/);assert.equal(ui.$('.mobile-dock [data-view="inbox"]').getAttribute('aria-current'),'page');
+  const mailLink=ui.$('.unified-inbox-item[href^="#mail="]');assert.ok(mailLink);ui.w.location.hash=mailLink.getAttribute('href');await ui.settle();assert.match(ui.$('.cc-reader').textContent,/Herbstangebot/);
+  await ui.click('.sidebar .nav-primary [data-view="mailbox"]');assert.match(ui.$('#mailbox-root').textContent,/COMMUNICATION CENTER/);
   await ui.click('.cc-rail [data-mail-folder="INBOX"]');await ui.click('.cc-row[data-mail-open]');for(const badge of ui.w.document.querySelectorAll('[data-mail-count]'))assert.equal(badge.hidden,true,'reading clears the count');
   assert.deepEqual(ui.errors,[]);
 });

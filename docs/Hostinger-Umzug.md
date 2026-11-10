@@ -89,7 +89,8 @@ Enthalten sind:
    erforderliche Probe-Release.
 
 Der Weg gilt erst als betriebsbereit, wenn dieser Lauf den exakten Commit, den Header
-`x-panel-commit`, die Anmeldung sowie `app.js`, `style.css`, `enterprise.css` und `surface.css`
+`x-panel-commit`, die Anmeldung sowie `app.js`, `unified-inbox.js`, `style.css`,
+`enterprise.css` und `surface.css`
 gegen das Releasepaket geprüft hat und die Statusprüfung Dienste, Timer und Caddy-Container
 bestätigt. Die geschützte `index.html` wird nicht direkt verglichen, da sie nicht ungefiltert
 ausgeliefert wird. Bei einem Fehler ist der Release nicht als erfolgreich zu betrachten.
