@@ -30,8 +30,8 @@ test('central dossier is operator-only, read-only and separates two orders with 
  assert.equal((await env.DB.prepare('SELECT owner_read_id FROM chat_threads').first()).owner_read_id,0);assert.deepEqual(await env.DB.prepare('SELECT count(*) n FROM audit').first(),before);assert.equal(f.sent.length,0);
  assert.equal((await f.call('/api/customer-record/'+f.customer.id,undefined,'customer')).status,403);assert.equal((await f.call('/api/customer-record/'+f.customer.id,undefined,'anonymous')).status,401);assert.equal((await f.call('/api/customer-record/'+f.customer.id,{})).status,405);
 });
-test('manual customer creation queues one invitation while reading existing customers never backfills',async t=>{
- const f=await fixture(t);assert.equal((await f.env.DB.prepare('SELECT count(*) n FROM auth_customer_invites').first()).n,1);
+test('manual customer creation and reading existing customers never queue automatic invitations',async t=>{
+ const f=await fixture(t);assert.equal((await f.env.DB.prepare('SELECT count(*) n FROM auth_customer_invites').first()).n,0);
  await f.env.DB.prepare('DELETE FROM auth_customer_invites').run();await f.call('/api/customer-record/'+f.customer.id);assert.equal((await f.env.DB.prepare('SELECT count(*) n FROM auth_customer_invites').first()).n,0);
 });
 

@@ -5,7 +5,7 @@ import worker,{init,setting,protect,settings,configuration,background} from '../
 import {AppError} from '../src/domain.mjs';
 import {authSchema,sessionIdentity,requestLogin,redeemLogin,logout,loginPage,pruneAuth,digest} from './auth.mjs';
 import {passwordLogin,savePassword,passwordPage} from './password-auth.mjs';
-import {customerAuthSchema,customerAuth,customerAuthPage,deliverCustomerCodes,accountInviteStatements} from './customer-auth.mjs';
+import {customerAuthSchema,customerAuth,customerAuthPage,deliverCustomerCodes} from './customer-auth.mjs';
 import {readCustomerRecord} from './customer-record.mjs';
 import {calendarOAuthSchema,calendarAuthorize,calendarCallback,calendarAccessToken} from './calendar-oauth.mjs';
 import {createStorage} from './storage.mjs';
@@ -35,7 +35,7 @@ export async function createApplication(env){
   if(mcpConfig(env))await mcpSchema(env);
   await customerAuthSchema(env);
   await initializeWhatsAppReview(env);
-  env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=Object.create(providerOperations);env.operations.ownerActivity=notifyOwner;env.operations.accountInviteStatements=accountInviteStatements;
+  env.CUSTOMER_ACCESS_APPROVED='true';env.STANDALONE_AUTH='true';env.operations=Object.create(providerOperations);env.operations.ownerActivity=notifyOwner;
   const handle=async request=>{
     try{
       const url=new URL(request.url);if(url.origin!==env.PANEL_ORIGIN)return errorResponse('Ungültiger Host.',400);

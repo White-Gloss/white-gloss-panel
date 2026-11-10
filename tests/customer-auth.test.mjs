@@ -20,7 +20,29 @@ test('code verification creates a restricted grant; password then permits multip
 test('wrong expired consumed codes and foreign origins never create access',async t=>{const env=await fixture(t),now=Date.now(),code=await codeFor(t,env,'setup',now);assert.equal((await customerAuth(env,post('verify',{email,code:code==='000000'?'111111':'000000'}),now)).status,401);assert.equal((await customerAuth(env,post('verify',{email,code}),now+600001)).status,401);const request=post('verify',{email,code});request.headers.set('origin','https://foreign.example.invalid');await assert.rejects(()=>customerAuth(env,request,now),e=>e.status===403);const good=await customerAuth(env,post('verify',{email,code}),now);assert.equal(good.status,200);assert.equal((await customerAuth(env,post('verify',{email,code}),now)).status,401);});
 test('password reset invalidates every old session and grant, including a second device',async t=>{const env=await fixture(t),now=Date.now();await activate(t,env,now);const cookies=[];for(let i=0;i<2;i++)cookies.push((await customerAuth(env,post('login',{email,password}),now)).headers.get('set-cookie').split(';')[0]);const code=await codeFor(t,env,'reset',now+61000);const grant=(await customerAuth(env,post('verify',{email,code}),now+61000)).headers.get('set-cookie').split(';')[0];const next=password+' changed';assert.equal((await customerAuth(env,post('password',{password:next,confirmation:next},grant),now+61000)).status,200);for(const cookie of cookies)assert.equal(await sessionIdentity(env,new Request(origin,{headers:{cookie}}),now+61000),null);assert.equal((await customerAuth(env,post('login',{email,password}),now+61000)).status,401);assert.equal((await customerAuth(env,post('login',{email,password:next}),now+61000)).status,200);assert.equal((await customerAuth(env,post('password',{password,confirmation:password},grant),now+61000)).status,401);});
 test('simultaneous password creation has one winner and no duplicate account',async t=>{const env=await fixture(t),now=Date.now(),code=await codeFor(t,env,'setup',now);const cookie=(await customerAuth(env,post('verify',{email,code}),now)).headers.get('set-cookie').split(';')[0];const results=await Promise.all([customerAuth(env,post('password',{password,confirmation:password},cookie),now),customerAuth(env,post('password',{password,confirmation:password},cookie),now)]);assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);assert.equal((await env.DB.prepare('SELECT count(*) n FROM auth_customer_credentials').first()).n,1);});
-test('new record invitation is transactional, deduplicated and excludes synthetic data',async t=>{const env=await fixture(t),module=await import('../server/customer-auth.mjs');assert.equal(typeof module.accountInviteStatements,'function');await env.DB.batch(module.accountInviteStatements(env,email,false));await env.DB.batch(module.accountInviteStatements(env,email,false));await env.DB.batch(module.accountInviteStatements(env,'synthetic@example.invalid',true));assert.equal((await env.DB.prepare('SELECT count(*) n FROM auth_customer_invites').first()).n,1);});
+test('legacy automatic invitations retain history without sending a setup email',async t=>{
+ const env=await fixture(t),now=Date.now(),module=await import('../server/customer-auth.mjs');
+ await setting(env,'resendKey',await protect(env,'synthetic-provider-key'));await setting(env,'emailVerified',true);await setting(env,'sendApproved',true);await setting(env,'sender','test@example.invalid');
+ await env.DB.prepare("INSERT INTO auth_customer_invites(email,created_at,state) VALUES(?,?,'queued')").bind(email,now-1000).run();
+ const sent=[];t.mock.method(globalThis,'fetch',async(_url,options)=>{sent.push(JSON.parse(options.body));return Response.json({id:'synthetic-message'});});
+ await module.deliverCustomerCodes(env,now);await module.deliverCustomerCodes(env,now+1000);
+ assert.equal(sent.length,0,'an old automatic invite must not create a second customer email');
+ assert.equal((await env.DB.prepare('SELECT count(*) n FROM auth_customer_codes').first()).n,0);
+ const history=await env.DB.prepare('SELECT email,created_at FROM auth_customer_invites').first();
+ assert.deepEqual({...history},{email,created_at:now-1000});
+});
+
+test('an explicit setup request still sends once when an old automatic invitation exists',async t=>{
+ const env=await fixture(t),now=Date.now(),module=await import('../server/customer-auth.mjs');
+ await setting(env,'resendKey',await protect(env,'synthetic-provider-key'));await setting(env,'emailVerified',true);await setting(env,'sendApproved',true);await setting(env,'sender','test@example.invalid');
+ await env.DB.prepare("INSERT INTO auth_customer_invites(email,created_at,state) VALUES(?,?,'queued')").bind(email,now-1000).run();
+ assert.equal((await customerAuth(env,post('request',{email,purpose:'setup'}),now)).status,200);
+ const sent=[];t.mock.method(globalThis,'fetch',async(_url,options)=>{sent.push(JSON.parse(options.body));return Response.json({id:'synthetic-message'});});
+ await module.deliverCustomerCodes(env,now);await module.deliverCustomerCodes(env,now+1000);
+ assert.equal(sent.length,1);assert.deepEqual(sent[0].to,[email]);assert.match(sent[0].text,/\b\d{6}\b/);
+ assert.equal((await env.DB.prepare('SELECT state FROM auth_customer_codes WHERE email=?').bind(email).first()).state,'sent');
+ assert.equal((await env.DB.prepare('SELECT count(*) n FROM auth_customer_invites').first()).n,1);
+});
 
 test('parallel code verification produces one restricted grant and rate limits cannot be bypassed by changing case',async t=>{
  const env=await fixture(t),now=Date.now(),code=await codeFor(t,env,'setup',now);
