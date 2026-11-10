@@ -60,6 +60,19 @@ test('phone layout: equal header buttons, content clear of the tasks button, com
   await page.locator('.mobile-dock [data-view="requests"]').click(); await page.locator('#content h1').first().waitFor();
   await f.screenshot('ios-requests-390-dark', {fullPage: false});
   await page.locator('.mobile-dock [data-view="active"]').click(); await page.locator('#content h1').first().waitFor();
+  // Auftragsliste: Zeile mit Name, Preis und Pfeil; der Pfeil bleibt ein beschrifteter Knopf mit 44 px.
+  const row = await page.evaluate(() => {
+    const tr = document.querySelector('.order-table tbody tr'); if (!tr) return null;
+    const open = tr.querySelector('button.smallbtn').getBoundingClientRect(), r = tr.getBoundingClientRect(), name = tr.querySelector('td .sub').getBoundingClientRect(), price = tr.querySelector('td.money').getBoundingClientRect();
+    return {inside: r.left >= 0 && r.right <= innerWidth + .5, openW: Math.round(open.width), openH: Math.round(open.height), label: tr.querySelector('button.smallbtn').textContent.trim(), nameFont: parseFloat(getComputedStyle(tr.querySelector('td .sub')).fontSize), sameLine: Math.abs(name.top - price.top) < 12, radius: getComputedStyle(tr).borderTopLeftRadius, noOverflow: document.documentElement.scrollWidth <= innerWidth};
+  });
+  log('row', row);
+  assert.ok(row, 'the running order is listed');
+  assert.ok(row.inside && row.noOverflow, 'the row stays inside the screen');
+  assert.ok(row.openW >= 44 && row.openH >= 44, 'the arrow is a 44px target');
+  assert.equal(row.label, 'Öffnen', 'the arrow keeps its accessible name');
+  assert.ok(row.nameFont >= 17 && row.sameLine, 'name and price share the first line');
+  assert.equal(row.radius, '0px', 'rows are lines of one group, not single cards');
   await f.screenshot('ios-active-390-dark');
   await page.locator('.mobile-dock [data-click="menu"]').click(); await page.locator('.sidebar.open').waitFor();
   await f.screenshot('ios-menu-390-dark', {fullPage: false});
