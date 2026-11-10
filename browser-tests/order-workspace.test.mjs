@@ -11,9 +11,10 @@ for(const colorScheme of ['dark','light'])for(const width of [320,390,768,1440])
     await page.goto(origin+'/#auftrag='+order.id);await page.locator('.order-tabs').waitFor();
     assert.equal(await page.locator('[role="tablist"]').count(),1);
     // Schnellkontakt: vier Geräte-Links im Auftragskopf, auf dem Handy jeweils mindestens 44 px und ohne Überlauf.
-    const contact=await page.locator('.order-contact a').evaluateAll(links=>links.map(a=>{const r=a.getBoundingClientRect();return {href:a.getAttribute('href').split(/[:?]/)[0],w:r.width,h:r.height,inside:r.left>=0&&r.right<=innerWidth+.5};}));
+    const contact=await page.locator('.order-contact a').evaluateAll(links=>links.map(a=>{const r=a.getBoundingClientRect();return {href:a.getAttribute('href').split(/[:?]/)[0],w:r.width,h:r.height,inside:r.left>=0&&r.right<=innerWidth+.5&&a.scrollWidth<=a.clientWidth+1};}));
     assert.deepEqual(contact.map(c=>c.href),['tel','https','mailto','https']);
     assert.ok(contact.every(c=>c.inside&&c.h>=40&&(width>760||c.w>=44)),'contact links are reachable: '+JSON.stringify(contact));
+    if(width<=760){const bar=await page.locator('.order-commandbar>.button,.order-more>summary').evaluateAll(nodes=>nodes.map(n=>({h:Math.round(n.getBoundingClientRect().height),fits:n.scrollWidth<=n.clientWidth+1})));assert.ok(bar.every(b=>b.h<=50&&b.fits),'back and more stay on one line: '+JSON.stringify(bar));}
     assert.equal(await page.locator('.guided-workflow').count(),0);
     assert.match(await page.locator('.order-overview').textContent(),/Terminvorschlag · unbestätigt/);
     assert.match(await page.locator('#order-tab-intake').textContent(),/Kein Protokoll.*Übersprungen/);
