@@ -27,7 +27,13 @@ for(const viewport of viewports)test(`communication center layout and mail workf
   await page.goto(origin);await page.locator('#content h1').first().waitFor();
   await page.evaluate(async owner=>{const response=await fetch('/api/mailbox/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:owner,displayName:'White Gloss',imapHost:'imap.example.invalid',imapPort:993,imapSecure:true,smtpHost:'smtp.example.invalid',smtpPort:465,smtpSecure:true,username:owner,password:'synthetic-browser-secret'})});if(!response.ok)throw Error(await response.text());},owner);
   await page.goto(origin+'/#mailbox');await page.locator('.cc-head h1').waitFor();await page.locator('.cc-kpi').first().waitFor();
-  assert.equal((await page.locator('.cc-head h1').textContent()).trim(),'Übersicht');await noOverflow(page,'start view');await f.screenshot('communication-home-'+tag,{fullPage:false});
+  assert.equal((await page.locator('.cc-head h1').textContent()).trim(),'Übersicht');await noOverflow(page,'start view');
+  // Kennzahlen stehen linksbündig mit gleichem Einzug; auf dem Handy liegt der Kopf in einer Reihe.
+  const kpis=await page.locator('.cc-kpi').evaluateAll(cards=>cards.map(card=>{const box=card.getBoundingClientRect();return [...card.children].map(child=>Math.round(child.getBoundingClientRect().left-box.left));}));
+  t.diagnostic('kpi insets '+tag+' '+JSON.stringify(kpis));
+  assert.ok(kpis.length>=5&&kpis.flat().every(inset=>inset>=10&&inset<=24),'every figure starts at the left edge of its card');
+  if(viewport.width<=760){const head=await page.locator('.cc-head').evaluate(element=>({h:Math.round(element.getBoundingClientRect().height),targets:[...element.querySelectorAll('button')].filter(b=>b.getBoundingClientRect().width>0).map(b=>Math.round(Math.min(b.getBoundingClientRect().width,b.getBoundingClientRect().height)))}));t.diagnostic('cc head '+tag+' '+JSON.stringify(head));assert.ok(head.h<=56,'title and status share one row: '+head.h);assert.ok(head.targets.every(size=>size>=44),'header buttons are 44px targets: '+head.targets);}
+await f.screenshot('communication-home-'+tag,{fullPage:false});
 
   await openRail(page,viewport.width);await page.locator('.cc-rail [data-mail-folder="INBOX"]').click();await page.locator('.cc-row[data-mail-open]').nth(1).waitFor();
   assert.equal(await page.locator('.cc-row.unread').count(),2);await noOverflow(page,'inbox');
@@ -38,6 +44,13 @@ for(const viewport of viewports)test(`communication center layout and mail workf
   assert.equal(await frame.locator('.hero').evaluate(element=>getComputedStyle(element).fontSize),'22px','mail styles render inside the sandbox');
   await page.waitForFunction(()=>document.querySelector('[data-mail-frame]').getBoundingClientRect().height>=180);
   if(viewport.width<1000){assert.equal(await page.locator('.cc-list').isVisible(),false,'single column shows the reader only');}
+  if(viewport.width<=760){
+    // Die Leseleiste beginnt am oberen Rand der Karte und verdeckt den Nachrichtenkopf nicht.
+    await page.evaluate(()=>window.scrollTo(0,0));
+    const reader=await page.evaluate(()=>{const top=selector=>document.querySelector(selector).getBoundingClientRect();const card=top('.cc-reader'),bar=top('.cc-reader-bar'),head=top('.cc-message-head');return {gap:Math.round(bar.top-card.top),overlap:Math.round(bar.bottom-head.top),barH:Math.round(bar.height)};});
+    t.diagnostic('reader bar '+tag+' '+JSON.stringify(reader));
+    assert.ok(reader.gap<=2,'no empty space above the reader bar: '+reader.gap);assert.ok(reader.overlap<=1,'the bar does not cover the message head: '+reader.overlap);
+  }
   await noOverflow(page,'reader');await f.screenshot('communication-reader-'+tag,{fullPage:false});
   if(viewport.width<1000){await page.locator('.cc-back').click();await page.locator('.cc-list').waitFor({state:'visible'});}
 

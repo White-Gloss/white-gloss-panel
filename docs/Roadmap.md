@@ -38,7 +38,7 @@ die Rollen bleiben Betreiber, Kunde und Steuerberater.
 | V13 | Externe Datensicherung prüfen: Panel-Backup liegt nur auf dem VPS (`/var/lib/white-gloss-panel`, Dienst ohne Netzwerk). Laut Betreiber sind Hostinger-Sicherungen aktiv; Umfang und Wiederherstellung sind ungeprüft | Mittel | offen, Betreiber |
 | V11 | Abhängigkeiten aktualisieren (`exceljs`-Kette, 8 mittlere Audit-Hinweise) | Niedrig | offen |
 | V14 | Optik „Obsidian & Platin“ für alle Oberflächen, Vor-Ort-App zuerst ([Details](Obsidian-und-Platin.md)) | Hoch | umgesetzt (PR #48), Prüfung offen |
-| V15 | Panel auf dem Handy wie eine iOS-App: Tab-Leiste, Kopfleiste, Schrift, Listen, Auftragsdetail, Communication Center ([Plan](plans/2026-11-10-wg-ios-001.md)) | Hoch | Phase 1 und 2 veröffentlicht (PR #81, #82, live mit 33a95e5); Phase 2b in Prüfung |
+| V15 | Panel auf dem Handy wie eine iOS-App: Tab-Leiste, Kopfleiste, Schrift, Listen, Auftragsdetail, Communication Center ([Plan](plans/2026-11-10-wg-ios-001.md)) | Hoch | Phase 1, 2 und 2b veröffentlicht (PR #81, #82, #83); Phase 3 in Prüfung |
 | V9 | `public/app.js` in Module aufteilen | Niedrig | offen |
 | V10 | Weniger Daten pro Aktualisierung als das vollständige `/api/state` | Niedrig | offen |
 

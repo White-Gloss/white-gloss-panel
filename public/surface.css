@@ -411,3 +411,50 @@ button.primary,a.button.primary{border-radius:980px}
   html[data-area="operator"] .workspace .content .order-table tbody .smallbtn{display:flex;align-items:center;justify-content:center;width:44px;min-width:44px;min-height:44px;height:auto;padding:0;border:0;border-radius:12px;background:transparent;color:var(--muted);font-size:0}
   html[data-area="operator"] .workspace .content .order-table tbody .smallbtn::after{content:"";width:9px;height:9px;border-top:2px solid currentColor;border-right:2px solid currentColor;transform:rotate(45deg)}
 }
+
+/* WG-IOS-001 Phase 3: Communication Center.
+   Alle Breiten: Kennzahlen stehen linksbündig (der Knopf zentrierte bisher seinen Inhalt).
+   Handy: Kopf in einer Reihe, Leseleiste ohne Leerraum direkt unter der Kopfleiste, lesbare Listenzeilen. */
+.cc-kpi{grid-template-columns:minmax(0,1fr);justify-content:stretch}
+@media (max-width:760px){
+  html[data-area="operator"] .cc{--cc-radius:16px;gap:12px}
+  html[data-area="operator"] .cc .cc-head{flex-wrap:nowrap;align-items:center;gap:8px;min-height:44px}
+  html[data-area="operator"] .cc .cc-head-title{flex:1;min-width:0;gap:8px}
+  html[data-area="operator"] .cc .cc-head h1{margin:0;overflow:hidden;font-size:28px;font-weight:700;line-height:1.15;letter-spacing:-.022em;white-space:nowrap;text-overflow:ellipsis}
+  html[data-area="operator"] .cc .cc-head-status{flex:none;width:auto;flex-wrap:nowrap;justify-content:flex-end;gap:4px}
+  html[data-area="operator"] .cc .cc-head .cc-icon-btn,html[data-area="operator"] .cc .cc-reader-bar .cc-icon-btn{width:44px;height:44px;min-height:44px;border-radius:50%}
+  html[data-area="operator"] .cc .cc-connection{justify-content:center;width:44px;min-height:44px;padding:0!important}
+
+  /* Startseite: erste Kennzahl über die ganze Breite, danach zwei Spalten ohne Einzelkarte am Ende */
+  html[data-area="operator"] .cc .cc-kpi:first-child{grid-column:1/-1}
+  html[data-area="operator"] .cc .cc-kpi{min-height:0}
+  html[data-area="operator"] .cc .cc-kpi span{font-size:13px}
+  html[data-area="operator"] .cc .cc-kpi strong{font-size:28px;font-weight:700;letter-spacing:-.03em}
+  html[data-area="operator"] .cc .cc-kpi small{font-size:12px;line-height:1.35}
+  html[data-area="operator"] .cc .cc-panel h2{font-size:17px;letter-spacing:-.015em}
+  html[data-area="operator"] .cc .cc-mini-mail,html[data-area="operator"] .cc .cc-mini-event,html[data-area="operator"] .cc .cc-mini-order{min-height:56px;padding:12px 16px!important}
+  html[data-area="operator"] .cc .cc-mini-list strong{font-size:15px}
+  html[data-area="operator"] .cc .cc-mini-list span>span,html[data-area="operator"] .cc .cc-unscheduled span>span{font-size:13px}
+  html[data-area="operator"] .cc .cc-mini-mail time{font-size:13px}
+
+  /* Postfach: die Karte schneidet nicht mehr ab, damit die Leseleiste am Bildschirm haftet statt 60 px tiefer in der Karte */
+  html[data-area="operator"] .cc .cc-mail{overflow:visible}
+  html[data-area="operator"] .cc .cc-mail .cc-list{overflow:hidden;border-radius:inherit}
+  html[data-area="operator"] .cc .cc-mail .cc-reader{border-radius:inherit}
+  html[data-area="operator"] .cc .cc-reader-bar{gap:4px;padding:6px 8px;border-radius:15px 15px 0 0}
+  html[data-area="operator"] .cc .cc-reader-actions{gap:4px;flex-wrap:nowrap}
+  html[data-area="operator"] .cc .cc-reader-actions .primary{min-height:44px!important}
+  html[data-area="operator"] .cc .cc-list-head h2{font-size:22px;font-weight:700;letter-spacing:-.02em}
+  html[data-area="operator"] .cc .cc-list-head small{font-size:13px}
+  html[data-area="operator"] .cc .cc-chip{min-height:36px;padding:6px 14px!important;font-size:14px!important}
+  html[data-area="operator"] .cc .cc-row{gap:12px;padding:14px 16px 14px 20px}
+  html[data-area="operator"] .cc .cc-row.unread::after{top:25px}
+  html[data-area="operator"] .cc .cc-sender{font-size:16px;font-weight:600}
+  html[data-area="operator"] .cc .cc-row time{font-size:13px}
+  html[data-area="operator"] .cc .cc-row-subject{font-size:15px}
+  html[data-area="operator"] .cc .cc-row-preview{font-size:14px;line-height:1.4}
+  html[data-area="operator"] .cc .cc-message-head h2{font-size:22px;font-weight:700;line-height:1.2;letter-spacing:-.02em}
+  html[data-area="operator"] .cc .cc-sender-block strong{font-size:16px}
+  html[data-area="operator"] .cc .cc-sender-block>div>span{font-size:14px}
+  html[data-area="operator"] .cc .cc-sender-block time{font-size:13px}
+}
