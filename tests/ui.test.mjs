@@ -624,10 +624,10 @@ test('panel: accordion navigation preserves manual choices and opens the active 
 test('panel: navigation groups daily work, customers, finance subpages and administration without dead routes',async t=>{
   const env=environment();env.STANDALONE_AUTH='true';const ui=await boot(t,{page:'index.html',script:'app.js',env});
   const ids=[...ui.w.document.querySelectorAll('.sidebar [data-view]')].map(button=>button.dataset.view);
-  assert.deepEqual(ids.slice(0,11),['mailbox','prices','calendar','overview','orders','customers','chat','whatsapp','care','business','protocols']);
-  assert.deepEqual(ids.slice(11,18),['finance','finance-income','finance-expenses','finance-invoices','finance-receipts','finance-bank','finance-advisor']);
-  assert.equal(ids.at(-1),'settings');assert.equal(ids[0],'mailbox','Communication Center steht allein ganz oben');assert.ok(ui.$('.sidebar .nav-primary [data-view="mailbox"]'));
-  const mobileIds=[...ui.w.document.querySelectorAll('.mobile-dock [data-view]')].map(button=>button.dataset.view);assert.deepEqual(mobileIds,['overview','mailbox','chat','orders']);assert.equal(ui.$('.mobile-dock [data-view="chat"]').getAttribute('aria-label'),'Nachrichten');assert.ok(mobileIds.includes('mailbox'),'Communication Center in der mobilen Leiste');assert.equal(ui.w.document.querySelectorAll('.mobile-dock > button').length,5);
+  assert.deepEqual(ids.slice(0,12),['inbox','mailbox','prices','calendar','overview','orders','customers','chat','whatsapp','care','business','protocols']);
+  assert.deepEqual(ids.slice(12,19),['finance','finance-income','finance-expenses','finance-invoices','finance-receipts','finance-bank','finance-advisor']);
+  assert.equal(ids.at(-1),'settings');assert.equal(ids[0],'inbox','Gemeinsamer Posteingang steht oben');assert.ok(ui.$('.sidebar .nav-primary [data-view="mailbox"]'));
+  const mobileIds=[...ui.w.document.querySelectorAll('.mobile-dock [data-view]')].map(button=>button.dataset.view);assert.deepEqual(mobileIds,['overview','inbox','chat','orders']);assert.equal(ui.$('.mobile-dock [data-view="chat"]').getAttribute('aria-label'),'Nachrichten');assert.ok(mobileIds.includes('inbox'),'Gemeinsamer Posteingang in der mobilen Leiste');assert.equal(ui.w.document.querySelectorAll('.mobile-dock > button').length,5);
   const agenda=ui.$('.overview-shell .action-center'),stats=ui.$('.overview-shell > .stats');
   assert.ok(agenda.compareDocumentPosition(stats)&ui.w.Node.DOCUMENT_POSITION_FOLLOWING,'Tagesplanung steht vor den Kennzahlen');
   for(const [view,title] of [['finance','Finanzübersicht'],['finance-income','Einnahmen'],['finance-expenses','Ausgaben'],['finance-invoices','Rechnungen'],['finance-receipts','Belege'],['finance-bank','Bank'],['finance-advisor','Steuerberater']]){

@@ -81,7 +81,7 @@ test('field app top bar has the toggle', () => {
 test('the mobile dock has five entries and no more', () => {
   const nav = app.slice(app.indexOf('function mobileNavigation'), app.indexOf('let menuOpener'));
   const items = [...nav.matchAll(/\['([a-z]+)','[a-z]+','([^']+)'\]/g)].map(m => m[2]);
-  assert.deepEqual(items, ['Start', 'Mail', 'Chat', 'Aufträge']);
+  assert.deepEqual(items, ['Start', 'Eingang', 'Chat', 'Aufträge']);
   assert.match(nav, /<span>Mehr<\/span>/);
   assert.match(enterprise, /\.mobile-dock\{grid-template-columns:repeat\(5,minmax\(0,1fr\)\)\}/);
   assert.doesNotMatch(enterprise, /\.mobile-dock\{grid-template-columns:repeat\(7/);

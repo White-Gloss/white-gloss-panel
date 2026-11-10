@@ -502,3 +502,26 @@ dialog{box-shadow:0 20px 60px color-mix(in srgb,var(--shadow-ink) 17%,transparen
 .whatsapp-message-outgoing{justify-self:end}.whatsapp-message-outgoing>div{background:var(--wg-soft,var(--bg));border-color:var(--wg-subtle)}.whatsapp-message-outgoing time{text-align:right}.whatsapp-delivery-status{display:block;margin-top:3px;text-align:right;color:var(--wg-subtle);font-size:11px;overflow-wrap:anywhere}.whatsapp-delivery-status[data-wa-delivery="failed"],.whatsapp-delivery-status[data-wa-delivery="uncertain"]{color:var(--danger)}
 .whatsapp-reply{padding:20px 22px;border-top:1px solid var(--wg-rule);border-bottom:1px solid var(--wg-rule)}.whatsapp-reply h3{margin:0 0 10px}.whatsapp-reply>p{overflow-wrap:anywhere}.whatsapp-reply label{display:block}.whatsapp-reply textarea{display:block;width:100%;min-height:110px;resize:vertical;white-space:pre-wrap;overflow-wrap:anywhere}.whatsapp-reply-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px}.whatsapp-reply-actions small{color:var(--wg-subtle);font-size:11px}.whatsapp-reply-pending{padding:10px 12px;background:var(--warn-bg);border-left:2px solid var(--warn);font-size:12px;line-height:1.5}.whatsapp-reply textarea[readonly]{opacity:.8}
 @media(max-width:760px){.whatsapp-reply{padding:16px 18px}.whatsapp-reply-actions{align-items:stretch;flex-direction:column}.whatsapp-reply-actions button{width:100%}.whatsapp-reply textarea{font-size:16px}}
+/* Cross-channel inbox links back into the existing, channel-specific workspaces. */
+.unified-inbox{max-width:1120px;margin:0 auto;padding:24px 0 48px;color:var(--wg-ink)}
+.unified-inbox-header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:22px}
+.unified-inbox-header h1{margin:0;font-size:clamp(24px,3vw,34px);letter-spacing:-.03em}
+.unified-inbox-header p{margin:8px 0 0;color:var(--wg-subtle);font-size:13px}
+.unified-inbox-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(200px,260px);gap:10px;margin-bottom:16px}
+.unified-inbox-controls input,.unified-inbox-controls select{width:100%;min-height:42px;border:1px solid var(--wg-rule);border-radius:4px;padding:8px 12px;color:var(--wg-ink);background:var(--wg-elevated)}
+.unified-inbox-status{min-height:20px;margin:0 0 12px;color:var(--wg-subtle);font-size:12px}
+.unified-inbox-status.error{color:var(--danger)}
+.unified-inbox-list{display:grid;gap:1px;margin:0;padding:0;list-style:none;background:var(--wg-rule);border:1px solid var(--wg-rule)}
+.unified-inbox-list li{min-width:0;background:var(--wg-elevated)}
+.unified-inbox-item{display:grid;grid-template-columns:112px minmax(0,1fr) auto;align-items:center;gap:14px;min-height:76px;padding:13px 16px;color:inherit;text-decoration:none}
+.unified-inbox-item:hover,.unified-inbox-item:focus-visible{background:var(--wg-chrome-soft)}
+.unified-inbox-channel{width:max-content;padding:5px 8px;border:1px solid var(--wg-rule);border-radius:3px;color:var(--wg-subtle);font-size:11px;font-weight:650}
+.unified-inbox-main{display:grid;gap:5px;min-width:0}
+.unified-inbox-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.unified-inbox-head strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.unified-inbox-head time{flex:none;color:var(--wg-subtle);font-size:11px}
+.unified-inbox-preview{overflow:hidden;color:var(--wg-subtle);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
+.unified-inbox-unread{padding:4px 7px;border-radius:20px;background:var(--wg-chrome-soft);color:var(--wg-ink);font-size:10px;font-weight:700}
+.unified-inbox-empty{padding:32px;text-align:center;color:var(--wg-subtle)}
+.unified-inbox-note{margin:12px 0 0;color:var(--wg-subtle);font-size:11px;line-height:1.5}
+@media(max-width:700px){.unified-inbox{padding-top:16px}.unified-inbox-header{align-items:flex-start}.unified-inbox-controls{grid-template-columns:1fr}.unified-inbox-item{grid-template-columns:1fr auto;gap:7px 10px;padding:12px}.unified-inbox-channel{grid-column:1/-1}.unified-inbox-main{grid-column:1/-1;grid-row:2}.unified-inbox-unread{grid-column:2;grid-row:1}.unified-inbox-head{align-items:flex-start}.unified-inbox-head time{font-size:10px}}

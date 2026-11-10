@@ -31,6 +31,7 @@ export function startChatBadge(isSynthetic){
 export function setBadge(unread=lastUnread){
   lastUnread=unread;
   for(const node of document.querySelectorAll('[data-chat-count]')){node.textContent=unread>99?'99+':String(unread);node.hidden=!unread;}
+  window.dispatchEvent(new window.CustomEvent('wg-chat-count',{detail:{unread}}));
   document.title=(unread?'('+unread+') ':'')+document.title.replace(/^\(\d+\+?\) /,'');
 }
 
