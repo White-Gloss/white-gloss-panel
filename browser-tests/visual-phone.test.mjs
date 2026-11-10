@@ -57,9 +57,10 @@ test('phone layout: equal header buttons, content clear of the tasks button, com
   });
   log('clearance', clearance);
   assert.ok(clearance.contentBottom <= clearance.dockTop, 'last content ends above the tab bar');
-  await page.locator('.mobile-dock [data-view="requests"]').click(); await page.locator('#content h1').first().waitFor();
+  await page.locator('.mobile-dock [data-view="orders"]').click(); await page.locator('#content h1').first().waitFor();
+  await page.locator('[data-order-group="requests"]').click();
   await f.screenshot('ios-requests-390-dark', {fullPage: false});
-  await page.locator('.mobile-dock [data-view="active"]').click(); await page.locator('#content h1').first().waitFor();
+  await page.locator('[data-order-group="active"]').click();
   // Auftragsliste: Zeile mit Name, Preis und Pfeil; der Pfeil bleibt ein beschrifteter Knopf mit 44 px.
   const row = await page.evaluate(() => {
     const tr = document.querySelector('.order-table tbody tr'); if (!tr) return null;

@@ -326,7 +326,7 @@ test('panel: offer and appointment share one tab and one customer signature',asy
   assert.deepEqual(ui.errors,[]);
 });
 
-test('panel: mobile navigation separates enquiries, running work and finance while preserving the mixer',async t=>{
+test('panel: mobile navigation combines orders while preserving the mixer and direct chat access',async t=>{
   const ui=await boot(t,{page:'index.html',script:'app.js'});
   await ui.click('.mobile-dock [data-click="menu"]');
   await ui.click('.sidebar [data-view="dilution"]');
@@ -338,12 +338,23 @@ test('panel: mobile navigation separates enquiries, running work and finance whi
   assert.equal(ui.$('.mobile-dock [data-click="menu"]').getAttribute('aria-expanded'),'true');
   ui.w.document.dispatchEvent(new ui.w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
   assert.equal(ui.$('.sidebar.open'),null);assert.equal(ui.$('.sidebar-backdrop').hidden,true);
-  await ui.click('.mobile-dock [data-view="requests"]');assert.match(ui.$('h1').textContent,/Kundenanfragen/);
-  await ui.click('.mobile-dock [data-view="active"]');assert.match(ui.$('h1').textContent,/Laufende Aufträge/);
+  await ui.click('.mobile-dock [data-view="orders"]');assert.match(ui.$('h1').textContent,/Aufträge/);
+  assert.ok(ui.$('[data-order-group="requests"]'));assert.ok(ui.$('[data-order-group="active"]'));
   // Finanzen und Kalender liegen im Menü („Mehr“), die untere Leiste hat fünf Einträge.
   await ui.click('.mobile-dock [data-click="menu"]');await ui.click('.sidebar [data-view="finance"]');assert.match(ui.$('h1').textContent,/Finanz/);
-  await ui.click('.mobile-dock [data-click="menu"]');await ui.click('.sidebar [data-view="orders"]');assert.match(ui.$('h1').textContent,/Alle Aufträge/);
+  await ui.click('.mobile-dock [data-click="menu"]');await ui.click('.sidebar [data-view="orders"]');assert.match(ui.$('h1').textContent,/Aufträge/);
   assert.equal((await ui.env.DB.prepare('SELECT COUNT(*) n FROM orders').first()).n,0);
+  assert.deepEqual(ui.errors,[]);
+});
+
+test('panel: one order list filters requests, active work and completed orders',async t=>{
+  const env=environment(),call=async(path,body)=>{const response=await worker.fetch(new Request(origin+'/api/'+path,{method:'POST',headers:{origin,'oai-authenticated-user-email':owner,'Content-Type':'application/json'},body:JSON.stringify(body)}),env);const data=await response.json();assert.equal(response.status,200,JSON.stringify(data));return data;};
+  for(const [name,status] of [['Anfrage','Preise prüfen'],['Laufend','In Arbeit'],['Fertig','Erledigt']]){const order=await call('create',{synthetic:true,source:{name,vehicle:'Testfahrzeug'}});order.status=status;await saveOrder(env,order,order.version,'Synthetischer Listenfilter-Test');}
+  const ui=await boot(t,{page:'index.html',script:'app.js',env});await ui.click('[data-click="test"]');await ui.click('.mobile-dock [data-view="orders"]');
+  assert.equal(ui.w.document.querySelectorAll('tr[data-order]').length,3);
+  await ui.click('[data-order-group="requests"]');assert.equal(ui.w.document.querySelectorAll('tr[data-order]').length,1);assert.match(ui.$('tr[data-order]').textContent,/Anfrage/);assert.match(ui.$('tr[data-order]').textContent,/Heute eingegangen/);
+  await ui.click('[data-order-group="active"]');assert.equal(ui.w.document.querySelectorAll('tr[data-order]').length,1);assert.match(ui.$('tr[data-order]').textContent,/Laufend/);
+  await ui.click('[data-order-group="closed"]');assert.equal(ui.w.document.querySelectorAll('tr[data-order]').length,1);assert.match(ui.$('tr[data-order]').textContent,/Fertig/);
   assert.deepEqual(ui.errors,[]);
 });
 
@@ -514,6 +525,7 @@ test('panel: operational agenda links existing appointments, follow-ups and unpa
   await saveOrder(ui.env,current,current.version,'Synthetischer Agenda-Test');await ui.click('[data-click="back"]');await ui.click('.sidebar [data-view="overview"]');await ui.click('[data-click="refresh"]');
   const center=ui.$('.overview-shell .action-center');assert.ok(center,'Handlungszentrale auf der Übersicht');
   assert.match(center.textContent,/Heute zu erledigen/);assert.match(center.textContent,/Lackzustand telefonisch besprechen/);assert.match(center.textContent,/Rechnung überfällig/);assert.match(center.textContent,/RE-TEST · 349,00\s*€/);assert.match(center.textContent,/Termin heute/);
+  await ui.go('#finance-invoices');const invoiceRow=ui.$('table tbody tr');assert.ok(invoiceRow);assert.match(invoiceRow.textContent,/Offen/);assert.doesNotMatch(invoiceRow.textContent,/unpaid/);await ui.go('#overview');
   assert.equal(ui.$('.action-center .action-summary [data-level="overdue"] strong').textContent,'1');assert.equal(ui.$('.action-center .action-summary [data-level="today"] strong').textContent,'2');
   assert.equal(ui.w.document.querySelectorAll('.overview-shell .operations-panel:not(.action-center)').length,0,'die 7-Tage-Agenda bleibt im Kalender');
   assert.match(ui.$('.action-center .action-item[data-action-kind="followup"]').getAttribute('aria-label'),/Lackzustand telefonisch besprechen/,'Bildschirmleser hören auch die Notiz');
@@ -612,10 +624,10 @@ test('panel: accordion navigation preserves manual choices and opens the active 
 test('panel: navigation groups daily work, customers, finance subpages and administration without dead routes',async t=>{
   const env=environment();env.STANDALONE_AUTH='true';const ui=await boot(t,{page:'index.html',script:'app.js',env});
   const ids=[...ui.w.document.querySelectorAll('.sidebar [data-view]')].map(button=>button.dataset.view);
-  assert.deepEqual(ids.slice(0,13),['mailbox','prices','calendar','overview','requests','active','orders','customers','chat','whatsapp','care','business','protocols']);
-  assert.deepEqual(ids.slice(13,20),['finance','finance-income','finance-expenses','finance-invoices','finance-receipts','finance-bank','finance-advisor']);
+  assert.deepEqual(ids.slice(0,11),['mailbox','prices','calendar','overview','orders','customers','chat','whatsapp','care','business','protocols']);
+  assert.deepEqual(ids.slice(11,18),['finance','finance-income','finance-expenses','finance-invoices','finance-receipts','finance-bank','finance-advisor']);
   assert.equal(ids.at(-1),'settings');assert.equal(ids[0],'mailbox','Communication Center steht allein ganz oben');assert.ok(ui.$('.sidebar .nav-primary [data-view="mailbox"]'));
-  const mobileIds=[...ui.w.document.querySelectorAll('.mobile-dock [data-view]')].map(button=>button.dataset.view);assert.deepEqual(mobileIds,['overview','mailbox','requests','active']);assert.ok(mobileIds.includes('mailbox'),'Communication Center in der mobilen Leiste');assert.equal(ui.w.document.querySelectorAll('.mobile-dock > button').length,5);
+  const mobileIds=[...ui.w.document.querySelectorAll('.mobile-dock [data-view]')].map(button=>button.dataset.view);assert.deepEqual(mobileIds,['overview','mailbox','chat','orders']);assert.equal(ui.$('.mobile-dock [data-view="chat"]').getAttribute('aria-label'),'Nachrichten');assert.ok(mobileIds.includes('mailbox'),'Communication Center in der mobilen Leiste');assert.equal(ui.w.document.querySelectorAll('.mobile-dock > button').length,5);
   const agenda=ui.$('.overview-shell .action-center'),stats=ui.$('.overview-shell > .stats');
   assert.ok(agenda.compareDocumentPosition(stats)&ui.w.Node.DOCUMENT_POSITION_FOLLOWING,'Tagesplanung steht vor den Kennzahlen');
   for(const [view,title] of [['finance','Finanzübersicht'],['finance-income','Einnahmen'],['finance-expenses','Ausgaben'],['finance-invoices','Rechnungen'],['finance-receipts','Belege'],['finance-bank','Bank'],['finance-advisor','Steuerberater']]){
@@ -686,7 +698,7 @@ test('panel: price calculator sits under the communication center and updates li
 test('panel: typing in the top search while the price calculator is open leaves it for the order list',async t=>{
   const ui=await boot(t,{page:'index.html',script:'app.js'});
   await ui.click('.sidebar [data-view="prices"]');const search=ui.$('#search');search.value='Golf';search.dispatchEvent(new ui.w.Event('input',{bubbles:true}));
-  assert.equal(ui.$('#price-quick'),null,'no half-dead calculator after the search');assert.match(ui.$('h1').textContent,/Alle Aufträge/);assert.deepEqual(ui.errors,[]);
+  assert.equal(ui.$('#price-quick'),null,'no half-dead calculator after the search');assert.match(ui.$('h1').textContent,/Aufträge/);assert.deepEqual(ui.errors,[]);
 });
 
 
