@@ -414,14 +414,16 @@ button.primary,a.button.primary{border-radius:980px}
 
 /* WG-IOS-001 Phase 3: Communication Center.
    Alle Breiten: Kennzahlen stehen linksbündig (der Knopf zentrierte bisher seinen Inhalt).
-   Handy: Kopf in einer Reihe, Leseleiste ohne Leerraum direkt unter der Kopfleiste, lesbare Listenzeilen. */
+   Handy: Kopf in einer Reihe (lange Titel schieben den Status in die zweite), Leseleiste ohne Leerraum
+   direkt unter der Kopfleiste, lesbare Listenzeilen. */
 .cc-kpi{grid-template-columns:minmax(0,1fr);justify-content:stretch}
 @media (max-width:760px){
   html[data-area="operator"] .cc{--cc-radius:16px;gap:12px}
-  html[data-area="operator"] .cc .cc-head{flex-wrap:nowrap;align-items:center;gap:8px;min-height:44px}
-  html[data-area="operator"] .cc .cc-head-title{flex:1;min-width:0;gap:8px}
-  html[data-area="operator"] .cc .cc-head h1{margin:0;overflow:hidden;font-size:28px;font-weight:700;line-height:1.15;letter-spacing:-.022em;white-space:nowrap;text-overflow:ellipsis}
-  html[data-area="operator"] .cc .cc-head-status{flex:none;width:auto;flex-wrap:nowrap;justify-content:flex-end;gap:4px}
+  html[data-area="operator"] .cc .cc-head{flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:44px}
+  html[data-area="operator"] .cc .cc-head-title{flex:0 1 auto;min-width:0;max-width:100%;gap:8px}
+  html[data-area="operator"] .cc .cc-head-title>div{min-width:0}
+  html[data-area="operator"] .cc .cc-head h1{margin:0;overflow:hidden;font-size:26px;font-weight:700;line-height:1.15;letter-spacing:-.022em;white-space:nowrap;text-overflow:ellipsis}
+  html[data-area="operator"] .cc .cc-head-status{flex:none;width:auto;margin-left:auto;flex-wrap:nowrap;justify-content:flex-end;gap:4px}
   html[data-area="operator"] .cc .cc-head .cc-icon-btn,html[data-area="operator"] .cc .cc-reader-bar .cc-icon-btn{width:44px;height:44px;min-height:44px;border-radius:50%}
   html[data-area="operator"] .cc .cc-connection{justify-content:center;width:44px;min-height:44px;padding:0!important}
 
