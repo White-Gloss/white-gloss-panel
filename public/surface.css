@@ -302,10 +302,10 @@ button.primary,a.button.primary{border-radius:980px}
   /* Schriftstufen: großer Titel, ruhiger Untertitel, keine Firmenzeile über jedem Titel */
   html[data-area="operator"] .workspace .content{padding-top:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
   html[data-area="operator"] .heading .heading-brand{display:none}
-  html[data-area="operator"] .content .heading h1,html[data-area="operator"] .overview-shell .action-center h2{margin:0 0 6px;font-size:clamp(28px,8.2vw,32px);font-weight:700;line-height:1.12;letter-spacing:-.022em}
+  html[data-area="operator"] .content .heading h1,html[data-area="operator"] .content .overview-shell .action-center .card-title h2{margin:0 0 6px;font-size:clamp(28px,8.2vw,32px);font-weight:700;line-height:1.12;letter-spacing:-.022em}
   html[data-area="operator"] .content .heading p{font-size:15px;line-height:1.45}
   html[data-area="operator"] .content .card-title h2{font-size:17px;line-height:1.3;letter-spacing:-.015em}
-  html[data-area="operator"] .content .card-title small{font-size:13px;line-height:1.4}
+  html[data-area="operator"] .content .card-title small{font-size:13px;line-height:1.4;text-align:left}
   html[data-area="operator"] .content .eyebrow{font-size:11px;letter-spacing:.06em}
   html[data-area="operator"] .content .notice{border-radius:16px;font-size:14px;line-height:1.5}
   html[data-area="operator"] .content .empty strong{font-size:17px}

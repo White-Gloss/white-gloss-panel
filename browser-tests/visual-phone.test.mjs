@@ -46,6 +46,8 @@ test('phone layout: equal header buttons, content clear of the tasks button, com
   assert.ok(dock.every(b => b.bg === 'rgba(0, 0, 0, 0)'), 'no box behind a tab');
   assert.equal(dock.filter(b => b.current).length, 1); assert.notEqual(dock.find(b => b.current).color, dock.find(b => !b.current).color, 'the active tab has its own tint');
   assert.equal(await page.locator('.content .heading-brand').evaluateAll(nodes => nodes.filter(n => n.getBoundingClientRect().height > 0).length), 0, 'no company line above the title on phones');
+  const title = await page.evaluate(() => { const h = document.querySelector('#action-center-title'); return h ? parseFloat(getComputedStyle(h).fontSize) : null; });
+  if (title !== null) assert.ok(title >= 28, 'the start title uses the large title size: ' + title);
   await f.screenshot('ios-start-390-dark', {fullPage: false});
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   const clearance = await page.evaluate(() => {
