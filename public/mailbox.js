@@ -121,7 +121,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   function drawStatus(){
     const element=region('status');if(!element)return;const account=data?.account,ready=Boolean(account?.imapVerifiedAt&&account?.smtpVerifiedAt);
     const state=!account?['warn','Postfach einrichten']:ready?['good','Verbunden']:!account.imapVerifiedAt?['warn','Empfang prüfen']:['warn','Versand prüfen'];
-    element.innerHTML=`<button type="button" class="cc-connection ${state[0]}" data-mail-settings title="${esc(account?.email||'Postfach-Einstellungen')}"><span class="cc-connection-dot"></span><span><strong>${esc(state[1])}</strong><small>${esc(account?.email||'IMAP & SMTP')}${account?.lastSyncAt?' · '+esc(when(account.lastSyncAt)):''}</small></span></button>
+    element.innerHTML=`<button type="button" class="cc-connection ${state[0]}" data-mail-settings aria-label="${esc(state[1])} · Postfach-Einstellungen" title="${esc(account?.email||'Postfach-Einstellungen')}"><span class="cc-connection-dot"></span><span><strong>${esc(state[1])}</strong><small>${esc(account?.email||'IMAP & SMTP')}${account?.lastSyncAt?' · '+esc(when(account.lastSyncAt)):''}</small></span></button>
       <button type="button" class="cc-icon-btn" data-mail-sync ${synthetic||!account?.imapVerifiedAt?'disabled':''} aria-label="Neue E-Mails abrufen" title="Neue E-Mails abrufen">${icon('sync')}</button>
       <button type="button" class="cc-icon-btn" data-mail-settings aria-label="Postfach-Einstellungen" title="Postfach-Einstellungen">${icon('settings')}</button>`;
   }
@@ -145,6 +145,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
         <button type="button" class="cc-nav-item cc-nav-out" data-view="whatsapp">${icon('chat')}<span class="cc-nav-label">WhatsApp</span>${icon('arrow','cc-out')}</button>
         <button type="button" class="cc-nav-item cc-nav-out" data-view="customers">${icon('people')}<span class="cc-nav-label">Kunden</span>${icon('arrow','cc-out')}</button>
       </nav>
+      <nav class="cc-nav cc-mobile-tools" aria-label="Postfach">${navButton({label:'Neue E-Mails abrufen',iconName:'sync',attrs:`data-mail-sync ${synthetic||!data?.account?.imapVerifiedAt?'disabled':''}`})}</nav>
       <p class="cc-rail-note">${icon('lock')}Ordner und Markierungen gelten im Panel. Das Postfach beim Anbieter bleibt unverändert.</p>`;
     markSaved(element);
   }

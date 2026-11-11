@@ -6,6 +6,12 @@ for(const width of [1366,390])test('monthly accounting workflow '+width,async t=
   const f=await browserFixture(t,{viewport:{width,height:900}}),p=f.page;
   await f.env.DB.prepare(`INSERT INTO accounting_bank_revisions(organization_id,account_iban,provider_id,sha256,status,side,amount_minor,currency,label,reference,settled_at,provider_updated_at,raw_json,received_at) VALUES('test','DE123456789','fixture','fixture','completed','credit',11900,'EUR','Muster GmbH','RG-2026-09','2026-09-18T10:00:00Z','2026-09-18T10:00:00Z','{}','2026-09-18T10:00:00Z')`).run();
   await p.goto(origin+'/buchhaltung?month=2026-09');await p.getByRole('heading',{name:'Muster GmbH · RG-2026-09'}).waitFor();
+  await p.evaluate(()=>document.fonts.ready);
+  const typography=await p.evaluate(()=>{const style=el=>{const c=getComputedStyle(el);return {font:c.fontFamily,size:parseFloat(c.fontSize),weight:c.fontWeight,height:el.getBoundingClientRect().height};};return {numbers:[...document.querySelectorAll('.books-stat strong')].map(style),links:[...document.querySelectorAll('.books-header a.smallbtn')].map(style)};});
+  t.diagnostic('bookkeeping type roles '+width+' '+JSON.stringify(typography));
+  assert.ok(typography.numbers.length===3&&typography.numbers.every(item=>/Syne/.test(item.font)&&item.weight==='800'&&item.size===(width<768?24:28)),'all three accounting figures use the highlighted numeric role');
+  assert.ok(typography.links.length===2&&typography.links.every(item=>/Syne/.test(item.font)&&item.weight==='700'&&item.size===15&&item.height>=44),'header links remain readable button targets');
+  assert.equal(await p.getByRole('heading',{name:'Monatsbuchhaltung',exact:true}).count(),1,'discretionary breaks preserve the heading name');
   await f.screenshot('buchhaltung-zahlungsabgleich-'+width);
   await p.getByRole('button',{name:'DATEV-Einstellungen',exact:true}).click();const settings=p.locator('form[data-action=settings]');
   for(const [label,value] of [['Beraternummer','1001'],['Mandantennummer','7'],['Sachkontenlänge','4'],['Beginn Wirtschaftsjahr','2026-01-01']])await settings.getByLabel(label,{exact:true}).fill(value);

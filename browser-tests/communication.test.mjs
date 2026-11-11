@@ -32,7 +32,29 @@ for(const viewport of viewports)test(`communication center layout and mail workf
   const kpis=await page.locator('.cc-kpi').evaluateAll(cards=>cards.map(card=>{const box=card.getBoundingClientRect();return [...card.children].map(child=>Math.round(child.getBoundingClientRect().left-box.left));}));
   t.diagnostic('kpi insets '+tag+' '+JSON.stringify(kpis));
   assert.ok(kpis.length>=5&&kpis.flat().every(inset=>inset>=10&&inset<=24),'every figure starts at the left edge of its card');
-  if(viewport.width<=760){const head=await page.locator('.cc-head').evaluate(element=>({h:Math.round(element.getBoundingClientRect().height),targets:[...element.querySelectorAll('button')].filter(b=>b.getBoundingClientRect().width>0).map(b=>Math.round(Math.min(b.getBoundingClientRect().width,b.getBoundingClientRect().height)))}));t.diagnostic('cc head '+tag+' '+JSON.stringify(head));assert.ok(head.h<=56,'title and status share one row: '+head.h);assert.ok(head.targets.every(size=>size>=44),'header buttons are 44px targets: '+head.targets);}
+  if(viewport.width<=760){
+    const head=await page.locator('.cc-head').evaluate(element=>{const title=element.querySelector('h1'),style=getComputedStyle(title);return {h:Math.round(element.getBoundingClientRect().height),title:{size:parseFloat(style.fontSize),width:title.clientWidth,scroll:title.scrollWidth},targets:[...element.querySelectorAll('button')].filter(b=>b.getBoundingClientRect().width>0).map(b=>Math.round(Math.min(b.getBoundingClientRect().width,b.getBoundingClientRect().height)))};});
+    t.diagnostic('cc head '+tag+' '+JSON.stringify(head));
+    assert.ok(head.h<=56,'title and status share one row: '+head.h);assert.ok(head.targets.every(size=>size>=44),'header buttons are 44px targets: '+head.targets);
+    assert.ok(head.title.size===33&&head.title.scroll<=head.title.width+1,'the full 33px title is visible');
+    const panels=await page.locator('.cc-panel>header').evaluateAll(headers=>headers.map(header=>{const style=getComputedStyle(header),title=header.querySelector('h2');return {title:title.textContent,width:title.getBoundingClientRect().width,available:header.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)};}));
+    t.diagnostic('cc card headings '+tag+' '+JSON.stringify(panels));
+    assert.ok(panels.every(panel=>panel.width>=panel.available-1),'card titles have their own full-width row');
+    const connection=page.locator('.cc-connection');assert.match(await connection.getAttribute('aria-label'),/Empfang prüfen.*Postfach-Einstellungen/);
+    await connection.click();await page.locator('.cc-drawer[role="dialog"]').waitFor();await page.locator('[data-mail-settings-close]').click();
+    await openRail(page,viewport.width);const sync=page.locator('.cc-mobile-tools [data-mail-sync]');await sync.scrollIntoViewIfNeeded();
+    assert.ok(await sync.isVisible()&&await sync.isDisabled(),'the labelled mobile sync entry is visible and disabled before verification');
+    const target=await sync.boundingBox();assert.ok(target.height>=44&&target.width>=44,'mobile sync keeps a 44px target');
+    // Nur die isolierte In-Memory-Fixture erhält einen bestätigten Kontostand. Es wird kein Abruf ausgelöst.
+    await f.env.DB.prepare('UPDATE mailbox_accounts SET imap_verified_at=?,smtp_verified_at=? WHERE id=1').bind('2026-11-11T10:00:00Z','2026-11-11T10:00:00Z').run();
+    // Ein normaler Ansichtswechsel aktualisiert Status und Menü ohne Seitenneuladen.
+    await page.locator('.cc-rail [data-cc-section="home"]').click();
+    await page.waitForFunction(()=>[...document.querySelectorAll('[data-mail-sync]')].length===2&&[...document.querySelectorAll('[data-mail-sync]')].every(button=>!button.disabled));
+    assert.match(await connection.getAttribute('aria-label'),/Verbunden.*Postfach-Einstellungen/);
+    assert.ok(await page.locator('[data-mail-sync]').evaluateAll(buttons=>buttons.length===2&&buttons.every(button=>!button.disabled)),'desktop and mobile sync use the same verified-account state');
+    await openRail(page,viewport.width);await sync.scrollIntoViewIfNeeded();await sync.focus();assert.ok(await sync.evaluate(button=>button===document.activeElement),'the enabled mobile sync entry accepts keyboard focus');
+    await page.keyboard.press('Escape');
+  }
 await f.screenshot('communication-home-'+tag,{fullPage:false});
 
   await openRail(page,viewport.width);await page.locator('.cc-rail [data-mail-folder="INBOX"]').click();await page.locator('.cc-row[data-mail-open]').nth(1).waitFor();

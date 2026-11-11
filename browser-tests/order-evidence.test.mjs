@@ -11,7 +11,10 @@ for(const colorScheme of ['dark','light'])for(const width of [320,390,768,1024,1
   assert.match(await page.locator('[data-evidence-document=intake]').textContent(),/Vom Kunden unterschrieben.*Offene Fassung.*Übersprungen/s);
   await page.locator('[data-order-media=stored] summary').click();await page.getByText('Keine gespeicherten Medien vorhanden.').waitFor();
   assert.deepEqual(writes,[],'opening evidence must not write');
-  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  const overflow=await page.evaluate(()=>({page:document.documentElement.scrollWidth,viewport:innerWidth,tabs:[...document.querySelectorAll('.order-tabs button')].map(el=>({text:el.querySelector('strong').textContent,width:el.clientWidth,scroll:el.scrollWidth})),offenders:[...document.querySelectorAll('.content *')].filter(el=>{const r=el.getBoundingClientRect();return r.width>0&&(r.left<0||r.right>innerWidth+.5);}).slice(0,12).map(el=>({tag:el.tagName,class:el.className,text:el.textContent.trim().slice(0,50),width:el.getBoundingClientRect().width}))}));
+  t.diagnostic('order evidence geometry '+colorScheme+' '+width+' '+JSON.stringify(overflow));
+  assert.ok(overflow.page<=overflow.viewport,'evidence causes no horizontal page overflow');
+  assert.ok(overflow.tabs.every(tab=>tab.scroll<=tab.width+1),'every order area label wraps inside its target');
   for(const button of await page.locator('.order-evidence button').all()){const box=await button.boundingBox();assert.ok(box.height>=44&&box.width>=44);}
   await page.locator('.workspace').evaluate(el=>{el.scrollTop=0;});await f.screenshot(`order-evidence-${colorScheme}-${width}`);
   await page.locator('[data-evidence-document=return]').scrollIntoViewIfNeeded();assert.match(await page.locator('[data-evidence-document=return]').textContent(),/Datum: Nicht hinterlegt/);await f.screenshot(`order-evidence-documents-${colorScheme}-${width}`);

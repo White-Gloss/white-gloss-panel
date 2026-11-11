@@ -42,14 +42,21 @@ abgleichen. Ein grüner älterer Lauf bestätigt keinen späteren Commit.
 **Website-Prüfreferenzen dieses Berichts:**
 
 - #341: `564041583a1d404f79f3751d83dcb052987890c5`,
-  [CI 43042997156](https://github.com/White-Gloss/glanz-buchung-meister/actions/runs/43042997156).
+  [CI 43042997156](https://github.com/White-Gloss/glanz-buchung-meister/actions/runs/43042997156):
+  Schema, Studio und Cross-Browser erfolgreich; Verify scheiterte am mobilen
+  Lighthouse-Median 97 bei unverändert geforderten 98 Punkten. Die funktionalen
+  Prüfungen dieses Laufs waren erfolgreich.
 - #342: `859d5c5054b270dc68f5040e4aa4e09bab9ce864`,
-  [CI 43043054310](https://github.com/White-Gloss/glanz-buchung-meister/actions/runs/43043054310).
+  [CI 43043054310](https://github.com/White-Gloss/glanz-buchung-meister/actions/runs/43043054310):
+  alle vier Jobs erfolgreich, einschließlich 903 Code-Tests ohne Fehler oder
+  ausgelassene Tests, Browserabläufen und Lighthouse. Dieser Stand enthält #341.
 
-Diese Website-Referenzen sind keine Erfolgsbehauptung. Maßgeblich sind die
-vollständigen Ergebnisse des finalen PR-Heads. Die gezielten Regressionen für
-Bildabschluss (21) und Foto-Signierung (27) waren erfolgreich; sie ersetzen
-nicht die vollständige CI. Die Draft-PRs lösten keine Veröffentlichung aus.
+Diese Nachweise gelten für die genannten Basis-Commits. Für die anschließende
+Typografie bleiben die vollständigen Ergebnisse des finalen Gesamt-PR-Heads
+maßgeblich. Die gezielten Regressionen für Bildabschluss (21) und
+Foto-Signierung (27) waren ebenfalls erfolgreich. Kein Prüfgrenzwert wurde
+zum Erreichen eines grünen Ergebnisses abgesenkt. Die Draft-PRs lösten keine
+Veröffentlichung aus.
 
 ## Typografie und bewusst dokumentierte Entscheidungen
 
@@ -101,8 +108,17 @@ umgeschrieben; Vertragsdaten oder nicht belegte Datenflüsse wurden nicht ergän
 ## Verbindliche nächste Prüfung und Veröffentlichung
 
 Die Freigabe erfolgt über **zwei Gesamt-PRs direkt gegen das jeweilige `main`**:
-einen vollständigen Panel-Stand und einen vollständigen Website-Stand. Die
-Typografie-Branches enthalten dafür bereits die jeweiligen Teilkorrekturen.
+
+| Gesamtstand | Inhalt |
+| --- | --- |
+| [Panel #95](https://github.com/White-Gloss/white-gloss-panel/pull/95) | #93 und #94, gemeinsame Typografie, PDF-Schriften und responsive Nachkorrekturen |
+| [Website #343](https://github.com/White-Gloss/glanz-buchung-meister/pull/343) | #341 und #342, gemeinsame Typografie, PDF-Schriften und responsive Nachkorrekturen |
+
+Die Typografie-Branches enthalten bereits die jeweiligen Teilkorrekturen.
+Die PR-Beschreibungen führen den aktuell geprüften Head, dessen echte CI und
+offene Befunde. Die ersten Fontläufe machten Engstellen auf schmalen Ansichten
+sichtbar; ein erfolgreicher Basislauf wird deshalb nicht als Nachweis für die
+geänderten Schriftlayouts verwendet.
 Die bisherigen Drafts bleiben nachvollziehbare Detailreviews; sie sind kein
 Plan für sechs getrennte Merges. So löst das Panel keine mehrfachen
 automatischen Teilveröffentlichungen aus.

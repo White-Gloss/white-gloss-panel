@@ -24,10 +24,32 @@ for(const colorScheme of ['dark','light'])for(const width of [320,390,768,1440])
       assert.equal(await button.getAttribute('aria-selected'),'true',area+' must open without changes');
       assert.deepEqual(dialogs,[],'untouched forms must not ask to discard changes');
       await page.locator('#order-panel-'+area).waitFor();
-      // Handy: jede Beschriftung, jeder Hinweis, Abschnittstitel und jede aufklappbare Zeile in jedem der sechs Bereiche ist lesbar.
-      if(width<=760){const small=await page.locator('#order-panel-'+area).evaluate(panel=>{const found=[],check=(selector,min)=>{for(const el of panel.querySelectorAll(selector)){if(!el.getClientRects().length)continue;const size=parseFloat(getComputedStyle(el).fontSize);if(size<min)found.push(selector+' '+size+'px: '+el.textContent.trim().slice(0,40));}};check('label',15);check('.hint',13);check('.sectiontitle',17);check('details>summary',16);return found;});assert.deepEqual(small,[],area+': form text is readable on phones');}
+      // Feldlabels sind kleine Syne-Versalien. Eingaben, Erklärungen und Bereichsnavigation haben eigene Mindestgrößen.
+      if(width<=760){
+        const roles=await page.locator('#order-panel-'+area).evaluate(panel=>{
+          const found=[],counts={captions:0,inputs:0,copy:0},visible=el=>el.getClientRects().length>0,describe=el=>el.tagName.toLowerCase()+' '+(el.getAttribute('name')||el.textContent.trim()).slice(0,40);
+          const checks='label.check,label:has(input[type="checkbox"]),label:has(input[type="radio"])';
+          for(const el of panel.querySelectorAll('label,legend')){
+            if(!visible(el)||el.matches(checks))continue;
+            const c=getComputedStyle(el),size=parseFloat(c.fontSize);counts.captions++;
+            if(!/Syne/.test(c.fontFamily)||c.fontWeight!=='700'||size<11||size>12||c.textTransform!=='uppercase')found.push('caption '+describe(el)+' '+JSON.stringify({family:c.fontFamily,weight:c.fontWeight,size,case:c.textTransform}));
+          }
+          for(const el of panel.querySelectorAll('input:not([type="checkbox"]):not([type="radio"]),select,textarea,[contenteditable="true"]')){
+            if(!visible(el))continue;
+            const c=getComputedStyle(el);counts.inputs++;
+            if(parseFloat(c.fontSize)<16||!/Plus Jakarta Sans/.test(c.fontFamily)||c.textTransform!=='none')found.push('input '+describe(el)+' '+c.fontSize+' '+c.fontFamily);
+          }
+          const check=(selector,min,body=false)=>{for(const el of panel.querySelectorAll(selector)){if(!visible(el))continue;const c=getComputedStyle(el);counts.copy++;if(parseFloat(c.fontSize)<min||(body&&!/Plus Jakarta Sans/.test(c.fontFamily)))found.push(selector+' '+c.fontSize+': '+describe(el));}};
+          check(checks,15,true);check('p:not(.hint),.fieldpair',15,true);check('.hint,label small',13,true);check('.sectiontitle',17);check('details>summary',16);
+          return {found,counts};
+        });
+        t.diagnostic('order text roles '+colorScheme+' '+width+' '+area+' '+JSON.stringify(roles));
+        assert.deepEqual(roles.found,[],area+': each form text role remains readable on phones');
+      }
       const box=await button.boundingBox();assert.ok(box.height>=48&&box.width>=48);
-      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no page overflow: '+area);
+      const overflow=await page.evaluate(()=>({page:document.documentElement.scrollWidth,viewport:innerWidth,offenders:[...document.querySelectorAll('.content *')].filter(el=>{const r=el.getBoundingClientRect();return r.width>0&&(r.left<0||r.right>innerWidth+.5);}).slice(0,12).map(el=>({tag:el.tagName,class:el.className,text:el.textContent.trim().slice(0,50),width:el.getBoundingClientRect().width}))}));
+      if(overflow.page>overflow.viewport)t.diagnostic('order overflow '+area+' '+JSON.stringify(overflow));
+      assert.ok(overflow.page<=overflow.viewport,'no page overflow: '+area);
     }
     await page.locator('#order-tab-source').click();await page.locator('#order-tab-source').focus();await page.keyboard.press('ArrowRight');
     assert.equal(await page.locator('#order-tab-price').evaluate(el=>el===document.activeElement),true);

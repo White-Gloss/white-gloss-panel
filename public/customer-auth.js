@@ -10,10 +10,10 @@ const steps={
  password:['Ihr persönliches Passwort','Wählen Sie mindestens 15 Zeichen, zum Beispiel einen langen Satz. Ein Passwortmanager ist willkommen.',passwordFields,'Passwort speichern']
 };
 function show(step,focus=true){
- message.textContent='';busy=false;
+ message.textContent='';busy=false;title.removeAttribute('aria-label');
  if(step==='success'){title.textContent='Ihr Passwort ist gespeichert';description.textContent='Ihr Kundenkonto bleibt bestehen. Sie können sich jetzt und künftig mit E-Mail-Adresse und Passwort anmelden.';root.innerHTML='<button class="primary" type="button" data-step="login">Jetzt anmelden</button>';}
  else{
-  if(!steps[step])step='login';const [heading,text,fields,button]=steps[step];title.textContent=heading;description.textContent=text;
+  if(!steps[step])step='login';const [heading,text,fields,button]=steps[step];title.textContent=step==='login'?'Will\u00adkommen zurück':heading;if(step==='login')title.setAttribute('aria-label',heading);description.textContent=text;
   root.innerHTML='<form data-action="'+step+'">'+fields+'<button class="primary" type="submit">'+button+'</button></form><nav class="customer-access-nav" aria-label="Kundenkonto">'+(step==='login'?'<button type="button" data-step="setup">Erstmals einrichten</button><button type="button" data-step="reset">Passwort vergessen?</button><button type="button" data-step="verify">Code eingeben</button>':'<button type="button" data-step="login">Zur Anmeldung</button>'+(step==='verify'?'<button type="button" data-step="setup">Neuen Einrichtungscode anfordern</button><button type="button" data-step="reset">Neuen Wiederherstellungscode anfordern</button>':''))+'</nav>';
   const field=root.querySelector('[name="email"]');if(field)field.value=email;
  }
