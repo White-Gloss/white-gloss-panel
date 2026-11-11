@@ -480,6 +480,8 @@ button.primary,a.button.primary{border-radius:980px}
   html[data-area="operator"] .content .unified-inbox .unified-inbox-header{flex-direction:column;align-items:stretch;gap:12px;margin-bottom:16px}
   html[data-area="operator"] .content .unified-inbox .unified-inbox-header h1{font-size:26px;font-weight:700;line-height:1.15;letter-spacing:-.022em}
   html[data-area="operator"] .content .unified-inbox .unified-inbox-header p{margin-top:6px;font-size:15px;line-height:1.45}
+  html[data-area="operator"] .content .unified-inbox .unified-inbox-controls{gap:8px;margin-bottom:12px}
+  html[data-area="operator"] .content .unified-inbox .unified-inbox-controls label{margin:0}
   html[data-area="operator"] .content .unified-inbox .unified-inbox-controls input,html[data-area="operator"] .content .unified-inbox .unified-inbox-controls select{min-height:48px;border-radius:12px;font-size:16px}
   html[data-area="operator"] .content .unified-inbox .unified-inbox-status{font-size:13px}
   html[data-area="operator"] .content .unified-inbox .unified-inbox-list{overflow:hidden;border-radius:16px}

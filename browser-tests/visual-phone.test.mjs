@@ -92,12 +92,13 @@ test('phone layout: equal header buttons, content clear of the tasks button, com
   await page.locator('.mobile-dock [data-view="inbox"]').click(); await page.locator('.unified-inbox-item').first().waitFor();
   const inbox = await page.evaluate(() => {
     const px = sel => parseFloat(getComputedStyle(document.querySelector(sel)).fontSize), item = document.querySelector('.unified-inbox-item').getBoundingClientRect();
-    return {title: px('.unified-inbox-header h1'), name: px('.unified-inbox-head strong'), preview: px('.unified-inbox-preview'), time: px('.unified-inbox-head time'), channel: px('.unified-inbox-channel'), itemH: Math.round(item.height), inside: item.left >= 0 && item.right <= innerWidth + .5, noOverflow: document.documentElement.scrollWidth <= innerWidth, search: Math.round(document.querySelector('[data-unified-search]').getBoundingClientRect().height)};
+    return {title: px('.unified-inbox-header h1'), name: px('.unified-inbox-head strong'), preview: px('.unified-inbox-preview'), time: px('.unified-inbox-head time'), channel: px('.unified-inbox-channel'), itemH: Math.round(item.height), inside: item.left >= 0 && item.right <= innerWidth + .5, noOverflow: document.documentElement.scrollWidth <= innerWidth, search: Math.round(document.querySelector('[data-unified-search]').getBoundingClientRect().height), controlGap: Math.round(document.querySelector('[data-unified-filter]').getBoundingClientRect().top - document.querySelector('[data-unified-search]').getBoundingClientRect().bottom)};
   });
   log('inbox', inbox);
   assert.ok(inbox.title >= 26 && inbox.name >= 16 && inbox.preview >= 14 && inbox.time >= 12 && inbox.channel >= 11, 'inbox text uses readable sizes');
   assert.ok(inbox.itemH >= 60 && inbox.search >= 44, 'rows and search are comfortable targets');
   assert.ok(inbox.inside && inbox.noOverflow, 'the inbox stays inside the screen');
+  assert.ok(inbox.controlGap >= 4 && inbox.controlGap <= 16, 'search and filter sit close together: ' + inbox.controlGap);
   await f.screenshot('ios-inbox-390-dark', {fullPage: false});
 
   await page.goto(origin + '/#mailbox'); await page.locator('.cc-head').waitFor();
