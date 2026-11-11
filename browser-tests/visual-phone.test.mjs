@@ -59,6 +59,16 @@ test('phone layout: equal header buttons, content clear of the tasks button, com
   assert.ok(clearance.contentBottom <= clearance.dockTop, 'last content ends above the tab bar');
   await page.locator('.mobile-dock [data-view="orders"]').click(); await page.locator('#content h1').first().waitFor();
   await page.locator('[data-order-group="requests"]').click();
+  // Filterleiste: vier Gruppen als eine Auswahlleiste in einer Reihe, Statusfilter vollständig sichtbar, nichts seitlich abgeschnitten.
+  const filters = await page.evaluate(() => {
+    const box = el => el.getBoundingClientRect(), bar = document.querySelector('.toolbar'), groups = [...document.querySelectorAll('.order-groups button')], chips = [...document.querySelectorAll('.order-filters button, .order-filters summary')].filter(el => box(el).width > 0);
+    return {rows: new Set(groups.map(b => Math.round(box(b).top))).size, groupH: groups.map(b => Math.round(box(b).height)), fits: groups.concat(chips).every(b => b.scrollWidth <= b.clientWidth + 1 && box(b).left >= 0 && box(b).right <= innerWidth + .5), chipH: Math.min(...chips.map(b => Math.round(box(b).height))), barScroll: bar.scrollWidth <= bar.clientWidth + 1, active: groups.filter(b => b.getAttribute('aria-pressed') === 'true').length};
+  });
+  log('filters', filters);
+  assert.equal(filters.rows, 1, 'the four groups share one row at 390px');
+  assert.ok(filters.groupH.every(h => h >= 40) && filters.chipH >= 40, 'groups and status filters are comfortable targets');
+  assert.ok(filters.fits && filters.barScroll, 'no filter is cut off and the bar does not scroll sideways');
+  assert.equal(filters.active, 1);
   await f.screenshot('ios-requests-390-dark', {fullPage: false});
   await page.locator('[data-order-group="active"]').click();
   // Auftragsliste: Zeile mit Name, Preis und Pfeil; der Pfeil bleibt ein beschrifteter Knopf mit 44 px.
@@ -78,6 +88,17 @@ test('phone layout: equal header buttons, content clear of the tasks button, com
   await page.locator('.mobile-dock [data-click="menu"]').click(); await page.locator('.sidebar.open').waitFor();
   await f.screenshot('ios-menu-390-dark', {fullPage: false});
   await page.keyboard.press('Escape');
+  // Gemeinsamer Eingang: lesbare Zeilen innerhalb des Bildschirms.
+  await page.locator('.mobile-dock [data-view="inbox"]').click(); await page.locator('.unified-inbox-item').first().waitFor();
+  const inbox = await page.evaluate(() => {
+    const px = sel => parseFloat(getComputedStyle(document.querySelector(sel)).fontSize), item = document.querySelector('.unified-inbox-item').getBoundingClientRect();
+    return {title: px('.unified-inbox-header h1'), name: px('.unified-inbox-head strong'), preview: px('.unified-inbox-preview'), time: px('.unified-inbox-head time'), channel: px('.unified-inbox-channel'), itemH: Math.round(item.height), inside: item.left >= 0 && item.right <= innerWidth + .5, noOverflow: document.documentElement.scrollWidth <= innerWidth, search: Math.round(document.querySelector('[data-unified-search]').getBoundingClientRect().height)};
+  });
+  log('inbox', inbox);
+  assert.ok(inbox.title >= 26 && inbox.name >= 16 && inbox.preview >= 14 && inbox.time >= 12 && inbox.channel >= 11, 'inbox text uses readable sizes');
+  assert.ok(inbox.itemH >= 60 && inbox.search >= 44, 'rows and search are comfortable targets');
+  assert.ok(inbox.inside && inbox.noOverflow, 'the inbox stays inside the screen');
+  await f.screenshot('ios-inbox-390-dark', {fullPage: false});
 
   await page.goto(origin + '/#mailbox'); await page.locator('.cc-head').waitFor();
   // Der kompakte Kopf gilt im Mail-Bereich: erst den Posteingang öffnen (Start des Postfachs ist die Übersicht).
