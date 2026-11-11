@@ -25,6 +25,7 @@ h1,h2{letter-spacing:-.02em;line-height:1.1}
 h3{letter-spacing:-.01em;line-height:1.2}
 small,.eyebrow{letter-spacing:.02em}
 .money,.vo-total,td.num,.num{font-variant-numeric:tabular-nums}
+.catalog-total>.catalog-grand-total{flex-wrap:wrap;align-items:baseline}
 
 /* Komponenten */
 button,a.button{border-radius:var(--radius-s)}
@@ -685,6 +686,7 @@ td,table p,table li{font-weight:400}th,td strong{font-weight:500!important}
 }
 @media(max-width:360px){
   html[data-area="operator"]{--dock-height:112px}
+  html[data-area="operator"] .mobile-dock button{padding-left:1px;padding-right:1px}
   .mobile-dock button>span:not(.dock-count){letter-spacing:-.25px!important}
   html[data-area="operator"] .cc:not([data-section="mail"]) .cc-head-title>div{flex-basis:100%}
 }

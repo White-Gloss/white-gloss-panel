@@ -11,15 +11,17 @@ for(const browserName of ['chromium','firefox','webkit'])for(const width of [320
     const overview=await page.evaluate(()=>{
       const style=selector=>{const c=getComputedStyle(document.querySelector(selector));return {family:c.fontFamily,size:parseFloat(c.fontSize),weight:c.fontWeight};};
       const dock=[...document.querySelectorAll('.mobile-dock>button')].filter(el=>el.getBoundingClientRect().width>0);
+      const shortDockLabels=dock.map(el=>el.querySelector('span:not(.dock-count):not(.visually-hidden)')).filter(el=>['Start','Chat','Mehr'].includes(el.textContent.trim())).map(el=>{const range=document.createRange();range.selectNodeContents(el);return {text:el.textContent.trim(),rows:new Set([...range.getClientRects()].filter(rect=>rect.width>0&&rect.height>0).map(rect=>Math.round(rect.top))).size};});
       const header=document.querySelector('.overview-orders .card-title'),headerStyle=getComputedStyle(header),heading=header.querySelector('div');
       const table=document.querySelector('.overview-orders .tablewrap'),prices=[...table.querySelectorAll('td.money')].map(el=>({right:el.getBoundingClientRect().right,tableRight:table.getBoundingClientRect().right}));
-      return {body:style('body'),title:style('#action-center-title'),number:style('.stat .value'),nav:dock.map(el=>({text:el.textContent.trim(),size:parseFloat(getComputedStyle(el).fontSize),font:getComputedStyle(el).fontFamily,width:el.clientWidth,scroll:el.scrollWidth,inside:el.getBoundingClientRect().right<=innerWidth+.5&&el.getBoundingClientRect().left>=0,uncut:el.scrollWidth<=el.clientWidth+1})),cardTitle:{width:heading.getBoundingClientRect().width,available:header.clientWidth-parseFloat(headerStyle.paddingLeft)-parseFloat(headerStyle.paddingRight)},prices,overflow:document.documentElement.scrollWidth>innerWidth};
+      return {body:style('body'),title:style('#action-center-title'),number:style('.stat .value'),nav:dock.map(el=>({text:el.textContent.trim(),size:parseFloat(getComputedStyle(el).fontSize),font:getComputedStyle(el).fontFamily,width:el.clientWidth,scroll:el.scrollWidth,inside:el.getBoundingClientRect().right<=innerWidth+.5&&el.getBoundingClientRect().left>=0,uncut:el.scrollWidth<=el.clientWidth+1})),shortDockLabels,cardTitle:{width:heading.getBoundingClientRect().width,available:header.clientWidth-parseFloat(headerStyle.paddingLeft)-parseFloat(headerStyle.paddingRight)},prices,overflow:document.documentElement.scrollWidth>innerWidth};
     });
     t.diagnostic('typography geometry '+browserName+' '+width+' '+JSON.stringify(overview));
     assert.match(overview.body.family,/Plus Jakarta Sans/);
     assert.match(overview.title.family,/Syne/);assert.equal(overview.title.size,width<768?33:46);assert.equal(overview.title.weight,'800');
     assert.match(overview.number.family,/Syne/);assert.equal(overview.number.size,width<768?24:28);assert.equal(overview.number.weight,'800');
     assert.ok(overview.nav.every(item=>item.size===16&&/Syne/.test(item.font)&&item.inside&&item.uncut),'every navigation label fits its target');
+    if(width<=760){assert.deepEqual(overview.shortDockLabels.map(label=>label.text),['Start','Chat','Mehr']);assert.ok(overview.shortDockLabels.every(label=>label.rows===1),'short dock labels remain whole on one line');}
     if(width<=760)for(const name of ['Eingang','Aufträge'])assert.equal(await page.locator('.mobile-dock').getByRole('button',{name,exact:true}).count(),1,'controlled word breaks preserve the accessible dock name: '+name);
     assert.equal(overview.overflow,false,'no horizontal overflow on the dashboard');
     if(width<=760)assert.ok(overview.cardTitle.width>=overview.cardTitle.available-1,'the work queue title keeps a full row beside its action');

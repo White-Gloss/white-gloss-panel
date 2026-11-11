@@ -47,6 +47,12 @@ for(const colorScheme of ['dark','light'])for(const width of [320,390,768,1440])
         assert.deepEqual(roles.found,[],area+': each form text role remains readable on phones');
       }
       const box=await button.boundingBox();assert.ok(box.height>=48&&box.width>=48);
+      if(area==='price'){
+        const total=await page.locator('[data-price-total]').evaluate(el=>{const r=el.getBoundingClientRect(),card=el.closest('.catalog-total').getBoundingClientRect(),c=getComputedStyle(el),range=document.createRange();range.selectNodeContents(el);const text=range.getBoundingClientRect();return {font:c.fontFamily,size:parseFloat(c.fontSize),weight:c.fontWeight,left:text.left,right:text.right,cardLeft:card.left,cardRight:card.right,width:r.width,scroll:el.scrollWidth,client:el.clientWidth};});
+        t.diagnostic('order total '+colorScheme+' '+width+' '+JSON.stringify(total));
+        assert.ok(/Syne/.test(total.font)&&total.weight==='800'&&total.size===(width<=767?24:28),'the complete total retains its highlighted number role');
+        assert.ok(total.left>=total.cardLeft&&total.right<=total.cardRight&&total.scroll<=total.client+1,'the full total fits within its card');
+      }
       const overflow=await page.evaluate(()=>({page:document.documentElement.scrollWidth,viewport:innerWidth,offenders:[...document.querySelectorAll('.content *')].filter(el=>{const r=el.getBoundingClientRect();return r.width>0&&(r.left<0||r.right>innerWidth+.5);}).slice(0,12).map(el=>({tag:el.tagName,class:el.className,text:el.textContent.trim().slice(0,50),width:el.getBoundingClientRect().width}))}));
       if(overflow.page>overflow.viewport)t.diagnostic('order overflow '+area+' '+JSON.stringify(overflow));
       assert.ok(overflow.page<=overflow.viewport,'no page overflow: '+area);
