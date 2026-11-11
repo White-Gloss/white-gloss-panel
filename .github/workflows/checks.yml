@@ -41,6 +41,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Paketquellen des GitHub-Runners vorbereiten
+        if: ${{ runner.environment == 'github-hosted' }}
+        env:
+          WG_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: bash scripts/prepare-github-apt.sh
       - uses: actions/setup-node@v4
         with:
           node-version: '22.23.2'
