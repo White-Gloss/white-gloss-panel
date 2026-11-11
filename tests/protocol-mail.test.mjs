@@ -18,9 +18,9 @@ async function fixture(t,synthetic=false){
   const request=async(path,data)=>app.fetch(new Request(origin+path,{method:'POST',headers:{origin,cookie,'Content-Type':'application/json'},body:JSON.stringify(data)}));
   const upload=async(orderId,kind,params='')=>{const result=await app.fetch(new Request(origin+'/api/upload/'+orderId+'?kind='+kind+params,{method:'POST',headers:{origin,cookie,'Content-Type':'image/png'},body:png}));assert.equal(result.status,200);return (await result.json()).id;};
   await setting(env,'resendKey',await protect(env,'synthetic-key'));await setting(env,'emailVerified',true);await setting(env,'sendApproved',true);await setting(env,'sender','test@example.invalid');
-  async function signed(kind){const current=await getOrder(env,order.id),photo=await upload(order.id,'photo');const protocol={kind,plate:'TEST',at:'2026-10-03T14:00',location:'TEST · Übergabeort',condition:'TEST · Kratzer an Tür links',customerName:current.source.name,operatorName:COMPANY.owner,mileage:100,keys:1,delivery:'Kunde bringt',photos:[photo],...(kind==='return'?{services:'TEST · Innenreinigung abgeschlossen',openPoints:'Keine',workComplete:true}:{})};
-    const prepared=await request('/api/protocol/prepare',{id:order.id,version:current.version,kind,protocol});assert.equal(prepared.status,200);const draft=await prepared.json();assert.deepEqual(draft.protocol.business,COMPANY);
-    const params='&draft='+draft.id+'&hash='+draft.hash,a=await upload(order.id,'signature',params),b=await upload(order.id,'signature',params);
+  async function signed(kind,orderId=order.id){const current=await getOrder(env,orderId),photo=await upload(orderId,'photo');const protocol={kind,plate:'TEST',at:'2026-10-03T14:00',location:'TEST · Übergabeort',condition:'TEST · Kratzer an Tür links',customerName:current.source.name,operatorName:COMPANY.owner,mileage:100,keys:1,delivery:'Kunde bringt',photos:[photo],...(kind==='return'?{services:'TEST · Innenreinigung abgeschlossen',openPoints:'Keine',workComplete:true}:{})};
+    const prepared=await request('/api/protocol/prepare',{id:orderId,version:current.version,kind,protocol});assert.equal(prepared.status,200);const draft=await prepared.json();assert.deepEqual(draft.protocol.business,COMPANY);
+    const params='&draft='+draft.id+'&hash='+draft.hash,a=await upload(orderId,'signature',params),b=await upload(orderId,'signature',params);
     return {version:current.version,input:{draftId:draft.id,snapshotHash:draft.hash,customerSignature:a,operatorSignature:b,signaturesConfirmed:true}};
   }
   return {env,app,files,order,cookie,request,signed};
@@ -47,6 +47,24 @@ test('mail configuration failure keeps a durable queue; later maintenance sends 
   const f=await fixture(t),sent=[];await setting(f.env,'sendApproved',false);t.mock.method(globalThis,'fetch',async(url,options)=>{sent.push(JSON.parse(options.body));return new Response(JSON.stringify({id:'synthetic-id'}));});
   const draft=await f.signed('intake'),result=await f.request('/api/action',{id:f.order.id,version:draft.version,action:'intake',input:draft.input});assert.equal(result.status,200);assert.equal((await result.json()).protocolDelivery.state,'failed');assert.equal(sent.length,0);
   await setting(f.env,'sendApproved',true);assert.equal((await maintenance(f.env)).ok,true);assert.equal(sent.length,1);await maintenance(f.env);assert.equal(sent.length,1);
+});
+test('restricted protocol jobs stop retrying so later eligible mail can leave the bounded queue',async t=>{
+  const f=await fixture(t),restricted=[],sent=[];await setting(f.env,'sendApproved',false);
+  t.mock.method(globalThis,'fetch',async(url,options)=>{assert.equal(url,'https://api.resend.com/emails');const payload=JSON.parse(options.body);assert.deepEqual(payload.to,['eligible@example.invalid']);sent.push(payload);return Response.json({id:'synthetic-eligible'});});
+  const restrictions=[{recordsRestriction:{status:'blocked'}},{recordsRestriction:{status:'anonymized'}},{documentCancellations:[{documentKey:'intake',at:'2020-01-01T00:00:00Z'}]},null];
+  let eligibleId;
+  for(const [index,restriction] of restrictions.entries()){
+    const order={...f.order,id:randomUUID(),wg:'WG-QUEUE-'+index,appointment:{...f.order.appointment,start:'2026-10-'+String(10+index)+'T10:00:00Z',end:'2026-10-'+String(10+index)+'T12:00:00Z'},source:{...f.order.source,email:restriction?'restricted-'+index+'@example.invalid':'eligible@example.invalid'}};
+    await f.env.DB.prepare('INSERT INTO orders(id,wg,status,data,updated_at,actor,action,synthetic) VALUES(?,?,?,?,?,?,?,0)').bind(order.id,order.wg,order.status,JSON.stringify(order),'2020-01-01T00:00:00.000Z','test','Test fixture').run();
+    const draft=await f.signed('intake',order.id),result=await f.request('/api/action',{id:order.id,version:draft.version,action:'intake',input:draft.input});assert.equal(result.status,200);assert.equal((await result.json()).protocolDelivery.state,'failed');
+    await f.env.DB.prepare('UPDATE jobs SET created_at=? WHERE order_id=?').bind('2020-01-01T00:00:0'+index+'.000Z',order.id).run();
+    if(restriction){const saved={...await getOrder(f.env,order.id),...restriction};await f.env.DB.prepare('UPDATE orders SET data=?,version=version+1 WHERE id=?').bind(JSON.stringify(saved),order.id).run();restricted.push(await getOrder(f.env,order.id));}else eligibleId=order.id;
+  }
+  assert.equal(sent.length,0);await setting(f.env,'sendApproved',true);
+  for(let run=0;run<3;run++)await maintenance(f.env);
+  assert.equal(sent.length,1,'blocked jobs must release the queue without sending their documents');
+  for(const order of restricted){assert.equal((await deliverProtocol(f.env,order.id,'intake')).state,'cancelled');assert.deepEqual(await getOrder(f.env,order.id),order);}
+  assert.equal((await deliverProtocol(f.env,eligibleId,'intake')).state,'sent');assert.equal(sent.length,1);
 });
 test('synthetic protocols generate downloadable PDFs but never queue or send customer mail',async t=>{
   const f=await fixture(t,true);t.mock.method(globalThis,'fetch',()=>{throw Error('No test mail allowed');});const draft=await f.signed('intake'),result=await f.request('/api/action',{id:f.order.id,version:draft.version,action:'intake',input:draft.input});assert.equal(result.status,200);assert.equal((await result.json()).protocolDelivery.state,'test');assert.equal((await f.env.DB.prepare('SELECT COUNT(*) n FROM protocol_deliveries').first()).n,0);const saved=await getOrder(f.env,f.order.id);assert.equal((await protocolDocument(f.env,saved,'intake')).bytes.subarray(0,5).toString(),new Uint8Array([37,80,68,70,45]).toString());

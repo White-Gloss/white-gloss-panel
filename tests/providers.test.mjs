@@ -27,6 +27,32 @@ test('booked photos are copied once, and saved photos survive a temporary source
   t.mock.method(globalThis,'fetch',async url=>{if(String(url)==='https://white-gloss.de/api/hub'){if(fail)return new Response('',{status:503});return Response.json({photos:[{name:'Testbild',mime:'image/png',url:'https://test.supabase.co/storage/v1/object/sign/bookings/100/test.png?token=synthetic'}]});}downloads++;return new Response(new Uint8Array([137,80,1,2]),{headers:{'content-type':'image/png'}});});
   await syncBookingPhotos(env,order);await syncBookingPhotos(env,order);assert.equal(downloads,1);fail=true;const result=await bookingPhotos(env,order.id,true);assert.equal(result.photos.length,1);assert.match(result.photos[0].url,/^\/api\/asset\//);assert.ok(result.warning);assert.ok(!JSON.stringify(result.photos).includes('token='));
 });
+test('restricted website orders do not consume the photo import budget ahead of eligible orders',async t=>{
+  const order={...completed(),source:{...completed().source,id:'100'}},env=await fixture(t,order),restricted=[];
+  for(const [index,extra] of [
+    {recordsRestriction:{status:'blocked'}},
+    {recordsRestriction:{status:'anonymized'}},
+    {documentCancellations:[{documentKey:'intake',at:'2020-01-01T00:00:00Z'}]},
+    {trash:{deletedAt:'2020-01-01T00:00:00Z'}},
+    {status:'Storniert'}
+  ].entries()){
+    const saved={...completed(),...extra,id:'restricted-photo-'+index,wg:'WG-RESTRICTED-'+index,source:{...order.source,id:String(200+index)}};
+    await env.DB.prepare('INSERT INTO orders VALUES(?,?,?,?,?,?,?,?,?,?)').bind(saved.id,saved.wg,saved.source.id,1,saved.status,JSON.stringify(saved),'2020-01-01T00:00:00.000Z','test','Test fixture',0).run();
+    restricted.push(await getOrder(env,saved.id));
+  }
+  for(const [key,value] of Object.entries({hubVerified:true,autoImportApproved:true}))await setting(env,key,value);
+  await setting(env,'hubKey',await protect(env,'synthetic-hub'));
+  const photoRequests=[];
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    assert.equal(String(url),'https://white-gloss.de/api/hub');
+    const payload=JSON.parse(options.body);
+    if(payload.action==='list')return Response.json({inquiries:[]});
+    assert.equal(payload.action,'photos');photoRequests.push(String(payload.id));return Response.json({photos:[]});
+  });
+  for(let run=0;run<2;run++)assert.deepEqual((await providerOperations.background(env)).errors,[]);
+  assert.deepEqual(photoRequests,['100','100']);
+  for(const saved of restricted)assert.deepEqual(await getOrder(env,saved.id),saved);
+});
 async function connectedCalendar(env){for(const [key,value] of Object.entries({calendarOAuth:true,calendarVerified:true,calendarId:'test@example.invalid',calendarExpiresAt:Date.now()+3600000}))await setting(env,key,value);await setting(env,'calendarToken',await protect(env,'synthetic-access'));await setting(env,'calendarRefreshToken',await protect(env,'synthetic-refresh'));}
 function appointmentOrder(){return {...completed(),status:'Termin verbindlich',acceptance:{at:'2026-10-03T10:00:00Z'},appointment:{start:'2099-10-03T10:00:00Z',end:'2099-10-03T12:00:00Z',location:'Testort'}};}
 test('Google busy times include recurrent and all-day events and reject overlaps before writes',async t=>{
