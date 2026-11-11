@@ -37,10 +37,13 @@ export function calendarWorkspaceHTML(orders,{offset=0,selectedDay='',synthetic=
   const chosen=validDay(selectedDay)&&selectedDay.startsWith(monthKey)?selectedDay:offset===0?today:monthKey+'-01';
   const selectedOrders=byDay.get(chosen)??[],selectedMinutes=selectedOrders.reduce((sum,order)=>sum+duration(order),0);
   const gridStart=new Date(first);gridStart.setUTCDate(gridStart.getUTCDate()-((first.getUTCDay()+6)%7));
+  // Auf dem Handy sind die Termine im Monatsfeld nur Punkte: nicht bedienbar und nicht in der Tab-Reihenfolge.
+  // Das Tagesfeld wählt den Tag, die Aufträge öffnet man in der Tagesliste darunter.
+  const compact=Boolean(globalThis.matchMedia?.('(max-width:760px)').matches);
   const cells=Array.from({length:42},(_,index)=>{
     const date=new Date(gridStart);date.setUTCDate(gridStart.getUTCDate()+index);const key=isoDay(date),items=byDay.get(key)??[],outside=key.slice(0,7)!==monthKey,dayOffset=offset+(outside?(key<monthKey?-1:1):0);
     const label=`${fullDay.format(date)}, ${items.length?`${items.length} ${items.length===1?'Termin':'Termine'}`:'keine Termine'}`;
-    return `<div class="schedule-cell${outside?' outside':''}${key===today?' today':''}${key===chosen?' selected':''}" role="gridcell"><button type="button" class="schedule-date" data-click="calendarDay" data-day="${key}" data-offset="${dayOffset}" aria-label="${esc(label)}" aria-pressed="${key===chosen}"><span>${date.getUTCDate()}</span>${items.length?`<small>${items.length}</small>`:''}</button><div class="schedule-events">${items.slice(0,3).map(eventChip).join('')}${items.length>3?`<button type="button" class="schedule-more" data-click="calendarDay" data-day="${key}" data-offset="${dayOffset}">+ ${items.length-3} weitere</button>`:''}</div></div>`;
+    return `<div class="schedule-cell${outside?' outside':''}${key===today?' today':''}${key===chosen?' selected':''}" role="gridcell"><button type="button" class="schedule-date" data-click="calendarDay" data-day="${key}" data-offset="${dayOffset}" aria-label="${esc(label)}" aria-pressed="${key===chosen}"><span>${date.getUTCDate()}</span>${items.length?`<small>${items.length}</small>`:''}</button><div class="schedule-events"${compact?' inert':''}>${items.slice(0,3).map(eventChip).join('')}${items.length>3?`<button type="button" class="schedule-more" data-click="calendarDay" data-day="${key}" data-offset="${dayOffset}">+ ${items.length-3} weitere</button>`:''}</div></div>`;
   }).join('');
   const selectedDate=utcDay(chosen),monthText=monthName.format(first);
   const viewSwitch=`<div class="schedule-view-toggle" aria-label="Kalenderdarstellung"><button type="button" data-click="calendarMode" data-mode="agenda" aria-pressed="${mode==='agenda'}">Agenda</button><button type="button" data-click="calendarMode" data-mode="month" aria-pressed="${mode==='month'}">Monat</button></div>`;

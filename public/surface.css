@@ -561,7 +561,7 @@ button.primary,a.button.primary{border-radius:980px}
   html[data-area="operator"] .content .schedule-calendar .schedule-date small{display:none}
   html[data-area="operator"] .content .schedule-calendar .schedule-cell.selected .schedule-date>span{box-shadow:0 0 0 2px var(--gold)}
   html[data-area="operator"] .content .schedule-calendar .schedule-events{display:flex;justify-content:center;gap:3px;min-height:7px;margin-top:3px}
-  html[data-area="operator"] .content .schedule-calendar .schedule-event,html[data-area="operator"] .content .schedule-calendar .schedule-cell:has(.schedule-more) .schedule-event{display:block;flex:none;width:7px;min-width:0;height:7px;min-height:0;padding:0;border:0;border-radius:50%;background:var(--accent);font-size:0;pointer-events:none}
+  html[data-area="operator"] .content .schedule-calendar .schedule-event{display:block;flex:none;width:7px;min-width:0;height:7px;min-height:0;padding:0;border:0;border-radius:50%;background:var(--accent);font-size:0;pointer-events:none}
   html[data-area="operator"] .content .schedule-calendar .schedule-event:nth-child(n+4){display:none}
   html[data-area="operator"] .content .schedule-calendar .schedule-event>*{display:none}
   html[data-area="operator"] .content .schedule-calendar .schedule-event.proposed{background:var(--warn)}

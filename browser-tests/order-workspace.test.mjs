@@ -24,6 +24,8 @@ for(const colorScheme of ['dark','light'])for(const width of [320,390,768,1440])
       assert.equal(await button.getAttribute('aria-selected'),'true',area+' must open without changes');
       assert.deepEqual(dialogs,[],'untouched forms must not ask to discard changes');
       await page.locator('#order-panel-'+area).waitFor();
+      // Handy: jede Beschriftung, jeder Hinweis, Abschnittstitel und jede aufklappbare Zeile in jedem der sechs Bereiche ist lesbar.
+      if(width<=760){const small=await page.locator('#order-panel-'+area).evaluate(panel=>{const found=[],check=(selector,min)=>{for(const el of panel.querySelectorAll(selector)){if(!el.getClientRects().length)continue;const size=parseFloat(getComputedStyle(el).fontSize);if(size<min)found.push(selector+' '+size+'px: '+el.textContent.trim().slice(0,40));}};check('label',15);check('.hint',13);check('.sectiontitle',17);check('details>summary',16);return found;});assert.deepEqual(small,[],area+': form text is readable on phones');}
       const box=await button.boundingBox();assert.ok(box.height>=48&&box.width>=48);
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no page overflow: '+area);
     }
@@ -32,7 +34,6 @@ for(const colorScheme of ['dark','light'])for(const width of [320,390,768,1440])
     assert.equal(await page.locator('.pending h3').textContent(),'Angebot · wartet auf Kundenunterschrift');
     assert.equal(await page.locator('.mobile-task').isVisible(),false);
     assert.ok(await page.locator('.order-tabs').evaluate(el=>el.scrollWidth<=el.clientWidth),'all areas fit without horizontal scrolling');
-    if(width<=760){const form=await page.evaluate(()=>{const px=el=>el?parseFloat(getComputedStyle(el).fontSize):null,panel=document.querySelector('[role="tabpanel"]');return {label:px(panel.querySelector('label')),hint:px(panel.querySelector('.hint')),title:px(panel.querySelector('.sectiontitle')),summary:px(panel.querySelector('details>summary'))};});assert.ok((form.label===null||form.label>=15)&&(form.hint===null||form.hint>=13)&&(form.title===null||form.title>=17)&&(form.summary===null||form.summary>=16),'form text is readable on phones: '+JSON.stringify(form));}
     await f.screenshot(`order-workspace-${colorScheme}-${width}`);
     const photo=page.locator('#bookingphotoform input[type=file]');
     await photo.setInputFiles({name:'test.png',mimeType:'image/png',buffer:Buffer.from('synthetic fixture')});

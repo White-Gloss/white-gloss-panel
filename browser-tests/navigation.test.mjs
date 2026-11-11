@@ -84,6 +84,16 @@ for(const width of [1440,390,320])test(`calendar workspace stays precise and usa
     assert.ok(phone.smallest>=12,'no text in the day list is smaller than 12px: '+phone.smallest);
     await page.locator(`.schedule-date[data-day="${phone.otherDay}"]`).click({position:{x:4,y:4}});assert.equal(await page.locator(`.schedule-date[data-day="${phone.otherDay}"]`).getAttribute('aria-pressed'),'true');
     await page.locator(`.schedule-date[data-day="${today}"]`).click();assert.equal(await page.locator(`.schedule-date[data-day="${today}"]`).getAttribute('aria-pressed'),'true');
+    // Mehr als drei Termine an einem Tag: die Punkte behalten ihre Statusfarbe und sind keine Tastaturziele.
+    const slot=(hour,{proposed=false,...extra}={})=>f.seedOrder({status:'Termin verbindlich',...extra,appointment:{start:`${today}T${hour}:00:00.000Z`,end:`${today}T${hour}:30:00.000Z`,duration:30,delivery:'Kunde bringt',location:'Teststraße 1, Horb',...(proposed?{}:{confirmation:{at:new Date().toISOString(),mode:'Test'}})}});
+    await slot('06',{status:'In Arbeit'});await slot('07',{status:'Angenommen',proposed:true});await slot('14',{status:'Erledigt'});await slot('15');
+    await page.reload();await page.locator('.schedule-more').waitFor({state:'attached'});
+    const dots=await page.evaluate(today=>{const cell=document.querySelector(`.schedule-date[data-day="${today}"]`).closest('.schedule-cell'),events=[...cell.querySelectorAll('.schedule-event')],shown=events.filter(el=>el.getClientRects().length),color=el=>getComputedStyle(el).backgroundColor;const focusable=events.filter(el=>{el.focus();return document.activeElement===el;}).length;return {shown:shown.length,states:shown.map(el=>[...el.classList].find(name=>name!=='schedule-event')),colors:shown.map(color),inert:cell.querySelector('.schedule-events').inert,focusable,more:getComputedStyle(cell.querySelector('.schedule-more')).display};},today);
+    t.diagnostic('calendar dots '+width+' '+JSON.stringify(dots));
+    assert.deepEqual(dots.states,['running','proposed','confirmed'],'the first three appointments show as dots in time order');
+    assert.equal(new Set(dots.colors).size,3,'each status keeps its own dot colour: '+dots.colors);
+    assert.ok(dots.inert&&dots.focusable===0,'dots are indicators, not keyboard targets');assert.equal(dots.more,'none');
+    assert.equal(await page.locator('.schedule-day .schedule-detail[data-order]').count(),5,'every appointment stays reachable in the day list');
   }
   await f.screenshot('operator-calendar-'+width,{fullPage:true});
   const month=await page.locator('#schedule-month-title').textContent();await page.locator('[data-click="nextMonth"]').click();assert.notEqual(await page.locator('#schedule-month-title').textContent(),month);await page.locator('[data-click="today"]').click();assert.equal(await page.locator('#schedule-month-title').textContent(),month);
