@@ -72,6 +72,17 @@ for(const width of [1440,390,320])test(`calendar workspace stays precise and usa
   await page.goto(origin+'/#calendar');await page.locator('.schedule-event[data-order]').waitFor();
   assert.equal(await page.locator('.schedule-grid .schedule-cell').count(),42);assert.equal(await page.locator(`.schedule-date[data-day="${today}"]`).getAttribute('aria-pressed'),'true');assert.equal(await page.locator('.schedule-day .schedule-detail[data-order]').count(),1);
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'calendar causes no horizontal page overflow');
+  if(width<=760){
+    // Handy: große Tageszahl, Punkt je Termin, das ganze Feld wählt den Tag, lesbare Tagesliste.
+    const phone=await page.evaluate(today=>{const px=(el,prop='fontSize')=>parseFloat(getComputedStyle(el)[prop]),box=el=>el.getBoundingClientRect(),cell=document.querySelector(`.schedule-date[data-day="${today}"]`).closest('.schedule-cell'),dot=box(cell.querySelector('.schedule-event')),other=[...document.querySelectorAll('.schedule-cell:not(.outside) .schedule-date')].find(b=>b.dataset.day!==today),oc=box(other.closest('.schedule-cell')),hit=document.elementFromPoint(oc.left+oc.width/2,oc.bottom-6);return {day:px(cell.querySelector('.schedule-date>span')),dot:[Math.round(dot.width),Math.round(dot.height)],weekday:px(document.querySelector('.schedule-weekdays>div')),name:px(document.querySelector('.schedule-detail-main strong')),time:px(document.querySelector('.schedule-detail-time strong')),toggle:Math.round(box(document.querySelector('.schedule-view-toggle button')).height),pager:Math.round(Math.min(...[...document.querySelectorAll('.schedule-pager button')].map(b=>Math.min(box(b).width,box(b).height)))),wholeCell:hit===other||other.contains(hit),otherDay:other.dataset.day};},today);
+    t.diagnostic('calendar phone '+width+' '+JSON.stringify(phone));
+    assert.ok(phone.day>=16&&phone.weekday>=12&&phone.name>=16&&phone.time>=16,'calendar text is readable');
+    assert.deepEqual(phone.dot,[7,7],'an appointment shows as a dot');
+    assert.ok(phone.toggle>=40&&phone.pager>=44,'view toggle and pager are comfortable targets');
+    assert.ok(phone.wholeCell,'tapping anywhere in a day field selects that day');
+    await page.locator(`.schedule-date[data-day="${phone.otherDay}"]`).click({position:{x:4,y:4}});assert.equal(await page.locator(`.schedule-date[data-day="${phone.otherDay}"]`).getAttribute('aria-pressed'),'true');
+    await page.locator(`.schedule-date[data-day="${today}"]`).click();assert.equal(await page.locator(`.schedule-date[data-day="${today}"]`).getAttribute('aria-pressed'),'true');
+  }
   await f.screenshot('operator-calendar-'+width,{fullPage:true});
   const month=await page.locator('#schedule-month-title').textContent();await page.locator('[data-click="nextMonth"]').click();assert.notEqual(await page.locator('#schedule-month-title').textContent(),month);await page.locator('[data-click="today"]').click();assert.equal(await page.locator('#schedule-month-title').textContent(),month);
   assert.deepEqual(f.errors,[]);

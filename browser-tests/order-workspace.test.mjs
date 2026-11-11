@@ -32,6 +32,7 @@ for(const colorScheme of ['dark','light'])for(const width of [320,390,768,1440])
     assert.equal(await page.locator('.pending h3').textContent(),'Angebot · wartet auf Kundenunterschrift');
     assert.equal(await page.locator('.mobile-task').isVisible(),false);
     assert.ok(await page.locator('.order-tabs').evaluate(el=>el.scrollWidth<=el.clientWidth),'all areas fit without horizontal scrolling');
+    if(width<=760){const form=await page.evaluate(()=>{const px=el=>el?parseFloat(getComputedStyle(el).fontSize):null,panel=document.querySelector('[role="tabpanel"]');return {label:px(panel.querySelector('label')),hint:px(panel.querySelector('.hint')),title:px(panel.querySelector('.sectiontitle')),summary:px(panel.querySelector('details>summary'))};});assert.ok((form.label===null||form.label>=15)&&(form.hint===null||form.hint>=13)&&(form.title===null||form.title>=17)&&(form.summary===null||form.summary>=16),'form text is readable on phones: '+JSON.stringify(form));}
     await f.screenshot(`order-workspace-${colorScheme}-${width}`);
     const photo=page.locator('#bookingphotoform input[type=file]');
     await photo.setInputFiles({name:'test.png',mimeType:'image/png',buffer:Buffer.from('synthetic fixture')});
