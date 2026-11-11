@@ -24,6 +24,8 @@ for(const colorScheme of ['dark','light'])for(const width of [320,390,768,1440])
       assert.equal(await button.getAttribute('aria-selected'),'true',area+' must open without changes');
       assert.deepEqual(dialogs,[],'untouched forms must not ask to discard changes');
       await page.locator('#order-panel-'+area).waitFor();
+      // Handy: jede Beschriftung, jeder Hinweis, Abschnittstitel und jede aufklappbare Zeile in jedem der sechs Bereiche ist lesbar.
+      if(width<=760){const small=await page.locator('#order-panel-'+area).evaluate(panel=>{const found=[],check=(selector,min)=>{for(const el of panel.querySelectorAll(selector)){if(!el.getClientRects().length)continue;const size=parseFloat(getComputedStyle(el).fontSize);if(size<min)found.push(selector+' '+size+'px: '+el.textContent.trim().slice(0,40));}};check('label',15);check('.hint',13);check('.sectiontitle',17);check('details>summary',16);return found;});assert.deepEqual(small,[],area+': form text is readable on phones');}
       const box=await button.boundingBox();assert.ok(box.height>=48&&box.width>=48);
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no page overflow: '+area);
     }

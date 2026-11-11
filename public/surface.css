@@ -525,3 +525,64 @@ button.primary,a.button.primary{border-radius:980px}
   html[data-area="operator"] .sidebar footer .quiet-test{min-height:44px;font-size:15px}
   html[data-area="operator"] .sidebar footer .logout{min-height:50px;border:0;border-radius:12px;background:color-mix(in srgb,var(--fg) 9%,transparent);color:var(--danger);font-size:17px;font-weight:600}
 }
+
+/* WG-IOS-001 Phase 5: Formulare und Kalender auf dem Handy.
+   Formulare: lesbare Beschriftungen und Hinweise. Kalender: Monat wie in der iOS-Kalender-App mit großer Tageszahl,
+   Punkt je Termin und Tagesliste darunter; das ganze Feld wählt den Tag. */
+@media (max-width:760px){
+  html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content label{font-size:15px;line-height:1.4}
+  html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content label small,html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content .hint{font-size:13px;line-height:1.45}
+  html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content label.check{font-size:15px;line-height:1.45}
+  html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content .formsection>p{font-size:15px;line-height:1.45}
+  html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content .formsection h2{font-size:20px;line-height:1.25;letter-spacing:-.02em}
+  html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content .sectiontitle{font-size:17px;line-height:1.3;letter-spacing:-.015em}
+  html[data-area="operator"] .workspace:not([data-screen="mailbox"]) .content details>summary{min-height:44px;font-size:16px}
+
+  html[data-area="operator"] .content .schedule-calendar{border-radius:16px}
+  html[data-area="operator"] .content .schedule-calendar .schedule-commandbar{gap:14px;padding:16px}
+  html[data-area="operator"] .content .schedule-calendar .schedule-commandbar h2{font-size:24px;font-weight:700;letter-spacing:-.022em}
+  html[data-area="operator"] .content .schedule-calendar .schedule-commandbar p,html[data-area="operator"] .content .schedule-calendar .schedule-day header p{font-size:13px}
+  html[data-area="operator"] .content .schedule-calendar .schedule-view-toggle{gap:2px;padding:2px;border:0;border-radius:12px;background:color-mix(in srgb,var(--fg) 9%,transparent);overflow:visible}
+  html[data-area="operator"] .content .schedule-calendar .schedule-view-toggle button{min-height:40px;border:0;border-radius:10px;background:transparent;color:var(--fg);font-size:15px;font-weight:600}
+  html[data-area="operator"] .content .schedule-calendar .schedule-view-toggle button[aria-pressed=true]{background:var(--surface);box-shadow:var(--shadow-1)}
+  html[data-area="operator"] .content .schedule-calendar .schedule-pager{gap:6px;border:0;overflow:visible}
+  html[data-area="operator"] .content .schedule-calendar .schedule-pager button{min-width:44px;min-height:44px;border:0;border-radius:12px;background:color-mix(in srgb,var(--fg) 9%,transparent);color:var(--fg);font-size:15px;font-weight:600}
+  html[data-area="operator"] .content .schedule-calendar .schedule-actions{display:flex;flex-wrap:wrap;gap:10px;width:100%;min-width:0}
+  html[data-area="operator"] .content .schedule-calendar .schedule-view-toggle{flex:1 0 100%;min-width:0}
+  html[data-area="operator"] .content .schedule-calendar .schedule-pager{flex:0 0 auto}
+  html[data-area="operator"] .content .schedule-calendar .schedule-actions>.button{flex:1 1 auto;justify-content:center;width:auto;min-height:44px;padding:0 16px;border-radius:980px;font-size:15px;font-weight:600;white-space:nowrap}
+  html[data-area="operator"] .content .schedule-calendar .schedule-weekdays>div{padding:8px 0;border-right:0;font-size:12px;letter-spacing:.04em}
+  html[data-area="operator"] .content .schedule-calendar .schedule-grid{gap:0;background:transparent}
+  html[data-area="operator"] .content .schedule-calendar .schedule-cell{min-height:58px;padding:6px 0 4px;border-top:1px solid var(--line);background:transparent;box-shadow:none}
+  html[data-area="operator"] .content .schedule-calendar .schedule-cell.outside{background:transparent}
+  html[data-area="operator"] .content .schedule-calendar .schedule-date{justify-content:center;min-height:36px;padding:0}
+  html[data-area="operator"] .content .schedule-calendar .schedule-date::after{content:"";position:absolute;inset:0}
+  html[data-area="operator"] .content .schedule-calendar .schedule-date>span{width:34px;height:34px;font-size:16px}
+  html[data-area="operator"] .content .schedule-calendar .schedule-date small{display:none}
+  html[data-area="operator"] .content .schedule-calendar .schedule-cell.selected .schedule-date>span{box-shadow:0 0 0 2px var(--gold)}
+  html[data-area="operator"] .content .schedule-calendar .schedule-events{display:flex;justify-content:center;gap:3px;min-height:7px;margin-top:3px}
+  html[data-area="operator"] .content .schedule-calendar .schedule-event{display:block;flex:none;width:7px;min-width:0;height:7px;min-height:0;padding:0;border:0;border-radius:50%;background:var(--accent);font-size:0;pointer-events:none}
+  html[data-area="operator"] .content .schedule-calendar .schedule-event:nth-child(n+4){display:none}
+  html[data-area="operator"] .content .schedule-calendar .schedule-event>*{display:none}
+  html[data-area="operator"] .content .schedule-calendar .schedule-event.proposed{background:var(--warn)}
+  html[data-area="operator"] .content .schedule-calendar .schedule-event.running{background:var(--good)}
+  html[data-area="operator"] .content .schedule-calendar .schedule-event.done{background:var(--muted)}
+  html[data-area="operator"] .content .schedule-calendar .schedule-more{display:none}
+  html[data-area="operator"] .content .schedule-calendar .schedule-legend{gap:14px;padding:12px 16px;font-size:12px}
+  html[data-area="operator"] .content .schedule-calendar .schedule-legend i{width:8px;height:8px;border:0;border-radius:50%;background:var(--accent)}
+  html[data-area="operator"] .content .schedule-calendar .schedule-legend i.proposed{background:var(--warn)}
+  html[data-area="operator"] .content .schedule-calendar .schedule-legend i.running{background:var(--good)}
+  html[data-area="operator"] .content .schedule-calendar .schedule-day>header{padding:16px}
+  html[data-area="operator"] .content .schedule-calendar .schedule-day h3{font-size:20px;font-weight:700;letter-spacing:-.02em}
+  html[data-area="operator"] .content .schedule-calendar .schedule-detail{grid-template-columns:64px minmax(0,1fr);gap:12px;padding:14px 16px}
+  html[data-area="operator"] .content .schedule-calendar .schedule-detail-time strong{font-size:16px}
+  html[data-area="operator"] .content .schedule-calendar .schedule-detail-time small{font-size:13px}
+  html[data-area="operator"] .content .schedule-calendar .schedule-detail-main strong{font-size:16px}
+  html[data-area="operator"] .content .schedule-calendar .schedule-detail-main>span{font-size:14px;line-height:1.4}
+  html[data-area="operator"] .content .schedule-calendar .schedule-detail-main small,html[data-area="operator"] .content .schedule-calendar .schedule-detail-main>span>span{font-size:13px;line-height:1.4}
+  html[data-area="operator"] .content .schedule-calendar .schedule-detail-state{font-size:12px}
+  html[data-area="operator"] .content .schedule-calendar .schedule-agenda-row>time{font-size:13px}
+  html[data-area="operator"] .content .schedule-calendar .schedule-empty strong{font-size:17px}
+  html[data-area="operator"] .content .schedule-calendar .schedule-empty p{font-size:15px;line-height:1.45}
+  html[data-area="operator"] .content .schedule-calendar .schedule-day>footer{padding:14px 16px;font-size:13px}
+}
