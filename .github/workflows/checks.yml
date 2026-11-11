@@ -50,7 +50,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: node scripts/check-ci-browsers.mjs 1.64.1 chromium
+      # GitHub mounts HOME with the image user's owner; Firefox requires the
+      # existing directory to belong to the process user inside this CI container.
+      - name: Firefox-Profilverzeichnis im CI-Container vorbereiten
+        if: ${{ job.container.id != '' }}
+        run: chown "$(id -u):$(id -g)" "$HOME"
+      - run: node scripts/check-ci-browsers.mjs 1.64.1 chromium firefox webkit
       - run: npm run test:browser
       - uses: actions/upload-artifact@v4
         if: always()

@@ -120,4 +120,14 @@ export function htmlToText(value){
   return decode(String(value??'').replace(/<br\s*\/?>/gi,'\n').replace(/<\/(p|div|li|blockquote|h[1-6]|tr)>/gi,'\n').replace(/<li\b[^>]*>/gi,'• ').replace(/<[^>]*>/g,'')).replace(/ /g,' ').replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
 }
 // Versandfertiges HTML mit ruhiger, mailclient-tauglicher Grundformatierung.
-export function outboundHtml(content){return `<!doctype html><html><head><meta charset="utf-8"></head><body><div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.55;color:#1d2731">${content}</div></body></html>`;}
+export function outboundHtml(content,origin=''){
+  let fonts='';
+  try{
+    const url=new URL(origin);
+    if(url.protocol==='https:'&&!url.username&&!url.password){
+      const base=url.origin;
+      fonts=`@font-face{font-family:Syne;font-style:normal;font-weight:400 800;src:url("${base}/syne-variable.woff2") format("woff2")}@font-face{font-family:"Plus Jakarta Sans";font-style:normal;font-weight:400 800;src:url("${base}/plus-jakarta-sans-variable.woff2") format("woff2")}`;
+    }
+  }catch{/* Mail clients without web fonts retain the generic sans-serif fallback. */}
+  return `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${fonts}body{font-family:"Plus Jakarta Sans",sans-serif;font-size:16px;line-height:1.625;color:#1d2731}h1,h2,h3,h4,h5,h6{font-family:Syne,sans-serif;font-weight:700}h1{font-size:46px;font-weight:800;line-height:1.15;letter-spacing:-.5px}h2{font-size:32px;line-height:1.25}h3{font-size:21px}h4,h5,h6{font-size:19px}@media(max-width:767px){body{font-size:15px}h1{font-size:33px}h2{font-size:25px}h3{font-size:19px}}</style></head><body><div style="font-family:'Plus Jakarta Sans',sans-serif;line-height:1.625;color:#1d2731">${content}</div></body></html>`;
+}

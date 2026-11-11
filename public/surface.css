@@ -118,8 +118,8 @@ html[data-area="advisor"] .advisor-shell{max-width:1160px}
   dialog .modalhead::before{content:"";position:absolute;top:6px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:999px;background:color-mix(in srgb,var(--fg) 35%,transparent)}
 }
 
-/* App-Fläche: Systemschrift, Glasleiste, die Arbeit zuerst. */
-body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:-.011em}
+/* App-Fläche: gemeinsame Markenschrift, Glasleiste, die Arbeit zuerst. */
+body{font-family:var(--font-body);letter-spacing:0}
 .layout{height:100dvh;overflow:hidden}
 .sidebar{overflow-y:auto;scrollbar-width:none;scrollbar-gutter:auto}
 .sidebar::-webkit-scrollbar{display:none}
@@ -208,6 +208,7 @@ button.primary,a.button.primary{border-radius:980px}
 /* Tag/Nacht-Schalter: Sonne in der Nacht-Anzeige (Wechsel zu Tag), Mond in der Tag-Anzeige */
 .theme-toggle{display:inline-flex;align-items:center;justify-content:center;width:44px;min-width:44px;height:44px;padding:0;border:1px solid var(--line);border-radius:var(--radius-s);background:var(--surface);color:var(--fg)}
 .theme-toggle .icon{width:20px;height:20px}
+
 .theme-toggle .ico-sun{display:inline-flex}
 .theme-toggle .ico-moon{display:none}
 @media (prefers-color-scheme: light){
@@ -585,4 +586,89 @@ button.primary,a.button.primary{border-radius:980px}
   html[data-area="operator"] .content .schedule-calendar .schedule-empty strong{font-size:17px}
   html[data-area="operator"] .content .schedule-calendar .schedule-empty p{font-size:15px;line-height:1.45}
   html[data-area="operator"] .content .schedule-calendar .schedule-day>footer{padding:14px 16px;font-size:13px}
+}
+
+/* Verbindliche Typografie vom 09./11.11.2026. Die gezielten !important-Regeln
+   ersetzen frühere bereichsspezifische Schriftgrößen, nicht deren Layout.
+   Abstände, Touchflächen, Icons und semantische Statusfarben bleiben erhalten. */
+body{font-family:var(--font-body);font-size:16px!important;font-weight:400;line-height:1.625!important;color:var(--type-copy);letter-spacing:0}
+p,.fieldpair,.notice,.timeline{font-family:var(--font-body)!important;font-size:16px!important;font-weight:400;line-height:1.625!important;letter-spacing:0}
+h1,h2,h3,h4,h5,h6,.sectiontitle,.portal-hello,.brandmark{font-family:var(--font-title)!important;overflow-wrap:anywhere}
+h1,.portal-hello,#action-center-title{font-size:46px!important;font-weight:800!important;line-height:1.15!important;letter-spacing:-.5px!important}
+h2{font-size:32px!important;font-weight:700!important;line-height:1.25!important;letter-spacing:0!important}
+h3{font-size:21px!important;font-weight:700!important;line-height:1.3!important;letter-spacing:0!important}
+h4,h5,h6,.sectiontitle:not(h1,h2,h3,h4,h5,h6){font-size:19px!important;font-weight:700!important;line-height:1.3!important;letter-spacing:0!important}
+.brandmark,.sidebar .brand strong,.portal-brand,.portal-brand strong,.chat-title strong,.crumb strong{font-family:var(--font-title)!important;font-weight:700!important}
+
+button,a.button,summary{font-family:var(--font-title)!important;font-size:15px!important;font-weight:700!important;letter-spacing:0!important;text-transform:none}
+.sidebar .nav button,.sidebar .nav .navlink,.sidebar .nav-primary-label strong,.sidebar .nav-primary-sub,
+.mobile-dock button,.vo-dock a,.advisor-shell nav button,.tabs button,.cc-nav button{
+  font-family:var(--font-title)!important;font-size:16px!important;font-weight:700!important;text-transform:uppercase;letter-spacing:0!important
+}
+.mobile-dock button,.vo-dock a{overflow-wrap:normal;word-break:normal;-webkit-hyphens:auto;hyphens:auto;white-space:normal}
+.mobile-dock button>span:not(.dock-count){max-width:100%;line-height:1.2}
+
+label,legend,.eyebrow,.sidebar .navgroup,.cc-nav-heading,.cc-menu-label,.pq-label,
+.stat .top,.cc-kpi>span,.cc-task-stat>span,.action-summary>div>span,.operations-summary span,.care-summary span{
+  font-family:var(--font-title)!important;font-size:12px!important;font-weight:700!important;text-transform:uppercase;letter-spacing:1.5px!important;color:var(--type-meta);overflow-wrap:anywhere
+}
+label.check,label:has(input[type="checkbox"]),label:has(input[type="radio"]){font-family:var(--font-body)!important;font-size:16px!important;font-weight:400!important;line-height:1.625!important;text-transform:none;letter-spacing:0!important;color:inherit}
+input:not([type="checkbox"]):not([type="radio"]),select,textarea,[contenteditable="true"]{
+  font-family:var(--font-body)!important;font-size:15px!important;font-weight:500!important;line-height:1.6!important;text-transform:none;letter-spacing:0!important;color:var(--type-input)
+}
+input::placeholder,textarea::placeholder{color:var(--type-placeholder)!important;opacity:1}
+
+small,.hint,.meta,.sub,.fieldpair>span:first-child,.advisor-meta,.cc-row time,.unified-inbox-head time{
+  font-family:var(--font-body)!important;font-size:13.5px!important;font-weight:400!important;line-height:1.5!important;text-transform:none;letter-spacing:0!important
+}
+label small,.hint,.meta,.sub{color:var(--type-meta)}
+.heading>p,.premium-heading>p,.portal-heading>p:last-child,.portal-hero>p,.vo-intro>p{
+  font-family:var(--font-body)!important;font-size:18px!important;font-weight:400!important;line-height:1.55!important;color:var(--type-hero)
+}
+table,td,th,table p,table li,.system-table code{font-family:var(--font-body)!important;font-size:14px!important;line-height:1.6!important;letter-spacing:0!important}
+td,table p,table li{font-weight:400}th,td strong{font-weight:500!important}
+
+/* Zahlen werden ausschließlich über vorhandene fachliche Klassen adressiert.
+   Tabellenwerte bleiben kompakt; hervorgehobene Preise und Kennzahlen sind groß. */
+.money,.num,.navcount,.dock-count,.cc-count,.catalog-option-price,[data-price-pickup],[data-price-discount],
+.business-price,.business-fleet-price,.portal-price,.portal-amount strong,.offer-total strong,
+.catalog-grand-total strong,[data-price-total],.vo-total>span:last-child,.vo-total>strong,.vo-booking-submit>div>strong,
+.stat .value,.premium-kpi .value,.cc-kpi strong,.cc-task-stat strong,.operations-summary strong,.care-summary strong,.pq-total strong{
+  font-family:var(--font-title)!important;font-weight:800!important;font-variant-numeric:tabular-nums;letter-spacing:0!important
+}
+.business-price,.business-fleet-price,.portal-price,.portal-amount strong,.offer-total strong,
+.catalog-grand-total strong,[data-price-total],.vo-total>span:last-child,.vo-total>strong,.vo-booking-submit>div>strong,
+.stat .value,.premium-kpi .value,.cc-kpi strong,.cc-task-stat strong,.operations-summary strong,.care-summary strong,.pq-total strong{
+  font-size:28px!important;line-height:1.2!important;color:var(--type-number)
+}
+.badge,.cc-chip,.cc-mark,.system-state,.unified-inbox-channel,.unified-inbox-unread{
+  font-family:var(--font-title)!important;font-size:11px!important;font-weight:700!important;text-transform:uppercase;letter-spacing:1px!important
+}
+.portal-foot,.customer-access footer,.sidebar footer,.system-footnote,.withdrawal-text,.legal,.terms,.withdrawal,.cancellation,
+.portal-foot p,.legal p,.terms p,.withdrawal p,.cancellation p{
+  font-family:var(--font-body)!important;font-size:12px!important;font-weight:400!important;line-height:1.45!important;color:var(--type-legal);letter-spacing:0!important;text-transform:none
+}
+
+@media(max-width:767px){
+  html[data-area="operator"]{--dock-height:96px}
+  body,p,.fieldpair,.notice,.timeline,label.check,label:has(input[type="checkbox"]),label:has(input[type="radio"]){font-size:15px!important}
+  h1,.portal-hello,#action-center-title{font-size:33px!important}
+  h2{font-size:25px!important}h3{font-size:19px!important}
+  .heading>p,.premium-heading>p,.portal-heading>p:last-child,.portal-hero>p,.vo-intro>p{font-size:16px!important}
+  .business-price,.business-fleet-price,.portal-price,.portal-amount strong,.offer-total strong,
+  .catalog-grand-total strong,[data-price-total],.vo-total>span:last-child,.vo-total>strong,.vo-booking-submit>div>strong,
+  .stat .value,.premium-kpi .value,.cc-kpi strong,.cc-task-stat strong,.operations-summary strong,.care-summary strong,.pq-total strong{font-size:24px!important}
+  /* 16 px verhindert den Fokus-Zoom von iOS; Feldgeometrie bleibt unverändert. */
+  input:not([type="checkbox"]):not([type="radio"]),select,textarea,[contenteditable="true"]{font-size:16px!important}
+  /* Diese vorhandenen Knöpfe und Kalendermarken zeigen ausschließlich Icons. */
+  .top-actions .testswitch,.top-actions .search-return,
+  html[data-area="operator"] .workspace .content .order-table tbody .smallbtn,
+  html[data-area="operator"] .content .schedule-calendar .schedule-event{font-size:0!important}
+}
+@media(max-width:360px){
+  html[data-area="operator"]{--dock-height:112px}
+  .mobile-dock button>span:not(.dock-count){letter-spacing:-.25px!important}
+}
+@media print{
+  :root,:root[data-theme]{--type-copy:var(--fg);--type-hero:var(--fg);--type-meta:var(--muted);--type-input:var(--fg);--type-placeholder:var(--muted);--type-legal:var(--muted);--type-number:var(--fg)}
 }

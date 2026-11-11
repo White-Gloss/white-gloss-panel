@@ -8,7 +8,7 @@ import {digest} from '../server/auth.mjs';
 test('same-origin brand stylesheet and WOFF2 fonts load before authentication without exposing private files',async t=>{
   const env={PANEL_ORIGIN:'https://panel.example.invalid',OWNER_EMAIL_SHA256:digest('owner@example.invalid'),CONFIG_KEY:Buffer.alloc(32,8).toString('base64'),DB:new PanelDatabase(':memory:'),ASSETS:new StaticAssets(resolve('public'))};
   t.after(()=>env.DB.close());const app=await createApplication(env);
-  for(const path of ['/brand.css','/barlow-latin.woff2','/barlow-latin-medium.woff2','/barlow-latin-semibold.woff2']){
+  for(const path of ['/brand.css','/syne-variable.woff2','/plus-jakarta-sans-variable.woff2']){
     const response=await app.fetch(new Request(env.PANEL_ORIGIN+path));assert.equal(response.status,200,path);
     assert.equal(response.headers.get('content-type'),path.endsWith('.woff2')?'font/woff2':'text/css; charset=utf-8');
     const bytes=Buffer.from(await response.arrayBuffer());assert.ok(bytes.length>1000);
