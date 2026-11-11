@@ -86,8 +86,20 @@ test('phone layout: equal header buttons, content clear of the tasks button, com
   assert.equal(row.radius, '0px', 'rows are lines of one group, not single cards');
   await f.screenshot('ios-active-390-dark');
   await page.locator('.mobile-dock [data-click="menu"]').click(); await page.locator('.sidebar.open').waitFor();
+  // „Mehr“ ist ein Blatt von unten: volle Breite, am unteren Rand, Zeilen als 44-px-Ziele, kein zweites Menüsymbol oben.
+  const sheet = await page.evaluate(() => {
+    const box = el => el.getBoundingClientRect(), bar = document.querySelector('.sidebar.open'), r = box(bar), rows = [...bar.querySelectorAll('.nav:not([hidden]):not(.nav-primary) button, .nav:not([hidden]):not(.nav-primary) .navlink')], close = box(bar.querySelector('.sidebar-close'));
+    return {left: Math.round(r.left), width: Math.round(r.width), bottomGap: Math.round(innerHeight - r.bottom), top: Math.round(r.top), radius: getComputedStyle(bar).borderTopLeftRadius, rowH: Math.min(...rows.map(row => Math.round(box(row).height))), rowFont: Math.min(...rows.map(row => parseFloat(getComputedStyle(row).fontSize))), rows: rows.length, close: Math.round(Math.min(close.width, close.height)), burger: getComputedStyle(document.querySelector('.topbar .mobile-menu')).display, noOverflow: document.documentElement.scrollWidth <= innerWidth};
+  });
+  log('sheet', sheet);
+  assert.deepEqual([sheet.left, sheet.width, sheet.bottomGap], [0, 390, 0], 'the menu is a full-width sheet at the bottom edge');
+  assert.ok(sheet.top >= 40, 'the page stays visible above the sheet: ' + sheet.top);
+  assert.equal(sheet.radius, '22px');
+  assert.ok(sheet.rows >= 3 && sheet.rowH >= 44 && sheet.rowFont >= 16, 'menu rows are readable 44px targets');
+  assert.ok(sheet.close >= 44, 'close is a 44px target'); assert.equal(sheet.burger, 'none', 'no second menu button in the top bar'); assert.ok(sheet.noOverflow);
   await f.screenshot('ios-menu-390-dark', {fullPage: false});
   await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.mobile-dock [data-click="menu"]').evaluate(el => el === document.activeElement), true, 'focus returns to the Mehr tab');
   // Gemeinsamer Eingang: lesbare Zeilen innerhalb des Bildschirms.
   await page.locator('.mobile-dock [data-view="inbox"]').click(); await page.locator('.unified-inbox-item').first().waitFor();
   const inbox = await page.evaluate(() => {

@@ -498,3 +498,30 @@ button.primary,a.button.primary{border-radius:980px}
   html[data-area="operator"] .cc .cc-panel h2{min-width:0;font-size:16px}
   html[data-area="operator"] .cc .cc-panel>header .cc-link{flex:none;font-size:14px;white-space:nowrap}
 }
+
+/* WG-IOS-001 Phase 4: „Mehr“ auf dem Handy als Blatt von unten statt als Schublade von links.
+   Der Auslöser sitzt unten rechts in der Tab-Leiste; das Blatt kommt von dort. Jede Gruppe ist eine
+   zusammenhängende Liste mit Trennlinien. Das zweite Menüsymbol oben links entfällt. */
+@media (max-width:760px){
+  html[data-area="operator"] .topbar .mobile-menu{display:none}
+  html[data-area="operator"] .sidebar{inset:auto 0 0 0;width:100%;height:auto;max-height:calc(100dvh - 44px - env(safe-area-inset-top,0px));padding:26px 16px calc(16px + env(safe-area-inset-bottom,0px));border:0;border-top:1px solid var(--line);border-radius:22px 22px 0 0;box-shadow:var(--shadow-2);transform:translateY(100%);transition:transform .34s cubic-bezier(.32,.72,0,1),visibility 0s linear .34s}
+  html[data-area="operator"] .sidebar.open{transform:none;transition:transform .34s cubic-bezier(.32,.72,0,1),visibility 0s}
+  html[data-area="operator"] .sidebar::before{content:"";position:absolute;top:8px;left:50%;width:36px;height:5px;margin-left:-18px;border-radius:999px;background:color-mix(in srgb,var(--fg) 30%,transparent)}
+  html[data-area="operator"] .sidebar .sidebar-close{top:16px;right:14px;width:44px;height:44px;border:0;background:color-mix(in srgb,var(--fg) 9%,transparent);color:var(--fg)}
+  html[data-area="operator"] .sidebar .brand{margin:0 60px 18px 4px}
+  html[data-area="operator"] .sidebar .nav.nav-primary{gap:8px;margin-bottom:6px}
+  html[data-area="operator"] .sidebar>.navgroup{min-height:44px;margin:14px 4px 4px;padding:0 8px;font-size:13px}
+  html[data-area="operator"] .sidebar>.nav:not(.nav-primary){gap:0;overflow:hidden;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+  html[data-area="operator"] .sidebar>.nav:not(.nav-primary) button,html[data-area="operator"] .sidebar>.nav:not(.nav-primary) .navlink{min-height:50px;padding:0 14px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;box-shadow:none;color:var(--fg);font-size:17px;font-weight:400;letter-spacing:-.015em}
+  html[data-area="operator"] .sidebar>.nav:not(.nav-primary)>:last-child{border-bottom:0}
+  html[data-area="operator"] .sidebar>.nav:not(.nav-primary) button::after,html[data-area="operator"] .sidebar>.nav:not(.nav-primary) .navlink::after{content:"";flex:none;width:8px;height:8px;margin-left:auto;border-top:2px solid var(--muted);border-right:2px solid var(--muted);transform:rotate(45deg)}
+  html[data-area="operator"] .sidebar>.nav:not(.nav-primary) button:has(.navcount:not([hidden]))::after{margin-left:10px}
+  html[data-area="operator"] .sidebar>.nav:not(.nav-primary) button.navchild{padding-left:14px}
+  html[data-area="operator"] .sidebar>.nav:not(.nav-primary) button.navchild::before{content:none}
+  html[data-area="operator"] .sidebar>.nav:not(.nav-primary) button.active{background:color-mix(in srgb,var(--gold) 12%,transparent);box-shadow:none;color:var(--fg);font-weight:600}
+  html[data-area="operator"] .sidebar>.nav:not(.nav-primary) button.active .icon{color:var(--gold)}
+  html[data-area="operator"] .sidebar>.nav:not(.nav-primary) button:focus-visible,html[data-area="operator"] .sidebar>.nav:not(.nav-primary) .navlink:focus-visible{outline-offset:-3px}
+  html[data-area="operator"] .sidebar footer{margin-top:20px;padding:16px 4px 0;font-size:13px}
+  html[data-area="operator"] .sidebar footer .quiet-test{min-height:44px;font-size:15px}
+  html[data-area="operator"] .sidebar footer .logout{min-height:50px;border:0;border-radius:12px;background:color-mix(in srgb,var(--fg) 9%,transparent);color:var(--danger);font-size:17px;font-weight:600}
+}
