@@ -36,23 +36,21 @@ jobs:
       - run: sudo visudo -cf deploy/white-gloss-panel-ci.sudoers
   browser:
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
+      options: --ipc=host
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Paketquellen des GitHub-Runners vorbereiten
-        if: ${{ runner.environment == 'github-hosted' }}
-        env:
-          WG_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
-        run: bash scripts/prepare-github-apt.sh
       - uses: actions/setup-node@v4
         with:
           node-version: '22.23.2'
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - run: node scripts/check-ci-browsers.mjs 1.64.1 chromium
       - run: npm run test:browser
       - uses: actions/upload-artifact@v4
         if: always()
