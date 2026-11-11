@@ -13,14 +13,16 @@ for(const width of [390,1440])for(const colorScheme of ['dark','light'])test(`AU
  const welcome=page.getByRole('heading',{name:'Willkommen zurück',exact:true});assert.equal(await welcome.count(),1);
  const welcomeParts=await welcome.evaluate(title=>{
   const node=title.firstChild;
+  const rectangles=(start,end)=>{const range=document.createRange();range.setStart(node,start);range.setEnd(node,end);return [...range.getClientRects()].filter(rect=>rect.width>0&&rect.height>0).map(rect=>({left:rect.left,top:rect.top,width:rect.width,height:rect.height}));};
   return ['Will','kommen','zurück'].map(part=>{
    const start=node.textContent.indexOf(part),glyphs=[...part].map((letter,index)=>{
-    const range=document.createRange();range.setStart(node,start+index);range.setEnd(node,start+index+1);
-    // A soft-hyphen line boundary can add an empty rectangle on the preceding row.
-    const rects=[...range.getClientRects()].filter(rect=>rect.width>0&&rect.height>0).map(rect=>({top:Math.round(rect.top),width:rect.width}));
-    return {letter,rects};
+    const offset=start+index,measured=rectangles(offset,offset+1),precedingHyphen=node.textContent[offset-1]==='\u00ad'?rectangles(offset-1,offset):[];
+    // Chromium includes the preceding rendered soft hyphen in the next letter's range.
+    // Exclude only that separately measured rectangle; every actual letter must remain.
+    const rects=measured.filter(rect=>!precedingHyphen.some(hyphen=>['left','top','width','height'].every(key=>rect[key]===hyphen[key])));
+    return {letter,rects,precedingHyphen};
    });
-   return {part,glyphs,rows:new Set(glyphs.flatMap(glyph=>glyph.rects.map(rect=>rect.top))).size};
+   return {part,glyphs,rows:new Set(glyphs.flatMap(glyph=>glyph.rects.map(rect=>Math.round(rect.top)))).size};
   });
  });
  t.diagnostic('customer welcome wrapping '+width+' '+JSON.stringify(welcomeParts));assert.ok(welcomeParts.every(part=>part.rows===1&&part.glyphs.every(glyph=>glyph.rects.length>0)),'the welcome title wraps at whole readable word parts');
