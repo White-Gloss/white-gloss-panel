@@ -66,7 +66,7 @@ test('phone layout: equal header buttons, content clear of the tasks button, com
   });
   log('filters', filters);
   assert.equal(filters.rows, 1, 'the four groups share one row at 390px');
-  assert.ok(filters.groupH.every(h => h >= 40) && filters.chipH >= 40, 'groups and status filters are comfortable targets');
+  assert.ok(filters.groupH.every(h => h >= 44) && filters.chipH >= 44, 'groups and status filters are 44px targets');
   assert.ok(filters.fits && filters.barScroll, 'no filter is cut off and the bar does not scroll sideways');
   assert.equal(filters.active, 1);
   await f.screenshot('ios-requests-390-dark', {fullPage: false});
@@ -99,6 +99,11 @@ test('phone layout: equal header buttons, content clear of the tasks button, com
   assert.ok(inbox.itemH >= 60 && inbox.search >= 44, 'rows and search are comfortable targets');
   assert.ok(inbox.inside && inbox.noOverflow, 'the inbox stays inside the screen');
   assert.ok(inbox.controlGap >= 4 && inbox.controlGap <= 16, 'search and filter sit close together: ' + inbox.controlGap);
+  // Tastaturfokus: Der Ring liegt innerhalb der abgerundeten Liste und wird nicht abgeschnitten.
+  await page.locator('[data-unified-filter]').focus(); await page.keyboard.press('Tab');
+  const ring = await page.evaluate(() => { const item = document.activeElement, c = getComputedStyle(item); return {focused: item.matches('.unified-inbox-item'), offset: parseFloat(c.outlineOffset), width: parseFloat(c.outlineWidth), style: c.outlineStyle}; });
+  log('inbox focus', ring);
+  assert.ok(ring.focused && ring.style !== 'none' && ring.width >= 2 && ring.offset < 0, 'the focus ring is drawn inside the row: ' + JSON.stringify(ring));
   await f.screenshot('ios-inbox-390-dark', {fullPage: false});
 
   await page.goto(origin + '/#mailbox'); await page.locator('.cc-head').waitFor();

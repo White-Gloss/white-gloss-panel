@@ -468,11 +468,11 @@ button.primary,a.button.primary{border-radius:980px}
 @media (max-width:760px){
   html[data-area="operator"] .content .toolbar:has(.order-groups){display:flex;flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:10px;overflow:visible;padding:12px}
   html[data-area="operator"] .content .toolbar:has(.order-groups) .order-groups{display:flex;flex-wrap:wrap;gap:2px;padding:2px;border-radius:12px;background:color-mix(in srgb,var(--fg) 9%,transparent)}
-  html[data-area="operator"] .content .toolbar:has(.order-groups) .order-groups button{flex:1 1 auto;min-height:40px;padding:0 4px;border:0;border-radius:10px;background:transparent;color:var(--fg);font-size:13px;font-weight:600;white-space:nowrap}
+  html[data-area="operator"] .content .toolbar:has(.order-groups) .order-groups button{flex:1 1 auto;min-height:44px;padding:0 4px;border:0;border-radius:10px;background:transparent;color:var(--fg);font-size:13px;font-weight:600;white-space:nowrap}
   html[data-area="operator"] .content .toolbar:has(.order-groups) .order-groups button.active{background:var(--surface);box-shadow:var(--shadow-1)}
   html[data-area="operator"] .content .toolbar:has(.order-groups) .order-groups .group-long{display:none}
   html[data-area="operator"] .content .toolbar:has(.order-groups) .order-filters{display:flex;flex-wrap:wrap;gap:8px}
-  html[data-area="operator"] .content .toolbar:has(.order-groups) .order-filters button,html[data-area="operator"] .content .toolbar:has(.order-groups) .filter-more>summary{min-height:40px;padding:0 14px;border-radius:980px;font-size:14px;font-weight:500;white-space:nowrap}
+  html[data-area="operator"] .content .toolbar:has(.order-groups) .order-filters button,html[data-area="operator"] .content .toolbar:has(.order-groups) .filter-more>summary{min-height:44px;padding:0 14px;border-radius:980px;font-size:14px;font-weight:500;white-space:nowrap}
   html[data-area="operator"] .content .toolbar:has(.order-groups) .filter-more>summary{display:flex;align-items:center}
   html[data-area="operator"] .content .toolbar:has(.order-groups) .order-filters button.active{border-color:var(--accent);background:var(--accent);color:var(--on-accent)}
 
@@ -486,6 +486,7 @@ button.primary,a.button.primary{border-radius:980px}
   html[data-area="operator"] .content .unified-inbox .unified-inbox-status{font-size:13px}
   html[data-area="operator"] .content .unified-inbox .unified-inbox-list{overflow:hidden;border-radius:16px}
   html[data-area="operator"] .content .unified-inbox .unified-inbox-item{min-height:72px;padding:14px 16px}
+  html[data-area="operator"] .content .unified-inbox .unified-inbox-item:focus-visible{outline-offset:-3px}
   html[data-area="operator"] .content .unified-inbox .unified-inbox-channel{padding:3px 9px;border-radius:980px;font-size:12px}
   html[data-area="operator"] .content .unified-inbox .unified-inbox-head strong{font-size:16px;font-weight:600}
   html[data-area="operator"] .content .unified-inbox .unified-inbox-head time{font-size:13px}
