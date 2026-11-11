@@ -25,7 +25,7 @@ for (const [file, area] of Object.entries(areas)) {
     const html = readFileSync(new URL('../public/' + file, import.meta.url), 'utf8');
     const metas = [...html.matchAll(/<meta name="theme-color"[^>]*>/g)].map(m => m[0]);
     if (!metas.length) return;
-    assert.ok(metas.some(m => m.includes('(prefers-color-scheme: dark)') && m.includes('#0b0d10')), 'dark');
+    assert.ok(metas.some(m => m.includes('(prefers-color-scheme: dark)') && m.includes('#0e1218')), 'dark');
     assert.ok(metas.some(m => m.includes('(prefers-color-scheme: light)') && m.includes('#f5f3ee')), 'light');
   });
 }
