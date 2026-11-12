@@ -155,3 +155,100 @@ test('day/night toggle switches, remembers the choice and the bar has five entri
   assert.equal(await page.locator('.topbar [data-theme-toggle]').isVisible(), true);
   assert.deepEqual(f.errors, []);
 });
+
+test('back gesture returns to the previous screen and closes the menu sheet', async t => {
+  const f = await browserFixture(t, {viewport: {width: 390, height: 844}, colorScheme: 'dark'}), {page} = f;
+  const log = (step, data) => t.diagnostic('BACK ' + step + ' ' + JSON.stringify(data));
+  const where = () => page.evaluate(() => ({hash: location.hash, title: document.querySelector('#content h1, #action-center-title')?.textContent.trim() ?? '', order: Boolean(document.querySelector('.order-tabs')), menu: document.querySelectorAll('.sidebar.open').length}));
+  const until = check => page.waitForFunction(check, null, {timeout: 5000});
+  page.setDefaultTimeout(10000);
+  await f.seedOrder({status: 'In Arbeit'});
+  await page.goto(origin); await page.locator('#action-center-title').waitFor();
+
+  // Start -> Aufträge -> Auftrag, dann zweimal zurück.
+  await page.locator('.mobile-dock [data-view="orders"]').click(); await page.locator('.order-table tbody tr').first().waitFor();
+  await page.locator('.order-table tbody tr').first().click(); await page.locator('.order-tabs').waitFor();
+  assert.match((await where()).hash, /^#auftrag=/);
+  await page.goBack(); await until(() => location.hash === '#orders' && !document.querySelector('.order-tabs'));
+  log('order->list', await where());
+  assert.equal(await page.locator('.order-table tbody tr').count(), 1, 'back from an order shows the order list');
+  await page.goBack(); await page.locator('#action-center-title').waitFor();
+  log('list->start', await where());
+  assert.equal((await where()).hash, '', 'back from the list returns to the start screen');
+
+  // Der Knopf „Zurück“ im Auftrag verbraucht den Verlaufseintrag: danach führt eine Zurück-Geste direkt zum Start.
+  await page.locator('.mobile-dock [data-view="orders"]').click(); await page.locator('.order-table tbody tr').first().click(); await page.locator('.order-tabs').waitFor();
+  await page.locator('[data-click="back"]').click(); await until(() => location.hash === '#orders' && !document.querySelector('.order-tabs'));
+  await page.goBack(); await page.locator('#action-center-title').waitFor();
+  log('button+gesture', await where());
+  assert.equal((await where()).hash, '', 'no dead back step after the Zurück button');
+
+  // Blatt „Mehr“: Zurück schließt das Blatt und bleibt auf dem Bildschirm.
+  await page.locator('.mobile-dock [data-view="orders"]').click(); await page.locator('.order-table tbody tr').first().waitFor();
+  await page.locator('.mobile-dock [data-click="menu"]').click(); await page.locator('.sidebar.open').waitFor();
+  await page.goBack(); await until(() => !document.querySelector('.sidebar.open'));
+  log('menu closed by back', await where());
+  assert.deepEqual([(await where()).hash, await page.locator('.order-table tbody tr').count()], ['#orders', 1], 'back closes the sheet and stays on the list');
+  assert.equal(await page.locator('.mobile-dock [data-click="menu"]').getAttribute('aria-expanded'), 'false');
+
+  // Mit Escape geschlossen bleibt kein toter Eintrag zurück.
+  await page.locator('.mobile-dock [data-click="menu"]').click(); await page.locator('.sidebar.open').waitFor();
+  await page.keyboard.press('Escape'); await until(() => !document.querySelector('.sidebar.open') && history.state?.wgLayer !== 'menu');
+  await page.goBack(); await page.locator('#action-center-title').waitFor();
+  assert.equal((await where()).hash, '', 'no dead back step after closing the sheet with Escape');
+
+  // Ziel im Blatt gewählt: ein Schritt zurück führt zum Bildschirm davor.
+  await page.locator('.mobile-dock [data-view="orders"]').click(); await page.locator('.order-table tbody tr').first().waitFor();
+  await page.locator('.mobile-dock [data-click="menu"]').click(); await page.locator('.sidebar.open').waitFor();
+  await page.locator('.sidebar [data-view="calendar"]').click(); await page.locator('.schedule-calendar').waitFor();
+  assert.equal((await where()).hash, '#calendar');
+  await page.goBack(); await until(() => location.hash === '#orders');
+  await page.locator('.order-table tbody tr').first().waitFor();
+  log('menu target->back', await where());
+  assert.equal(await page.locator('.schedule-calendar').count(), 0, 'one back step leaves the chosen screen');
+
+  // Vorwärts nach Zurück öffnet das Blatt wieder; das nächste Zurück schließt es sichtbar.
+  await page.locator('.mobile-dock [data-click="menu"]').click(); await page.locator('.sidebar.open').waitFor();
+  await page.goBack(); await until(() => !document.querySelector('.sidebar.open'));
+  await page.goForward(); await page.locator('.sidebar.open').waitFor();
+  assert.equal(await page.locator('.mobile-dock [data-click="menu"]').getAttribute('aria-expanded'), 'true', 'forward restores the open sheet');
+  await page.goBack(); await until(() => !document.querySelector('.sidebar.open'));
+  assert.equal((await where()).hash, '#orders');
+
+  // Abgelehntes „Änderungen verwerfen?“: der Auftrag bleibt offen, und die Liste wird beim nächsten Zurück nicht übersprungen.
+  let accept = false; const prompts = [];
+  page.on('dialog', async dialog => { prompts.push(dialog.message()); if (accept) await dialog.accept(); else await dialog.dismiss(); });
+  await page.locator('.order-table tbody tr').first().click(); await page.locator('.order-tabs').waitFor();
+  await page.locator('#order-panel-source input[name="name"]').fill('Geändert');
+  await page.goBack(); await until(() => /^#auftrag=/.test(location.hash) && history.state?.wgFrom === '#orders');
+  log('refused discard', {...await where(), prompts: prompts.length});
+  assert.equal(prompts.length, 1, 'leaving a changed form asks once');
+  assert.equal(await page.locator('#order-panel-source input[name="name"]').inputValue(), 'Geändert', 'the edit survives a refused back');
+  accept = true;
+  await page.goBack(); await until(() => location.hash === '#orders' && !document.querySelector('.order-tabs'));
+  assert.equal(await page.locator('.order-table tbody tr').count(), 1, 'the next confirmed back shows the list, not the screen before it');
+  page.removeAllListeners('dialog');
+
+  // In den Papierkorb: zurück zur Liste ohne toten Schritt, und Vorwärts öffnet den gelöschten Auftrag nicht mehr.
+  await page.locator('.order-table tbody tr').first().click(); await page.locator('.order-tabs').waitFor();
+  await page.locator('.order-more > summary').click(); await page.locator('[data-click="deleteOrder"]').click();
+  await page.locator('#deleteorderform [type="submit"]').click();
+  await until(() => location.hash === '#orders' && !document.querySelector('.order-tabs') && !history.state?.wgFrom?.startsWith('#auftrag'));
+  await page.locator('#modal').waitFor({state: 'hidden'});
+  await page.goForward(); await page.waitForTimeout(300);
+  assert.equal((await where()).order, false, 'forward does not reopen the deleted order');
+  if ((await where()).hash !== '#orders') await until(() => location.hash === '#orders');
+  await page.goBack(); if ((await where()).hash === '#orders') await page.goBack();
+  await page.locator('#action-center-title').waitFor();
+  log('after delete', await where());
+
+  // „Testbereich“ aus dem Blatt zeichnet neu und schließt es: danach bleibt kein unsichtbarer Eintrag zurück.
+  await page.locator('.mobile-dock [data-view="orders"]').click(); await page.locator('#content h1').first().waitFor();
+  await page.locator('.mobile-dock [data-click="menu"]').click(); await page.locator('.sidebar.open').waitFor();
+  await page.locator('.sidebar [data-click="test"]').click();
+  await until(() => !document.querySelector('.sidebar.open') && history.state?.wgLayer !== 'menu');
+  await page.goBack(); await page.locator('#action-center-title').waitFor();
+  assert.equal((await where()).hash, '', 'one back step after the test switch leaves the list');
+  assert.deepEqual(f.errors, []);
+});
+
