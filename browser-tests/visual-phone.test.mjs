@@ -206,6 +206,49 @@ test('back gesture returns to the previous screen and closes the menu sheet', as
   await page.locator('.order-table tbody tr').first().waitFor();
   log('menu target->back', await where());
   assert.equal(await page.locator('.schedule-calendar').count(), 0, 'one back step leaves the chosen screen');
+
+  // Vorwärts nach Zurück öffnet das Blatt wieder; das nächste Zurück schließt es sichtbar.
+  await page.locator('.mobile-dock [data-click="menu"]').click(); await page.locator('.sidebar.open').waitFor();
+  await page.goBack(); await until(() => !document.querySelector('.sidebar.open'));
+  await page.goForward(); await page.locator('.sidebar.open').waitFor();
+  assert.equal(await page.locator('.mobile-dock [data-click="menu"]').getAttribute('aria-expanded'), 'true', 'forward restores the open sheet');
+  await page.goBack(); await until(() => !document.querySelector('.sidebar.open'));
+  assert.equal((await where()).hash, '#orders');
+
+  // Abgelehntes „Änderungen verwerfen?“: der Auftrag bleibt offen, und die Liste wird beim nächsten Zurück nicht übersprungen.
+  let accept = false; const prompts = [];
+  page.on('dialog', async dialog => { prompts.push(dialog.message()); if (accept) await dialog.accept(); else await dialog.dismiss(); });
+  await page.locator('.order-table tbody tr').first().click(); await page.locator('.order-tabs').waitFor();
+  await page.locator('#order-panel-source input[name="name"]').fill('Geändert');
+  await page.goBack(); await until(() => /^#auftrag=/.test(location.hash) && history.state?.wgFrom === '#orders');
+  log('refused discard', {...await where(), prompts: prompts.length});
+  assert.equal(prompts.length, 1, 'leaving a changed form asks once');
+  assert.equal(await page.locator('#order-panel-source input[name="name"]').inputValue(), 'Geändert', 'the edit survives a refused back');
+  accept = true;
+  await page.goBack(); await until(() => location.hash === '#orders' && !document.querySelector('.order-tabs'));
+  assert.equal(await page.locator('.order-table tbody tr').count(), 1, 'the next confirmed back shows the list, not the screen before it');
+  page.removeAllListeners('dialog');
+
+  // In den Papierkorb: zurück zur Liste ohne toten Schritt, und Vorwärts öffnet den gelöschten Auftrag nicht mehr.
+  await page.locator('.order-table tbody tr').first().click(); await page.locator('.order-tabs').waitFor();
+  await page.locator('.order-more > summary').click(); await page.locator('[data-click="deleteOrder"]').click();
+  await page.locator('#deleteorderform [type="submit"]').click();
+  await until(() => location.hash === '#orders' && !document.querySelector('.order-tabs') && !history.state?.wgFrom?.startsWith('#auftrag'));
+  await page.locator('#modal').waitFor({state: 'hidden'});
+  await page.goForward(); await page.waitForTimeout(300);
+  assert.equal((await where()).order, false, 'forward does not reopen the deleted order');
+  if ((await where()).hash !== '#orders') await until(() => location.hash === '#orders');
+  await page.goBack(); if ((await where()).hash === '#orders') await page.goBack();
+  await page.locator('#action-center-title').waitFor();
+  log('after delete', await where());
+
+  // „Testbereich“ aus dem Blatt zeichnet neu und schließt es: danach bleibt kein unsichtbarer Eintrag zurück.
+  await page.locator('.mobile-dock [data-view="orders"]').click(); await page.locator('#content h1').first().waitFor();
+  await page.locator('.mobile-dock [data-click="menu"]').click(); await page.locator('.sidebar.open').waitFor();
+  await page.locator('.sidebar [data-click="test"]').click();
+  await until(() => !document.querySelector('.sidebar.open') && history.state?.wgLayer !== 'menu');
+  await page.goBack(); await page.locator('#action-center-title').waitFor();
+  assert.equal((await where()).hash, '', 'one back step after the test switch leaves the list');
   assert.deepEqual(f.errors, []);
 });
 
