@@ -1,5 +1,7 @@
 # Abschlussprüfung und Übergabe · 11.11.2026
 
+> **Korrigierter Umfang vom 12.11.2026:** Die neue Schrift ist ausschließlich für die Webseite `https://white-gloss.de` bestimmt. Die damalige Ausweitung auf das Panel und seine Oberflächen war ein Umsetzungsfehler. Dieser Bericht bleibt als historischer Nachweis erhalten; seine gemeinsame Schriftzuordnung ist keine aktuelle Vorgabe. Die gezielte Rücknahme und die erhaltenen Fehlerkorrekturen stehen in [Schriftumfang-2026-11-12.md](Schriftumfang-2026-11-12.md).
+
 Dieser Bericht beschreibt die geprüften Korrekturen und die Bedingungen für ihre
 Veröffentlichung. Er bestätigt **keinen Abschluss aller strategischen Phasen**
 des White-Gloss-Masterbriefings. Die endgültigen Typografie-Nachweise gehören

@@ -82,7 +82,7 @@ function mountPortalNavigation(root){
 const tel=phone=>String(phone??'').replace(/[^\d+]/g,'').replace(/^0/,'+49');
 
 function orderView(o){
-  return `${hero(o)}${o.restricted?'':`<nav class="portal-jump" aria-label="Direkt zu Ihrem Auftrag"><a href="#leistungen-${esc(o.id)}" aria-label="Termin & Leistungen">Termin & Leis&shy;tungen</a><a href="#uebergabe-${esc(o.id)}" aria-label="Übergabe & Schlüssel">Über&shy;gabe & Schlüs&shy;sel</a><a href="#angaben-${esc(o.id)}">Ihre Angaben</a><a href="#dokumente-${esc(o.id)}" aria-label="Dokumente${o.documents.length?' '+o.documents.length:''}">Doku&shy;mente${o.documents.length?` <span>${o.documents.length}</span>`:''}</a><a href="#nachrichten-${esc(o.id)}" aria-label="Nachrichten">Nach&shy;richten</a><a href="#vehicle-gallery" aria-label="Fahrzeugfotos">Fahrzeug&shy;fotos</a></nav>`}
+  return `${hero(o)}${o.restricted?'':`<nav class="portal-jump" aria-label="Direkt zu Ihrem Auftrag"><a href="#leistungen-${esc(o.id)}">Termin & Leistungen</a><a href="#uebergabe-${esc(o.id)}">Übergabe & Schlüssel</a><a href="#angaben-${esc(o.id)}">Ihre Angaben</a><a href="#dokumente-${esc(o.id)}">Dokumente${o.documents.length?` <span>${o.documents.length}</span>`:''}</a><a href="#nachrichten-${esc(o.id)}">Nachrichten</a><a href="#vehicle-gallery">Fahrzeugfotos</a></nav>`}
   <div class="portal-grid">
   <div class="portal-col">${todo(o)}<div class="portal-section" id="leistungen-${esc(o.id)}">${appointment(o)}${handover(o)}${services(o)}${extrasView(o)}</div>${inquiry(o)}</div>
   <div class="portal-col">${messages(o)}${orderGalleryHTML()}${documents(o)}${invoice(o)}${review(o)}</div></div>`;
