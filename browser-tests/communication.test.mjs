@@ -36,7 +36,7 @@ for(const viewport of viewports)test(`communication center layout and mail workf
     const head=await page.locator('.cc-head').evaluate(element=>{const title=element.querySelector('h1'),style=getComputedStyle(title);return {h:Math.round(element.getBoundingClientRect().height),title:{size:parseFloat(style.fontSize),width:title.clientWidth,scroll:title.scrollWidth},targets:[...element.querySelectorAll('button')].filter(b=>b.getBoundingClientRect().width>0).map(b=>Math.round(Math.min(b.getBoundingClientRect().width,b.getBoundingClientRect().height)))};});
     t.diagnostic('cc head '+tag+' '+JSON.stringify(head));
     assert.ok(head.h<=56,'title and status share one row: '+head.h);assert.ok(head.targets.every(size=>size>=44),'header buttons are 44px targets: '+head.targets);
-    assert.ok(head.title.size===33&&head.title.scroll<=head.title.width+1,'the full 33px title is visible');
+    assert.ok(head.title.size===26&&head.title.scroll<=head.title.width+1,'the full original 26px title is visible');
     const panels=await page.locator('.cc-panel>header').evaluateAll(headers=>headers.map(header=>{const style=getComputedStyle(header),title=header.querySelector('h2');return {title:title.textContent,width:title.getBoundingClientRect().width,available:header.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)};}));
     t.diagnostic('cc card headings '+tag+' '+JSON.stringify(panels));
     assert.ok(panels.every(panel=>panel.width>=panel.available-1),'card titles have their own full-width row');

@@ -1,10 +1,10 @@
-/* White Gloss: measured website colors and self-hosted brand fonts.
+/* White Gloss: measured website colors and self-hosted Barlow.
    Navigation uses the dark brand surfaces; documents and form fields stay light. */
-@font-face{font-family:Syne;font-style:normal;font-weight:400 800;font-display:swap;src:url('/syne-variable.woff2') format('woff2')}
-@font-face{font-family:'Plus Jakarta Sans';font-style:normal;font-weight:400 800;font-display:swap;src:url('/plus-jakarta-sans-variable.woff2') format('woff2')}
-:root{font-family:var(--font-body)}
-body,input,select,textarea{font-family:var(--font-body)}
-button{font-family:var(--font-title)}
+@font-face{font-family:Barlow;font-style:normal;font-weight:400;font-display:swap;src:url('/barlow-latin.woff2') format('woff2')}
+@font-face{font-family:Barlow;font-style:normal;font-weight:500;font-display:swap;src:url('/barlow-latin-medium.woff2') format('woff2')}
+@font-face{font-family:Barlow;font-style:normal;font-weight:600;font-display:swap;src:url('/barlow-latin-semibold.woff2') format('woff2')}
+:root{font-family:Barlow,ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
+body,button,input,select,textarea{font-family:Barlow,ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
 .heading h1,.detail-header h2,.appoff h1,.portal-hello{font-weight:400;letter-spacing:-.025em}
 button,a.button{border-radius:4px}
 input:not([type=checkbox]):not([type=radio]),select,textarea{border-radius:4px}

@@ -42,11 +42,11 @@ test('the stored signature image stays white with a dark stroke (PDF)', () => {
   assert.ok(0.2126 * r + 0.7152 * g + 0.0722 * b < 0.2, 'stroke is dark');
 });
 
-test('service worker shell lists the design files and both brand fonts in cache v6', () => {
+test('service worker shell lists the design files and the original Barlow files in the new cache v7', () => {
   const source = read('sw.js'), shell = vm.runInNewContext(/const SHELL=(\[[^;]+\]);/.exec(source)[1]);
-  for (const path of ['/tokens.css', '/surface.css', '/motion.js','/syne-variable.woff2','/plus-jakarta-sans-variable.woff2']) assert.ok(shell.includes(path), path);
-  assert.ok(!shell.some(path=>path.includes('barlow')),'old font files are not cached');
-  assert.match(source, /const CACHE='wg-vor-ort-v6'/);
+  for (const path of ['/tokens.css', '/surface.css', '/motion.js','/barlow-latin.woff2','/barlow-latin-medium.woff2','/barlow-latin-semibold.woff2']) assert.ok(shell.includes(path), path);
+  assert.ok(!shell.some(path=>/syne|jakarta/.test(path)),'website font files are not cached');
+  assert.match(source, /const CACHE='wg-vor-ort-v7'/);
 });
 
 test('photo counter shows new and kept photos out of 20', () => {

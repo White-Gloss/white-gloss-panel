@@ -2,9 +2,6 @@
    oder der Wahl mit dem Tag/Nacht-Schalter (html[data-theme]). Neue Farben nur hier eintragen. */
 :root{
   color-scheme:dark light;
-  --font-title:Syne,sans-serif;--font-body:'Plus Jakarta Sans',sans-serif;
-  --type-copy:#cbd5e1;--type-hero:#e2e8f0;--type-meta:#94a3b8;
-  --type-input:#f8fafc;--type-placeholder:#94a3b8;--type-legal:#94a3b8;--type-number:#ffffff;
   --bg:#0e1218;--surface:#151d27;--elevated:#202c3a;
   --fg:#f4f3ed;--muted:#bbc5d1;
   --accent:#d9dee5;--on-accent:#0e1218;--gold:#c9a96b;
@@ -20,8 +17,6 @@
 @media (prefers-color-scheme: light){
   :root:not([data-theme="dark"]){
     color-scheme:light;
-    --type-copy:var(--fg);--type-hero:var(--fg);--type-meta:var(--muted);
-    --type-input:var(--fg);--type-placeholder:var(--muted);--type-legal:var(--muted);--type-number:var(--fg);
     --bg:#f5f3ee;--surface:#ffffff;--elevated:#ece9e2;
     --fg:#14181d;--muted:#5b6470;
     --accent:#1b2530;--on-accent:#f5f3ee;--gold:#7a5f26;
@@ -35,8 +30,6 @@
 }
 :root[data-theme="light"]{
   color-scheme:light;
-  --type-copy:var(--fg);--type-hero:var(--fg);--type-meta:var(--muted);
-  --type-input:var(--fg);--type-placeholder:var(--muted);--type-legal:var(--muted);--type-number:var(--fg);
   --bg:#f5f3ee;--surface:#ffffff;--elevated:#ece9e2;
   --fg:#14181d;--muted:#5b6470;
   --accent:#1b2530;--on-accent:#f5f3ee;--gold:#7a5f26;

@@ -59,4 +59,4 @@ Quellen:
 - [OWASP Passwortspeicherung](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
 - [PDF-LIB](https://pdf-lib.js.org/)
 - [Resend E-Mail-API und Anhänge](https://resend.com/docs/api-reference/emails/send-email)
-- Neue PDFs verwenden Plus Jakarta Sans Regular für Text sowie Syne Bold/ExtraBold für Titel, Labels und Beträge. Gepinnte Quelle, SHA-256 und OFL-Lizenzen liegen in `assets/fonts/`; siehe `docs/Typografie-2026-11-11.md`. Bereits gespeicherte PDF-Originale werden unverändert ausgeliefert.
+- [Noto Sans Regular](https://github.com/notofonts/noto-fonts/blob/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf), OFL-Lizenz in `assets/fonts/OFL.txt`.

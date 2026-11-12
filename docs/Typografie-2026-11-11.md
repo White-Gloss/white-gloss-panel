@@ -1,7 +1,8 @@
-# Gemeinsame Typografie für das White-Gloss-Panel
+# Historischer Typografie-Stand des White-Gloss-Panels
 
-Umsetzung des Betreiberauftrags vom 09.11.2026, am 11.11.2026 bestätigt.
-Dieser Stand ist eine lokale, noch nicht veröffentlichte Vorbereitung.
+> **Korrigierter Umfang vom 12.11.2026:** Die neue Schrift ist ausschließlich für die Webseite `https://white-gloss.de` bestimmt. Die damalige Ausweitung auf das Panel und seine Oberflächen war ein Umsetzungsfehler. Dieser Bericht bleibt als historischer Nachweis erhalten; seine gemeinsame Schriftzuordnung ist keine aktuelle Vorgabe. Die gezielte Rücknahme und die erhaltenen Fehlerkorrekturen stehen in [Schriftumfang-2026-11-12.md](Schriftumfang-2026-11-12.md).
+
+Dokumentation der am 11.11.2026 vorbereiteten und später veröffentlichten Schriftumstellung. Der angenommene plattformübergreifende Umfang wurde am 12.11.2026 vom Betreiber korrigiert.
 
 ## Inventar und Zuordnung
 

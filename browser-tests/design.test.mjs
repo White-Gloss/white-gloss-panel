@@ -20,8 +20,8 @@ for (const scheme of ['dark', 'light']) for (const viewport of viewports) for (c
     await page.waitForLoadState('networkidle');
     await page.evaluate(()=>document.fonts.ready);
     const typography=await page.evaluate(()=>({body:getComputedStyle(document.body).fontFamily,loaded:[...document.fonts].filter(font=>font.status==='loaded').map(font=>font.family.replace(/["']/g,''))}));
-    assert.match(typography.body,/Plus Jakarta Sans/,'body uses the shared brand typeface');
-    assert.ok(typography.loaded.includes('Syne')&&typography.loaded.includes('Plus Jakarta Sans'),'both owned font files are actually loaded');
+    assert.match(typography.body,/system-ui/,'body keeps the original panel system font');
+    assert.ok(typography.loaded.every(font=>font==='Barlow'),'only original panel font faces may load');
     assert.equal(await page.evaluate(() => document.documentElement.dataset.area), spec.area, 'data-area');
     assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor), background[scheme], 'page background token');
     const result = await page.evaluate(() => {
