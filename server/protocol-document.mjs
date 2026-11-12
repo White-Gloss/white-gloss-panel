@@ -1,8 +1,9 @@
-import {readFile} from 'node:fs/promises';
+import {documentFonts} from './document-fonts.mjs';
+import {documentGraphemes} from './pdf-font-runs.mjs';
 import {digest} from './auth.mjs';
 import {need,berlin,paintSummary} from '../src/domain.mjs';
 import {soilingLevels,intakeChecks} from '../src/catalog.mjs';
-let rendering=false,fontBytes;
+let rendering=false;
 const libraryURL=new URL('../dist/pdf/library.mjs',import.meta.url);
 const filename=(order,kind)=>order.wg.replace(/[^A-Za-z0-9_-]/g,'_')+'-'+(kind==='intake'?'Annahmeprotokoll':'Rueckgabeprotokoll')+'.pdf';
 export const protocolFilename=filename;
@@ -16,21 +17,21 @@ export async function protocolDocument(env,order,kind){
   need(!rendering,'Ein anderes PDF wird gerade erstellt. Bitte kurz erneut versuchen.',429);rendering=true;
   try{
     const {PDFDocument,rgb,fontkit}=await import(libraryURL.href),doc=await PDFDocument.create();doc.registerFontkit(fontkit);
-    fontBytes??=await readFile(new URL('../dist/pdf/NotoSans.ttf',import.meta.url));const font=await doc.embedFont(fontBytes,{subset:true});
+    const {body:font,title:titleFont,number:numberFont,widthOfTextAtSize,drawText}=await documentFonts(doc,JSON.stringify({protocol:p,wg:order.wg}));
     const title=kind==='intake'?'Fahrzeugannahme':'Fahrzeugrückgabe',navy=rgb(0.08,0.12,0.19),grey=rgb(0.35,0.4,0.46);
     doc.setTitle(title+' · '+order.wg);doc.setAuthor(p.business.name+' · '+p.business.owner);doc.setSubject('Persönlich geprüftes Fahrzeugprotokoll mit beiden Unterschriften');const stamp=new Date(p.at??p.savedAt??Date.now());doc.setCreationDate(stamp);doc.setModificationDate(new Date(p.savedAt??stamp));
     /** @type {any} */ let page;let y=0;
-    const newPage=()=>{page=doc.addPage([595.28,841.89]);page.drawRectangle({x:0,y:786,width:595.28,height:56,color:navy});page.drawText('WHITE GLOSS',{x:42,y:808,font,size:18,color:rgb(1,1,1)});page.drawText(order.wg,{x:390,y:808,font,size:11,color:rgb(1,1,1)});y=758;};
+    const newPage=()=>{page=doc.addPage([595.28,841.89]);page.drawRectangle({x:0,y:786,width:595.28,height:56,color:navy});drawText(page,'WHITE GLOSS',{x:42,y:808,font:titleFont,size:18,color:rgb(1,1,1)});drawText(page,order.wg,{x:390,y:808,font:titleFont,size:11,color:rgb(1,1,1)});y=758;};
     const ensure=height=>{if(y-height<65)newPage();};
-    const paragraph=(value,size=10,color=navy)=>{
+    const paragraph=(value,size=10,color=navy,textFont=font)=>{
       for(const block of String(value??'—').replace(/\r/g,'').split('\n')){
-        let line='';for(const char of block){if(font.widthOfTextAtSize(line+char,size)>510&&line){const split=line.lastIndexOf(' '),draw=split>0?line.slice(0,split):line;ensure(size+6);page.drawText(draw,{x:42,y,font,size,color});y-=size+6;line=split>0?line.slice(split+1):'';}line+=char;}
-        ensure(size+6);page.drawText(line,{x:42,y,font,size,color});y-=size+6;
+        let line='';for(const char of documentGraphemes(block)){if(widthOfTextAtSize(line+char,size,textFont)>510&&line){const split=line.lastIndexOf(' '),draw=split>0?line.slice(0,split):line;ensure(size+6);drawText(page,draw,{x:42,y,font:textFont,size,color});y-=size+6;line=split>0?line.slice(split+1):'';}line+=char;}
+        ensure(size+6);drawText(page,line,{x:42,y,font:textFont,size,color});y-=size+6;
       }
     };
-    const heading=value=>{ensure(38);y-=12;paragraph(value,13);y-=5;};
-    const field=(label,value)=>{ensure(34);paragraph(label,9,grey);paragraph(value,10);y-=5;};
-    newPage();paragraph(title+'protokoll'+(p.replaces?' · Ersatz':''),20);y-=12;
+    const heading=value=>{ensure(38);y-=12;paragraph(value,13,navy,titleFont);y-=5;};
+    const field=(label,value)=>{ensure(34);paragraph(label,9,grey,titleFont);paragraph(value,10);y-=5;};
+    newPage();paragraph(title+'protokoll'+(p.replaces?' · Ersatz':''),20,navy,numberFont);y-=12;
     if(p.replaces)paragraph('Dieses Protokoll ersetzt ausdrücklich das'+(p.replaces.signedAt?' am '+berlin(p.replaces.signedAt):' zuvor')+' unterschriebene Protokoll. Die frühere Fassung bleibt in der Kundenakte erhalten.',10,rgb(0.65,0.08,0.08));
     if(!p.customerSignature)paragraph('Noch nicht vom Kunden unterschrieben.',10,rgb(0.65,0.08,0.08));
     paragraph(p.business.name+' · '+p.business.owner);paragraph(p.business.street+' · '+p.business.city);paragraph(p.business.phone+' · '+p.business.email,9,grey);
@@ -57,7 +58,7 @@ export async function protocolDocument(env,order,kind){
     }
     if(p.snapshotHash){heading('Protokollnachweis');paragraph(p.snapshotHash,8,grey);}
     if(p.customerSnapshotHash){paragraph('Nachweis der vom Kunden angezeigten Fassung: '+p.customerSnapshotHash,8,grey);}
-    const pages=doc.getPages();pages.forEach((item,index)=>{item.drawText(p.business.name+' · '+order.wg,{x:42,y:33,font,size:8,color:grey});item.drawText((index+1)+' / '+pages.length,{x:510,y:33,font,size:8,color:grey});if(order.synthetic)item.drawText('TEST · Kein echtes Kundenprotokoll',{x:42,y:48,font,size:8,color:rgb(0.65,0.08,0.08)});});
+    const pages=doc.getPages();pages.forEach((item,index)=>{drawText(item,p.business.name+' · '+order.wg,{x:42,y:33,font,size:8,color:grey});drawText(item,(index+1)+' / '+pages.length,{x:510,y:33,font,size:8,color:grey});if(order.synthetic)drawText(item,'TEST · Kein echtes Kundenprotokoll',{x:42,y:48,font,size:8,color:rgb(0.65,0.08,0.08)});});
     const bytes=await doc.save();need(bytes.byteLength<=25*1024*1024,'Protokoll-PDF ist für den E-Mail-Anhang zu groß.',413);return {bytes,filename:filename(order,kind),sha256:digest(bytes),snapshotHash:p.snapshotHash??null};
   }finally{rendering=false;}
 }

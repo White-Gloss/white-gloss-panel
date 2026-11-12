@@ -1,0 +1,80 @@
+{
+  "googleFontsCommit": "c30b221beb0c1da59d563feb91ec8656a1fa972a",
+  "fontToolsVersion": "4.61.1",
+  "files": {
+    "syne-variable.ttf": {
+      "source": "https://raw.githubusercontent.com/google/fonts/c30b221beb0c1da59d563feb91ec8656a1fa972a/ofl/syne/Syne%5Bwght%5D.ttf",
+      "sha256": "ce5ac77142a65cab2248a1a2ebb740b1d4d9c20b52488877d3ff664d1356104a",
+      "bytes": 146980
+    },
+    "syne-OFL.txt": {
+      "source": "https://raw.githubusercontent.com/google/fonts/c30b221beb0c1da59d563feb91ec8656a1fa972a/ofl/syne/OFL.txt",
+      "sha256": "cc43cdce6f91c57989af8459341c276655e34224e954fa69c2ad700831a742d8",
+      "bytes": 4402
+    },
+    "syne-variable.woff2": {
+      "derivedFrom": "syne-variable.ttf",
+      "format": "WOFF2 lossless compression",
+      "sha256": "6c421408addbbf034d0bf7f6081035b39d52b34f6e7616b0f3218dce2e854748",
+      "bytes": 60800
+    },
+    "syne-700.ttf": {
+      "derivedFrom": "syne-variable.ttf",
+      "weight": 700,
+      "sha256": "828b08a1bada0118fcff388362cdd3b1c8f7d349449b641df1a338e8fc33b2a6",
+      "bytes": 70008,
+      "postScriptName": "Syne-Bold",
+      "updateFontNames": true
+    },
+    "syne-800.ttf": {
+      "derivedFrom": "syne-variable.ttf",
+      "weight": 800,
+      "sha256": "e97365a6da005eeeb955ecc075c666374aa0e3449a9822bc8686da19969f01dd",
+      "bytes": 70132,
+      "postScriptName": "Syne-ExtraBold",
+      "updateFontNames": true
+    },
+    "plus-jakarta-sans-variable.ttf": {
+      "source": "https://raw.githubusercontent.com/google/fonts/c30b221beb0c1da59d563feb91ec8656a1fa972a/ofl/plusjakartasans/PlusJakartaSans%5Bwght%5D.ttf",
+      "sha256": "89b3fb38aa0d275d7a731d0d817a4f1622b316b4d7fbdedcf02ee9099ff68bc8",
+      "bytes": 176288
+    },
+    "plus-jakarta-sans-OFL.txt": {
+      "source": "https://raw.githubusercontent.com/google/fonts/c30b221beb0c1da59d563feb91ec8656a1fa972a/ofl/plusjakartasans/OFL.txt",
+      "sha256": "995c7199cab65954f545996326755daee7b63cc6b42b06c13da1f9502ab08a99",
+      "bytes": 4402
+    },
+    "plus-jakarta-sans-variable.woff2": {
+      "derivedFrom": "plus-jakarta-sans-variable.ttf",
+      "format": "WOFF2 lossless compression",
+      "sha256": "a80deac5cb432b4d703d5505d050c53e946a8481c79934ee3c21a09593a968e0",
+      "bytes": 60388
+    },
+    "plus-jakarta-sans-400.ttf": {
+      "derivedFrom": "plus-jakarta-sans-variable.ttf",
+      "weight": 400,
+      "sha256": "e95ab7d34d39526b395d11fd10dde35d11d29b2a49500cf66e4518f05822788c",
+      "bytes": 96572,
+      "postScriptName": "PlusJakartaSans-Regular",
+      "updateFontNames": true
+    },
+    "NotoSans-fallback.ttf": {
+      "sourceRepository": "White-Gloss/white-gloss-panel",
+      "sourceCommit": "9b2074e2448619ab34cde197d0ee5a8aa2ca3242",
+      "sourcePath": "assets/fonts/NotoSans.ttf",
+      "sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+      "bytes": 569208,
+      "licensePath": "assets/fonts/OFL.txt",
+      "licenseSha256": "0dab92d0544f7b233403f14b84a663bdbfa746982eda629e7f4f9ffe1b036feb",
+      "version": "Version 2.008; ttfautohint (v1.8) -l 8 -r 50 -G 200 -x 14 -D latn -f none -a qsq -X \"\"",
+      "family": "Noto Sans",
+      "glyphCoverage": 2840
+    },
+    "NotoSans-fallback-OFL.txt": {
+      "sourceCommit": "9b2074e2448619ab34cde197d0ee5a8aa2ca3242",
+      "sourcePath": "assets/fonts/OFL.txt",
+      "sha256": "0dab92d0544f7b233403f14b84a663bdbfa746982eda629e7f4f9ffe1b036feb",
+      "bytes": 4377
+    }
+  }
+}

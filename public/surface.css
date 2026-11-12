@@ -25,6 +25,7 @@ h1,h2{letter-spacing:-.02em;line-height:1.1}
 h3{letter-spacing:-.01em;line-height:1.2}
 small,.eyebrow{letter-spacing:.02em}
 .money,.vo-total,td.num,.num{font-variant-numeric:tabular-nums}
+.catalog-total>.catalog-grand-total{flex-wrap:wrap;align-items:baseline}
 
 /* Komponenten */
 button,a.button{border-radius:var(--radius-s)}
@@ -118,8 +119,8 @@ html[data-area="advisor"] .advisor-shell{max-width:1160px}
   dialog .modalhead::before{content:"";position:absolute;top:6px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:999px;background:color-mix(in srgb,var(--fg) 35%,transparent)}
 }
 
-/* App-Fläche: Systemschrift, Glasleiste, die Arbeit zuerst. */
-body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:-.011em}
+/* App-Fläche: gemeinsame Markenschrift, Glasleiste, die Arbeit zuerst. */
+body{font-family:var(--font-body);letter-spacing:0}
 .layout{height:100dvh;overflow:hidden}
 .sidebar{overflow-y:auto;scrollbar-width:none;scrollbar-gutter:auto}
 .sidebar::-webkit-scrollbar{display:none}
@@ -208,6 +209,7 @@ button.primary,a.button.primary{border-radius:980px}
 /* Tag/Nacht-Schalter: Sonne in der Nacht-Anzeige (Wechsel zu Tag), Mond in der Tag-Anzeige */
 .theme-toggle{display:inline-flex;align-items:center;justify-content:center;width:44px;min-width:44px;height:44px;padding:0;border:1px solid var(--line);border-radius:var(--radius-s);background:var(--surface);color:var(--fg)}
 .theme-toggle .icon{width:20px;height:20px}
+
 .theme-toggle .ico-sun{display:inline-flex}
 .theme-toggle .ico-moon{display:none}
 @media (prefers-color-scheme: light){
@@ -417,15 +419,25 @@ button.primary,a.button.primary{border-radius:980px}
    Handy: Kopf in einer Reihe (lange Titel schieben den Status in die zweite), Leseleiste ohne Leerraum
    direkt unter der Kopfleiste, lesbare Listenzeilen. */
 .cc-kpi{grid-template-columns:minmax(0,1fr);justify-content:stretch}
+.cc .cc-mobile-tools{display:none}
 @media (max-width:760px){
   html[data-area="operator"] .cc{--cc-radius:16px;gap:12px}
   html[data-area="operator"] .cc .cc-head{flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:44px}
-  html[data-area="operator"] .cc .cc-head-title{flex:0 1 auto;min-width:0;max-width:100%;gap:8px}
-  html[data-area="operator"] .cc .cc-head-title>div{min-width:0}
-  html[data-area="operator"] .cc .cc-head h1{margin:0;overflow:hidden;font-size:26px;font-weight:700;line-height:1.15;letter-spacing:-.022em;white-space:nowrap;text-overflow:ellipsis}
-  html[data-area="operator"] .cc .cc-head-status{flex:none;width:auto;margin-left:auto;flex-wrap:nowrap;justify-content:flex-end;gap:4px}
-  html[data-area="operator"] .cc .cc-head .cc-icon-btn,html[data-area="operator"] .cc .cc-reader-bar .cc-icon-btn{width:44px;height:44px;min-height:44px;border-radius:50%}
+  html[data-area="operator"] .cc .cc-head-title{display:contents}
+  html[data-area="operator"] .cc .cc-head-title>div{flex:1 1 auto;min-width:0;order:-1}
+  html[data-area="operator"] .cc .cc-head h1{margin:0;font-size:26px;font-weight:700;line-height:1.15;letter-spacing:-.022em;white-space:normal}
+  html[data-area="operator"] .cc .cc-head-status{flex:none;width:auto;margin-left:0;flex-wrap:nowrap;justify-content:flex-end;gap:4px}
+  html[data-area="operator"] .cc .cc-head .cc-icon-btn,html[data-area="operator"] .cc .cc-reader-bar .cc-icon-btn{flex:none;width:44px;height:44px;min-height:44px;border-radius:50%}
   html[data-area="operator"] .cc .cc-connection{justify-content:center;width:44px;min-height:44px;padding:0!important}
+  /* Der Statusknopf öffnet bereits die Einstellungen. Abrufen bleibt im Ordner-Menü beschriftet erreichbar. */
+  html[data-area="operator"] .cc .cc-head-status>[data-mail-sync],html[data-area="operator"] .cc .cc-head-status>.cc-icon-btn[data-mail-settings]{display:none}
+  html[data-area="operator"] .cc .cc-mobile-tools{display:grid}
+  html[data-area="operator"] .cc .cc-mobile-tools button{min-height:44px}
+  html[data-area="operator"] .cc .cc-mobile-tools .cc-nav-label{white-space:normal;overflow:visible;text-overflow:clip}
+
+  /* Titel behalten ihre Breite; die zugehörige Aktion steht bei Bedarf darunter. */
+  html[data-area="operator"] .content .card-title,html[data-area="operator"] .cc .cc-panel>header{flex-wrap:wrap;gap:8px}
+  html[data-area="operator"] .content .card-title>h2,html[data-area="operator"] .content .card-title>div:has(>h2),html[data-area="operator"] .cc .cc-panel>header>h2{flex:1 0 100%;min-width:0;max-width:100%}
 
   /* Startseite: erste Kennzahl über die ganze Breite, danach zwei Spalten ohne Einzelkarte am Ende */
   html[data-area="operator"] .cc .cc-kpi:first-child{grid-column:1/-1}
@@ -468,7 +480,7 @@ button.primary,a.button.primary{border-radius:980px}
 @media (max-width:760px){
   html[data-area="operator"] .content .toolbar:has(.order-groups){display:flex;flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:10px;overflow:visible;padding:12px}
   html[data-area="operator"] .content .toolbar:has(.order-groups) .order-groups{display:flex;flex-wrap:wrap;gap:2px;padding:2px;border-radius:12px;background:color-mix(in srgb,var(--fg) 9%,transparent)}
-  html[data-area="operator"] .content .toolbar:has(.order-groups) .order-groups button{flex:1 1 auto;min-height:44px;padding:0 4px;border:0;border-radius:10px;background:transparent;color:var(--fg);font-size:13px;font-weight:600;white-space:nowrap}
+  html[data-area="operator"] .content .toolbar:has(.order-groups) .order-groups button{flex:1 1 auto;min-width:44px;min-height:44px;padding:0;border:0;border-radius:10px;background:transparent;color:var(--fg);font-size:13px;font-weight:600;white-space:nowrap}
   html[data-area="operator"] .content .toolbar:has(.order-groups) .order-groups button.active{background:var(--surface);box-shadow:var(--shadow-1)}
   html[data-area="operator"] .content .toolbar:has(.order-groups) .order-groups .group-long{display:none}
   html[data-area="operator"] .content .toolbar:has(.order-groups) .order-filters{display:flex;flex-wrap:wrap;gap:8px}
@@ -546,7 +558,7 @@ button.primary,a.button.primary{border-radius:980px}
   html[data-area="operator"] .content .schedule-calendar .schedule-view-toggle button{min-height:40px;border:0;border-radius:10px;background:transparent;color:var(--fg);font-size:15px;font-weight:600}
   html[data-area="operator"] .content .schedule-calendar .schedule-view-toggle button[aria-pressed=true]{background:var(--surface);box-shadow:var(--shadow-1)}
   html[data-area="operator"] .content .schedule-calendar .schedule-pager{gap:6px;border:0;overflow:visible}
-  html[data-area="operator"] .content .schedule-calendar .schedule-pager button{min-width:44px;min-height:44px;border:0;border-radius:12px;background:color-mix(in srgb,var(--fg) 9%,transparent);color:var(--fg);font-size:15px;font-weight:600}
+  html[data-area="operator"] .content .schedule-calendar .schedule-pager button{flex:none;min-width:44px;min-height:44px;border:0;border-radius:12px;background:color-mix(in srgb,var(--fg) 9%,transparent);color:var(--fg);font-size:15px;font-weight:600}
   html[data-area="operator"] .content .schedule-calendar .schedule-actions{display:flex;flex-wrap:wrap;gap:10px;width:100%;min-width:0}
   html[data-area="operator"] .content .schedule-calendar .schedule-view-toggle{flex:1 0 100%;min-width:0}
   html[data-area="operator"] .content .schedule-calendar .schedule-pager{flex:0 0 auto}
@@ -574,7 +586,7 @@ button.primary,a.button.primary{border-radius:980px}
   html[data-area="operator"] .content .schedule-calendar .schedule-legend i.running{background:var(--good)}
   html[data-area="operator"] .content .schedule-calendar .schedule-day>header{padding:16px}
   html[data-area="operator"] .content .schedule-calendar .schedule-day h3{font-size:20px;font-weight:700;letter-spacing:-.02em}
-  html[data-area="operator"] .content .schedule-calendar .schedule-detail{grid-template-columns:64px minmax(0,1fr);gap:12px;padding:14px 16px}
+  html[data-area="operator"] .content .schedule-calendar .schedule-detail{grid-template-columns:minmax(64px,max-content) minmax(0,1fr);gap:12px;padding:14px 16px}
   html[data-area="operator"] .content .schedule-calendar .schedule-detail-time strong{font-size:16px}
   html[data-area="operator"] .content .schedule-calendar .schedule-detail-time small{font-size:13px}
   html[data-area="operator"] .content .schedule-calendar .schedule-detail-main strong{font-size:16px}
@@ -585,4 +597,99 @@ button.primary,a.button.primary{border-radius:980px}
   html[data-area="operator"] .content .schedule-calendar .schedule-empty strong{font-size:17px}
   html[data-area="operator"] .content .schedule-calendar .schedule-empty p{font-size:15px;line-height:1.45}
   html[data-area="operator"] .content .schedule-calendar .schedule-day>footer{padding:14px 16px;font-size:13px}
+}
+
+/* Verbindliche Typografie vom 09./11.11.2026. Die gezielten !important-Regeln
+   ersetzen frühere bereichsspezifische Schriftgrößen, nicht deren Layout.
+   Abstände, Touchflächen, Icons und semantische Statusfarben bleiben erhalten. */
+body{font-family:var(--font-body);font-size:16px!important;font-weight:400;line-height:1.625!important;color:var(--type-copy);letter-spacing:0}
+p,.fieldpair,.notice,.timeline{font-family:var(--font-body)!important;font-size:16px!important;font-weight:400;line-height:1.625!important;letter-spacing:0}
+h1,h2,h3,h4,h5,h6,.sectiontitle,.portal-hello,.brandmark{font-family:var(--font-title)!important;overflow-wrap:anywhere}
+h1,.portal-hello,#action-center-title{font-size:46px!important;font-weight:800!important;line-height:1.15!important;letter-spacing:-.5px!important}
+h2{font-size:32px!important;font-weight:700!important;line-height:1.25!important;letter-spacing:0!important}
+h3{font-size:21px!important;font-weight:700!important;line-height:1.3!important;letter-spacing:0!important}
+h4,h5,h6,.sectiontitle:not(h1,h2,h3,h4,h5,h6){font-size:19px!important;font-weight:700!important;line-height:1.3!important;letter-spacing:0!important}
+.brandmark,.sidebar .brand strong,.portal-brand,.portal-brand strong,.chat-title strong,.crumb strong{font-family:var(--font-title)!important;font-weight:700!important}
+
+button,a.button,a.smallbtn,summary{font-family:var(--font-title)!important;font-size:15px!important;font-weight:700!important;letter-spacing:0!important;text-transform:none}
+.sidebar .nav button,.sidebar .nav .navlink,.sidebar .nav-primary-label strong,.sidebar .nav-primary-sub,
+.mobile-dock button,.vo-dock a,.advisor-shell nav button,.tabs button,.cc-nav button,.portal-jump a{
+  font-family:var(--font-title)!important;font-size:16px!important;font-weight:700!important;text-transform:uppercase;letter-spacing:0!important
+}
+.mobile-dock button,.vo-dock a{overflow-wrap:anywhere;word-break:normal;-webkit-hyphens:auto;hyphens:auto;white-space:normal}
+.mobile-dock button>span:not(.dock-count){max-width:100%;line-height:1.2}
+.mobile-dock .dock-word,.portal-jump a{-webkit-hyphens:manual;hyphens:manual;overflow-wrap:anywhere}
+.tabs.order-tabs button>*{min-width:0;max-width:100%;overflow-wrap:anywhere;-webkit-hyphens:auto;hyphens:auto}
+.tabs.order-tabs button>strong{font-size:inherit!important;font-weight:700!important}
+.books-header a.smallbtn{display:inline-flex;align-items:center;min-height:44px}
+@media(min-width:761px){.order-table tbody td:nth-child(4){white-space:normal;max-width:40ch;overflow-wrap:anywhere}}
+
+label,legend,.eyebrow,.sidebar .navgroup,.cc-nav-heading,.cc-menu-label,.pq-label,
+.stat .top,.cc-kpi>span,.cc-task-stat>span,.action-summary>div>span,.operations-summary span,.care-summary span{
+  font-family:var(--font-title)!important;font-size:12px!important;font-weight:700!important;text-transform:uppercase;letter-spacing:1.5px!important;color:var(--type-meta);overflow-wrap:anywhere
+}
+label.check,label:has(input[type="checkbox"]),label:has(input[type="radio"]){font-family:var(--font-body)!important;font-size:16px!important;font-weight:400!important;line-height:1.625!important;text-transform:none;letter-spacing:0!important;color:inherit}
+input:not([type="checkbox"]):not([type="radio"]),select,textarea,[contenteditable="true"]{
+  font-family:var(--font-body)!important;font-size:15px!important;font-weight:500!important;line-height:1.6!important;text-transform:none;letter-spacing:0!important;color:var(--type-input)
+}
+input::placeholder,textarea::placeholder{color:var(--type-placeholder)!important;opacity:1}
+
+small,.hint,.meta,.sub,.fieldpair>span:first-child,.advisor-meta,.cc-row time,.unified-inbox-head time{
+  font-family:var(--font-body)!important;font-size:13.5px!important;font-weight:400!important;line-height:1.5!important;text-transform:none;letter-spacing:0!important
+}
+label small,.hint,.meta,.sub{color:var(--type-meta)}
+.heading>p,.premium-heading>p,.portal-heading>p:last-child,.portal-hero>p,.vo-intro>p{
+  font-family:var(--font-body)!important;font-size:18px!important;font-weight:400!important;line-height:1.55!important;color:var(--type-hero)
+}
+table,td,th,table p,table li,.system-table code{font-family:var(--font-body)!important;font-size:14px!important;line-height:1.6!important;letter-spacing:0!important}
+td,table p,table li{font-weight:400}th,td strong{font-weight:500!important}
+
+/* Zahlen werden ausschließlich über vorhandene fachliche Klassen adressiert.
+   Tabellenwerte bleiben kompakt; hervorgehobene Preise und Kennzahlen sind groß. */
+.money,.num,.navcount,.dock-count,.cc-count,.catalog-option-price,[data-price-pickup],[data-price-discount],
+.business-price,.business-fleet-price,.portal-price,.portal-amount strong,.offer-total strong,
+.catalog-grand-total strong,[data-price-total],.vo-total>span:last-child,.vo-total>strong,.vo-booking-submit>div>strong,
+.stat .value,.premium-kpi .value,.cc-kpi strong,.cc-task-stat strong,.operations-summary strong,.care-summary strong,.pq-total strong,.books-stat strong,.portal-lines td:last-child{
+  font-family:var(--font-title)!important;font-weight:800!important;font-variant-numeric:tabular-nums;letter-spacing:0!important
+}
+.business-price,.business-fleet-price,.portal-price,.portal-amount strong,.offer-total strong,
+.catalog-grand-total strong,[data-price-total],.vo-total>span:last-child,.vo-total>strong,.vo-booking-submit>div>strong,
+.stat .value,.premium-kpi .value,.cc-kpi strong,.cc-task-stat strong,.operations-summary strong,.care-summary strong,.pq-total strong,.books-stat strong,.portal-lines tfoot td{
+  font-size:28px!important;line-height:1.2!important;color:var(--type-number)
+}
+.badge,.cc-chip,.cc-mark,.system-state,.unified-inbox-channel,.unified-inbox-unread{
+  font-family:var(--font-title)!important;font-size:11px!important;font-weight:700!important;text-transform:uppercase;letter-spacing:1px!important
+}
+.portal-foot,.customer-access footer,.sidebar footer,.system-footnote,.withdrawal-text,.legal,.terms,.withdrawal,.cancellation,
+.portal-foot p,.legal p,.terms p,.withdrawal p,.cancellation p{
+  font-family:var(--font-body)!important;font-size:12px!important;font-weight:400!important;line-height:1.45!important;color:var(--type-legal);letter-spacing:0!important;text-transform:none
+}
+
+@media(max-width:767px){
+  html[data-area="operator"]{--dock-height:96px}
+  body,p,.fieldpair,.notice,.timeline,label.check,label:has(input[type="checkbox"]),label:has(input[type="radio"]){font-size:15px!important}
+  h1,.portal-hello,#action-center-title{font-size:33px!important}
+  h2{font-size:25px!important}h3{font-size:19px!important}
+  .heading>p,.premium-heading>p,.portal-heading>p:last-child,.portal-hero>p,.vo-intro>p{font-size:16px!important}
+  .business-price,.business-fleet-price,.portal-price,.portal-amount strong,.offer-total strong,
+  .catalog-grand-total strong,[data-price-total],.vo-total>span:last-child,.vo-total>strong,.vo-booking-submit>div>strong,
+  .stat .value,.premium-kpi .value,.cc-kpi strong,.cc-task-stat strong,.operations-summary strong,.care-summary strong,.pq-total strong,.books-stat strong,.portal-lines tfoot td{font-size:24px!important}
+  /* 16 px verhindert den Fokus-Zoom von iOS; Feldgeometrie bleibt unverändert. */
+  input:not([type="checkbox"]):not([type="radio"]),select,textarea,[contenteditable="true"]{font-size:16px!important}
+  /* Aufklappbare Bereiche sind Navigation; Kundennamen sind führender Inhalt, keine Metadaten. */
+  html[data-area="operator"] .content [role="tabpanel"] details>summary{font-size:16px!important}
+  html[data-area="operator"] .content .order-table tbody td:first-child .sub:first-of-type{font-size:17px!important}
+  /* Diese vorhandenen Knöpfe und Kalendermarken zeigen ausschließlich Icons. */
+  .top-actions .testswitch,.top-actions .search-return,
+  html[data-area="operator"] .workspace .content .order-table tbody .smallbtn,
+  html[data-area="operator"] .content .schedule-calendar .schedule-event{font-size:0!important}
+}
+@media(max-width:360px){
+  html[data-area="operator"]{--dock-height:112px}
+  html[data-area="operator"] .mobile-dock button{padding-left:1px;padding-right:1px}
+  .mobile-dock button>span:not(.dock-count){letter-spacing:-.25px!important}
+  html[data-area="operator"] .cc:not([data-section="mail"]) .cc-head-title>div{flex-basis:100%}
+}
+@media print{
+  :root,:root[data-theme]{--type-copy:var(--fg);--type-hero:var(--fg);--type-meta:var(--muted);--type-input:var(--fg);--type-placeholder:var(--muted);--type-legal:var(--muted);--type-number:var(--fg)}
 }

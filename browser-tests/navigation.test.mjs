@@ -32,9 +32,14 @@ for(const viewport of [{width:390,height:600},{width:320,height:480},{width:740,
 
 test('desktop menu still scrolls with enlarged text and its final link can receive keyboard focus',async t=>{
   const f=await browserFixture(t,{viewport:{width:1280,height:600}}),{page}=f;await page.goto(origin);await page.locator('h1').waitFor();
-  await page.route(origin+'/text-scaling.css',route=>route.fulfill({contentType:'text/css',body:'.sidebar{font-size:200%}.sidebar .nav button,.sidebar .navlink{font-size:26px;line-height:1.5}'}));
+  // Die Textvergrößerung muss auch ausdrücklich formatierte Blattbeschriftungen erreichen.
+  await page.route(origin+'/text-scaling.css',route=>route.fulfill({contentType:'text/css',body:'.sidebar{font-size:200%}.sidebar .nav button,.sidebar .nav .navlink,.sidebar .nav-primary-label strong,.sidebar .nav-primary-sub{font-size:26px!important;line-height:1.5!important}'}));
   await page.addStyleTag({url:origin+'/text-scaling.css'});await openGroup(page.locator('.sidebar'),3);
   assert.equal(await page.locator('.sidebar .nav button').first().evaluate(el=>getComputedStyle(el).fontSize),'26px');
+  const labels=await page.locator('.sidebar .nav:not([hidden]) button,.sidebar .nav:not([hidden]) .navlink').evaluateAll(controls=>controls.map(control=>{const label=control.querySelector('.nav-primary-label strong')||(control.matches('.nav-primary-sub')?control.querySelector('span'):control),style=getComputedStyle(label);return {label:label.textContent.trim(),size:parseFloat(style.fontSize),width:label.clientWidth,scroll:label.scrollWidth};}));
+  t.diagnostic('enlarged navigation labels '+JSON.stringify(labels));
+  assert.ok(labels.length>0&&labels.every(label=>label.size===26),'visible destination labels themselves use the enlarged 26px type');
+  assert.ok(labels.every(label=>label.scroll<=label.width+1),'the enlarged destination text is not clipped inside its label');
   assert.ok(await page.locator('.sidebar .nav:not([hidden])').evaluateAll(navs=>navs.every(nav=>[...nav.querySelectorAll('button,a')].every(el=>el.scrollWidth<=el.clientWidth))),'enlarged German navigation labels wrap inside their controls');
   const last=page.locator('.sidebar a[href="/vor-ort"]');await last.focus();
   const box=await last.boundingBox();assert.ok(box.y>=0&&box.y+box.height<=600);assert.ok(await page.locator('.sidebar').evaluate(el=>el.scrollTop>0));assert.deepEqual(f.errors,[]);
@@ -58,7 +63,7 @@ for(const width of [1440,1024,805,390,320])test(`compact operator workspace rema
   const f=await browserFixture(t,{viewport:{width,height:900}}),{page}=f;await page.goto(origin);await page.locator('.overview-shell').waitFor();
   assert.equal(await page.locator('.overview-orders').count(),1);assert.equal(await page.locator('.operations-panel').count(),1);assert.equal(await page.locator('.action-center').count(),1);assert.equal(await page.locator('.premium-hero,.premium-modules,.integration-grid').count(),0);
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal page overflow');
-  const skipLink=await page.locator('.visually-hidden').boundingBox();assert.ok(skipLink.width<=1&&skipLink.height<=1,'keyboard skip link stays visually hidden until focused');
+  const skipLink=await page.getByRole('link',{name:'Zum Inhalt springen',exact:true}).boundingBox();assert.ok(skipLink.width<=1&&skipLink.height<=1,'keyboard skip link stays visually hidden until focused');
   const topbar=await page.locator('.topbar').boundingBox();assert.ok(topbar.height<=(width<=760?65:69),'compact application header');
   const search=await page.locator('#search').boundingBox();assert.ok(search.x>=0&&search.x+search.width<=width,'global search stays inside the viewport');
   await page.evaluate(()=>{location.hash='#system';});await page.locator('.system-page').waitFor();
@@ -74,6 +79,8 @@ for(const width of [1440,390,320])test(`calendar workspace stays precise and usa
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'calendar causes no horizontal page overflow');
   if(width<=760){
     // Handy: große Tageszahl, Punkt je Termin, das ganze Feld wählt den Tag, lesbare Tagesliste.
+    const controls=await page.locator('.schedule-actions button,.schedule-actions .button').evaluateAll(nodes=>nodes.map(el=>{const r=el.getBoundingClientRect();return {text:el.textContent.trim(),x:r.x,right:r.right,width:r.width,client:el.clientWidth,scroll:el.scrollWidth};}));
+    t.diagnostic('calendar controls '+width+' '+JSON.stringify(controls));
     const phone=await page.evaluate(today=>{const px=(el,prop='fontSize')=>parseFloat(getComputedStyle(el)[prop]),box=el=>el.getBoundingClientRect(),cell=document.querySelector(`.schedule-date[data-day="${today}"]`).closest('.schedule-cell'),dot=box(cell.querySelector('.schedule-event')),other=[...document.querySelectorAll('.schedule-cell:not(.outside) .schedule-date')].find(b=>b.dataset.day!==today),oc=box(other.closest('.schedule-cell')),hit=document.elementFromPoint(oc.left+oc.width/2,oc.bottom-6);return {day:px(cell.querySelector('.schedule-date>span')),dot:[Math.round(dot.width),Math.round(dot.height)],weekday:px(document.querySelector('.schedule-weekdays>div')),name:px(document.querySelector('.schedule-detail-main strong')),time:px(document.querySelector('.schedule-detail-time strong')),toggle:Math.round(box(document.querySelector('.schedule-view-toggle button')).height),pager:Math.round(Math.min(...[...document.querySelectorAll('.schedule-pager button')].map(b=>Math.min(box(b).width,box(b).height)))),wholeCell:hit===other||other.contains(hit),otherDay:other.dataset.day,clipped:(bar=>[...bar.querySelectorAll('.schedule-actions button,.schedule-actions .button')].filter(el=>box(el).right>box(bar).right-8||box(el).left<box(bar).left+8||el.scrollWidth>el.clientWidth+1).map(el=>el.textContent.trim()))(document.querySelector('.schedule-commandbar')),smallest:Math.min(...[...document.querySelectorAll('.schedule-day .schedule-detail *')].filter(el=>el.children.length===0&&el.textContent.trim()).map(el=>px(el)))};},today);
     t.diagnostic('calendar phone '+width+' '+JSON.stringify(phone));
     assert.ok(phone.day>=16&&phone.weekday>=12&&phone.name>=16&&phone.time>=16,'calendar text is readable');
@@ -82,6 +89,9 @@ for(const width of [1440,390,320])test(`calendar workspace stays precise and usa
     assert.ok(phone.wholeCell,'tapping anywhere in a day field selects that day');
     assert.deepEqual(phone.clipped,[],'no calendar control is cut off at the card edge');
     assert.ok(phone.smallest>=12,'no text in the day list is smaller than 12px: '+phone.smallest);
+    const separation=await page.locator('.schedule-day .schedule-detail').evaluateAll(rows=>rows.map(row=>{const time=row.querySelector('.schedule-detail-time').getBoundingClientRect(),name=row.querySelector('.schedule-detail-main').getBoundingClientRect();return {timeRight:time.right,nameLeft:name.left,gap:name.left-time.right};}));
+    t.diagnostic('calendar time/name '+width+' '+JSON.stringify(separation));
+    assert.ok(separation.every(row=>row.gap>=12),'time and customer columns keep their full 12px gap');
     await page.locator(`.schedule-date[data-day="${phone.otherDay}"]`).click({position:{x:4,y:4}});assert.equal(await page.locator(`.schedule-date[data-day="${phone.otherDay}"]`).getAttribute('aria-pressed'),'true');
     await page.locator(`.schedule-date[data-day="${today}"]`).click();assert.equal(await page.locator(`.schedule-date[data-day="${today}"]`).getAttribute('aria-pressed'),'true');
     // Mehr als drei Termine an einem Tag: die Punkte behalten ihre Statusfarbe und sind keine Tastaturziele.

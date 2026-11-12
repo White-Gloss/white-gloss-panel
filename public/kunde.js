@@ -1,5 +1,6 @@
 import {orderGalleryHTML,mountOrderGallery} from './order-gallery.js';
 let disposeGallery=()=>{};
+let disposeNavigation=()=>{};
 import {hoursLabel} from './appointment-hours.js';
 // Kundenportal „Mein White Gloss“ unter /kunde. Der Kunde ist über ein persönliches Kundenkonto (oder einen bestehenden Link mit PIN) angemeldet
 // und sieht nur Aufträge mit seiner E-Mail-Adresse. Der Betreiber öffnet mit ?vorschau=<Auftrag>
@@ -29,6 +30,7 @@ async function api(path,body){
 }
 function toast(message){const t=document.querySelector('#toast');t.textContent=message;t.classList.add('visible');setTimeout(()=>t.classList.remove('visible'),6000);}
 function gate(message,login=false){
+  disposeNavigation();
   app.innerHTML=`<main class="appoff card portal-gate"><span class="brandmark">WG</span><h1>Mein White Gloss</h1><p>${esc(message)}</p>${login?`<p><a class="button primary" href="${esc(loginUrl)}">Mit E-Mail-Adresse anmelden</a></p><p class="hint">Melden Sie sich mit E-Mail-Adresse und Passwort an. Beim ersten Zugang bestätigen Sie Ihre E-Mail-Adresse mit einem Code.</p>`:''}<p class="hint">White Gloss Detailing, Horb am Neckar · <a href="tel:+4915233540284">0152 33540284</a> · <a href="mailto:info@white-gloss.de">info@white-gloss.de</a></p></main>`;
 }
 async function load(){
@@ -44,6 +46,7 @@ async function load(){
 
 function render(){
   disposeGallery();
+  disposeNavigation();
   chatGeneration++;chatOpening=null;
   chat?.destroy();chat=null;
   const o=data.orders.find(x=>x.id===selectedId);
@@ -61,11 +64,25 @@ function render(){
   if(o)disposeGallery=mountOrderGallery(app.querySelector('[data-order-gallery]'),{id:o.id,preview:data.preview});
   pads=mountSignatures(app);
   for(const form of app.querySelectorAll('[data-form="handover"]'))form.querySelector('[data-contactless]').hidden=form.elements.mode.value!=='contactless';
+  disposeNavigation=mountPortalNavigation(app);
+}
+
+// Die Sprungziele berücksichtigen die echte Höhe von Kopf und mehrzeiliger Navigation, auch nach Font-/Breitenwechsel.
+function mountPortalNavigation(root){
+  const portal=root.querySelector('.portal'),top=root.querySelector('.portal-top'),jump=root.querySelector('.portal-jump');
+  // Vorhandene Same-Origin-CSS-Regel verwenden: kein Inline-Style und keine Lockerung der CSP.
+  const rule=[...(root.ownerDocument.querySelector('link[href="/kunde.css"]')?.sheet?.cssRules??[])].find(rule=>rule.selectorText==='.portal');
+  if(!portal||!rule)return ()=>{};
+  const measure=()=>{if(!portal.isConnected)return;const header=top?.getBoundingClientRect().height??0,navigation=jump?.getBoundingClientRect().height??0;rule.style.setProperty('--portal-top-height',header+'px');rule.style.setProperty('--portal-scroll-offset',Math.ceil(header+navigation+16)+'px');};
+  const observer=typeof window.ResizeObserver==='function'?new window.ResizeObserver(measure):null;
+  for(const element of [top,jump])if(element)observer?.observe(element);
+  window.addEventListener('resize',measure);document.fonts?.ready.then(measure);measure();
+  return ()=>{observer?.disconnect();window.removeEventListener('resize',measure);rule.style.removeProperty('--portal-top-height');rule.style.removeProperty('--portal-scroll-offset');};
 }
 const tel=phone=>String(phone??'').replace(/[^\d+]/g,'').replace(/^0/,'+49');
 
 function orderView(o){
-  return `${hero(o)}${o.restricted?'':`<nav class="portal-jump" aria-label="Direkt zu Ihrem Auftrag"><a href="#leistungen-${esc(o.id)}">Termin & Leistungen</a><a href="#uebergabe-${esc(o.id)}">Übergabe & Schlüssel</a><a href="#angaben-${esc(o.id)}">Ihre Angaben</a><a href="#dokumente-${esc(o.id)}">Dokumente${o.documents.length?` <span>${o.documents.length}</span>`:''}</a><a href="#nachrichten-${esc(o.id)}">Nachrichten</a><a href="#vehicle-gallery">Fahrzeugfotos</a></nav>`}
+  return `${hero(o)}${o.restricted?'':`<nav class="portal-jump" aria-label="Direkt zu Ihrem Auftrag"><a href="#leistungen-${esc(o.id)}" aria-label="Termin & Leistungen">Termin & Leis&shy;tungen</a><a href="#uebergabe-${esc(o.id)}" aria-label="Übergabe & Schlüssel">Über&shy;gabe & Schlüs&shy;sel</a><a href="#angaben-${esc(o.id)}">Ihre Angaben</a><a href="#dokumente-${esc(o.id)}" aria-label="Dokumente${o.documents.length?' '+o.documents.length:''}">Doku&shy;mente${o.documents.length?` <span>${o.documents.length}</span>`:''}</a><a href="#nachrichten-${esc(o.id)}" aria-label="Nachrichten">Nach&shy;richten</a><a href="#vehicle-gallery" aria-label="Fahrzeugfotos">Fahrzeug&shy;fotos</a></nav>`}
   <div class="portal-grid">
   <div class="portal-col">${todo(o)}<div class="portal-section" id="leistungen-${esc(o.id)}">${appointment(o)}${handover(o)}${services(o)}${extrasView(o)}</div>${inquiry(o)}</div>
   <div class="portal-col">${messages(o)}${orderGalleryHTML()}${documents(o)}${invoice(o)}${review(o)}</div></div>`;

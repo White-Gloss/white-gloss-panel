@@ -18,6 +18,10 @@ for (const scheme of ['dark', 'light']) for (const viewport of viewports) for (c
     const f = await browserFixture(t, {viewport, colorScheme: scheme, ...(spec.identity ? {identity: spec.identity} : {})}), {page} = f;
     await page.goto(origin + spec.path);
     await page.waitForLoadState('networkidle');
+    await page.evaluate(()=>document.fonts.ready);
+    const typography=await page.evaluate(()=>({body:getComputedStyle(document.body).fontFamily,loaded:[...document.fonts].filter(font=>font.status==='loaded').map(font=>font.family.replace(/["']/g,''))}));
+    assert.match(typography.body,/Plus Jakarta Sans/,'body uses the shared brand typeface');
+    assert.ok(typography.loaded.includes('Syne')&&typography.loaded.includes('Plus Jakarta Sans'),'both owned font files are actually loaded');
     assert.equal(await page.evaluate(() => document.documentElement.dataset.area), spec.area, 'data-area');
     assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor), background[scheme], 'page background token');
     const result = await page.evaluate(() => {

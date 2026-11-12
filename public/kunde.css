@@ -154,7 +154,7 @@
 .portal-rail{margin-top:22px;padding-top:20px;border-top:1px solid var(--line)}
 .portal-rail li.is-done::before,.portal-rail li.is-now::before{background:var(--accent)}
 .portal-rail .is-now .portal-dot{box-shadow:none}
-.portal-jump{position:sticky;top:calc(59px + env(safe-area-inset-top,0px));z-index:4;display:flex;align-items:stretch;overflow-x:auto;margin:12px 0 20px;border:1px solid var(--wg-rule);border-radius:5px;background:var(--wg-paper);scrollbar-width:thin;overscroll-behavior-x:contain}
+.portal-jump{position:sticky;top:var(--portal-top-height,calc(59px + env(safe-area-inset-top,0px)));z-index:4;display:flex;align-items:stretch;overflow-x:auto;margin:12px 0 20px;border:1px solid var(--wg-rule);border-radius:5px;background:var(--wg-paper);scrollbar-width:thin;overscroll-behavior-x:contain}
 .portal-jump a{display:inline-flex;align-items:center;justify-content:center;gap:7px;flex:1 0 auto;min-height:46px;padding:11px 16px;border-right:1px solid var(--wg-rule);color:var(--wg-copy);text-decoration:none;font-size:12px;font-weight:500;line-height:1.4;white-space:nowrap}
 .portal-jump a:last-child{border-right:0}
 .portal-jump a:hover{background:var(--wg-chrome-soft);color:var(--wg-ink)}
@@ -177,7 +177,7 @@
 .portal-next-clear>p:not(.eyebrow){margin:0 0 4px;color:var(--wg-copy);font-size:13px;line-height:1.65}
 .portal-text-action{display:inline-flex;align-items:center;gap:8px;min-height:42px;margin:10px 0 -7px;padding:8px 0;border:0;background:transparent;color:var(--wg-copy);font-size:12px;font-weight:600;text-align:left}
 .portal-text-action:hover{background:transparent;color:var(--fg);text-decoration:underline;text-underline-offset:4px}
-.portal-section,.portal-inquiry,.portal-chatcard,.portal-card[id^="dokumente-"]{scroll-margin-top:122px}
+.portal-section,.portal-inquiry,.portal-chatcard,.portal-card[id^="dokumente-"],.portal-card[id^="uebergabe-"]{scroll-margin-top:var(--portal-scroll-offset,122px)}
 .portal-card-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:12px}
 .portal-card-heading h2{margin:0}
 .portal-card-heading>span{flex:none;color:var(--wg-subtle);font-size:11px;line-height:1.4}
@@ -211,7 +211,7 @@
   .portal-hero h2{font-size:21px;line-height:1.45}
   .portal-jump{margin:10px 0 16px}
   .portal-jump a{flex:0 0 auto;padding:10px 13px;min-height:44px;font-size:12px}
-  .portal-section,.portal-inquiry,.portal-chatcard,.portal-card[id^="dokumente-"]{scroll-margin-top:114px}
+  .portal-section,.portal-inquiry,.portal-chatcard,.portal-card[id^="dokumente-"],.portal-card[id^="uebergabe-"]{scroll-margin-top:var(--portal-scroll-offset,114px)}
   .portal-next h2{font-size:17px}
   .portal-card-heading{align-items:flex-start;gap:8px}
   .portal-card-heading>span{padding-top:3px;text-align:right}
@@ -222,6 +222,6 @@
 /* All customer destinations remain visible without horizontal discovery. */
 .portal-jump{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));overflow:visible}
 .portal-jump a{white-space:normal;text-align:center;min-width:0}
-#vehicle-gallery{scroll-margin-top:210px}
+#vehicle-gallery{scroll-margin-top:var(--portal-scroll-offset,210px)}
 @media(max-width:900px){.portal-jump{grid-template-columns:repeat(3,minmax(0,1fr))}.portal-jump a{border-bottom:1px solid var(--wg-rule)}}
 @media(max-width:520px){.portal-jump{grid-template-columns:repeat(2,minmax(0,1fr))}}

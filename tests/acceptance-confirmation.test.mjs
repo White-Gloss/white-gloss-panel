@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {PDFDocument,PDFName,PDFArray,decodePDFRawStream} from 'pdf-lib';
+import {pdfText} from './pdf-text.mjs';
 import {PanelDatabase} from '../server/storage.mjs';
 import {createApplication} from '../server/application.mjs';
 import {digest} from '../server/auth.mjs';
@@ -23,20 +23,7 @@ async function fixture(t){
   return {env,base,save};
 }
 function accept(base,title,amountCents){const priced=transition(base,'price',{lines:[{id:'p',kind:'custom',title,amountCents}]},at);return transition(priced,'onsiteAccept',{paymentObligation:true,release:true,releaseReason:'Test ohne Unterschrift'},at);}
-async function pdfText(bytes){
-  const doc=await PDFDocument.load(bytes),mapping=new Map(),texts=[];
-  for(const page of doc.getPages()){
-    const fonts=page.node.Resources().lookup(PDFName.of('Font'));
-    for(const [,ref] of fonts.entries()){
-      const font=doc.context.lookup(ref),cmap=doc.context.lookup(font.get(PDFName.of('ToUnicode')));if(!cmap)continue;
-      const raw=Buffer.from(decodePDFRawStream(cmap).decode()).toString();
-      for(const match of raw.matchAll(/^<([A-Fa-f0-9]{4})>\s*<([A-Fa-f0-9]+)>$/gm))mapping.set(match[1].toUpperCase(),match[2].match(/.{4}/g).map(code=>String.fromCharCode(parseInt(code,16))).join(''));
-    }
-    const contents=page.node.Contents(),streams=contents instanceof PDFArray?contents.asArray():[contents];
-    for(const ref of streams){const raw=Buffer.from(decodePDFRawStream(doc.context.lookup(ref)).decode()).toString();for(const match of raw.matchAll(/<([A-Fa-f0-9]+)>\s*Tj/g))texts.push(match[1].match(/.{4}/g).map(code=>mapping.get(code.toUpperCase())??'').join(''));}
-  }
-  return texts.join('\n');
-}
+
 test('each pending acceptance keeps its own content and sends once, including two acceptances at the same timestamp',async t=>{
   const f=await fixture(t),sent=[];t.mock.method(globalThis,'fetch',async(_url,options)=>{sent.push({key:options.headers['Idempotency-Key'],payload:JSON.parse(options.body)});return Response.json({id:'synthetic-'+sent.length});});
   const first=await f.save(accept(f.base,'FIRST AGREED SERVICE',1000));assert.equal((await deliverProtocol(f.env,first.id,'acceptance')).state,'failed');
