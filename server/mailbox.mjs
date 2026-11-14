@@ -19,16 +19,26 @@ const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const response=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const safeName=(value,fallback)=>text(value||fallback,180).replace(/[\\/\u0000-\u001f\u007f]/g,'_')||fallback;
 const addresses=value=>(value?.value??[]).filter(item=>EMAIL.test(item.address??'')).map(item=>({name:text(item.name,180),address:text(item.address,320).toLowerCase()}));
-const publicAccount=row=>row?{email:row.email,displayName:row.display_name,imapHost:row.imap_host,imapPort:row.imap_port,imapSecure:row.imap_secure===1,smtpHost:row.smtp_host,smtpPort:row.smtp_port,smtpSecure:row.smtp_secure===1,username:row.username,passwordConfigured:Boolean(row.password),syncApproved:row.sync_approved===1,imapVerifiedAt:row.imap_verified_at,smtpVerifiedAt:row.smtp_verified_at,lastSyncAt:row.last_sync_at,lastSyncError:row.last_sync_error}:null;
+const publicAccount=row=>row?{id:row.id,email:row.email,displayName:row.display_name,imapHost:row.imap_host,imapPort:row.imap_port,imapSecure:row.imap_secure===1,smtpHost:row.smtp_host,smtpPort:row.smtp_port,smtpSecure:row.smtp_secure===1,username:row.username,passwordConfigured:Boolean(row.password),syncApproved:row.sync_approved===1,imapVerifiedAt:row.imap_verified_at,smtpVerifiedAt:row.smtp_verified_at,lastSyncAt:row.last_sync_at,lastSyncError:row.last_sync_error}:null;
 
-export async function mailboxSchema(env){
-  await env.DB.batch([
-    `CREATE TABLE IF NOT EXISTS mailbox_accounts(
-      id INTEGER PRIMARY KEY CHECK(id=1),email TEXT NOT NULL,display_name TEXT NOT NULL,
+const accountSchema=table=>`CREATE TABLE IF NOT EXISTS ${table}(
+      id INTEGER PRIMARY KEY CHECK(id>0),email TEXT NOT NULL,display_name TEXT NOT NULL,
       imap_host TEXT NOT NULL,imap_port INTEGER NOT NULL,imap_secure INTEGER NOT NULL,
       smtp_host TEXT NOT NULL,smtp_port INTEGER NOT NULL,smtp_secure INTEGER NOT NULL,
       username TEXT NOT NULL,password TEXT NOT NULL,sync_approved INTEGER NOT NULL DEFAULT 0,
-      imap_verified_at TEXT,smtp_verified_at TEXT,last_sync_at TEXT,last_sync_error TEXT,updated_at TEXT NOT NULL)`,
+      imap_verified_at TEXT,smtp_verified_at TEXT,last_sync_at TEXT,last_sync_error TEXT,updated_at TEXT NOT NULL)`;
+const inboundKey=(accountId,folder,validity,uid)=>`INBOUND:${accountId}:${folder}:${validity}:${uid}`;
+const accountIdFor=(value,fallback=1)=>{
+  if(value===undefined||value===null)return fallback;
+  const id=Number(value);
+  need(/^\d+$/.test(String(value))&&Number.isSafeInteger(id)&&id>0,'Postfach-ID ist ungültig.');
+  return id;
+};
+const findAccount=(env,id)=>env.DB.prepare('SELECT * FROM mailbox_accounts WHERE id=?').bind(id).first();
+
+export async function mailboxSchema(env){
+  await env.DB.batch([
+    accountSchema('mailbox_accounts'),
     `CREATE TABLE IF NOT EXISTS mail_messages(
       id TEXT PRIMARY KEY,dedupe_key TEXT NOT NULL UNIQUE,synthetic INTEGER NOT NULL CHECK(synthetic IN (0,1)),
       direction TEXT NOT NULL CHECK(direction IN ('INBOUND','OUTBOUND')),folder TEXT NOT NULL,
@@ -51,9 +61,19 @@ export async function mailboxSchema(env){
       `CREATE TRIGGER IF NOT EXISTS no_${table}_delete BEFORE DELETE ON ${table} BEGIN SELECT RAISE(ABORT,'E-Mail-Nachweise werden nicht gelöscht'); END`
     ])
   ].map(sql=>env.DB.prepare(sql)));
+  const accountTable=await env.DB.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='mailbox_accounts'").first();
+  if(/CHECK\s*\(\s*id\s*=\s*1\s*\)/i.test(accountTable.sql)){
+    await env.DB.batch([
+      accountSchema('mailbox_accounts_migration'),
+      'INSERT INTO mailbox_accounts_migration SELECT * FROM mailbox_accounts',
+      'DROP TABLE mailbox_accounts',
+      'ALTER TABLE mailbox_accounts_migration RENAME TO mailbox_accounts'
+    ].map(sql=>env.DB.prepare(sql)));
+  }
+  await env.DB.prepare('CREATE UNIQUE INDEX IF NOT EXISTS mailbox_accounts_email ON mailbox_accounts(email)').run();
   const columns=(await env.DB.prepare('PRAGMA table_info(mail_messages)').all()).results.map(column=>column.name);
   // Zusätzliche Kopfdaten werden nur für neue Nachrichten befüllt; alte Nachweise bleiben unverändert.
-  for(const [name,definition] of [['html_body',"TEXT NOT NULL DEFAULT ''"],['cc_json',"TEXT NOT NULL DEFAULT '[]'"],['bcc_json',"TEXT NOT NULL DEFAULT '[]'"],['reply_to_json',"TEXT NOT NULL DEFAULT '[]'"],['message_id_header','TEXT'],['references_header','TEXT'],['html_version','INTEGER NOT NULL DEFAULT 1']])if(!columns.includes(name))await env.DB.prepare(`ALTER TABLE mail_messages ADD COLUMN ${name} ${definition}`).run();
+  for(const [name,definition] of [['account_id','INTEGER NOT NULL DEFAULT 1'],['html_body',"TEXT NOT NULL DEFAULT ''"],['cc_json',"TEXT NOT NULL DEFAULT '[]'"],['bcc_json',"TEXT NOT NULL DEFAULT '[]'"],['reply_to_json',"TEXT NOT NULL DEFAULT '[]'"],['message_id_header','TEXT'],['references_header','TEXT'],['html_version','INTEGER NOT NULL DEFAULT 1']])if(!columns.includes(name))await env.DB.prepare(`ALTER TABLE mail_messages ADD COLUMN ${name} ${definition}`).run();
   const attachmentColumns=(await env.DB.prepare('PRAGMA table_info(mail_attachments)').all()).results.map(column=>column.name);
   if(!attachmentColumns.includes('inline'))await env.DB.prepare('ALTER TABLE mail_attachments ADD COLUMN inline INTEGER NOT NULL DEFAULT 0').run();
   // Ältere Nachrichten wurden beim Empfang strenger bereinigt (ohne Links und Bilder). Eine lesend aus dem
@@ -79,11 +99,11 @@ function validAttachment(bytes,mime){
   return bytes.toString('ascii',0,4)==='RIFF'&&bytes.toString('ascii',8,12)==='WEBP';
 }
 async function existingMessage(env,key){return env.DB.prepare('SELECT id FROM mail_messages WHERE dedupe_key=?').bind(key).first();}
-export async function ingestMessage(env,raw,locator,{synthetic=false,notify=true}={}){
+export async function ingestMessage(env,raw,locator,{synthetic=false,notify=true,accountId=1}={}){
   const bytes=Buffer.from(raw);need(bytes.length>20&&bytes.length<=MAX_MAIL,'E-Mail ist leer oder größer als 25 MB.',413);
   const uid=Number(locator.uid),folder=text(locator.folder||'INBOX',180),uidValidity=text(locator.uidValidity||'0',80);
   need(Number.isSafeInteger(uid)&&uid>0&&folder&&uidValidity,'IMAP-Nachrichtenadresse ist ungültig.',502);
-  const key=`INBOUND:1:${folder}:${uidValidity}:${uid}`,existing=await existingMessage(env,key);if(existing)return {id:existing.id,duplicate:true};
+  const key=inboundKey(accountId,folder,uidValidity,uid),existing=await existingMessage(env,key);if(existing)return {id:existing.id,duplicate:true};
   let parsed;try{parsed=await simpleParser(bytes,{skipImageLinks:true,skipTextToHtml:true,skipTextLinks:true,maxHtmlLengthToParse:2000000});}
   catch{throw new AppError('E-Mail konnte nicht als MIME-Nachricht gelesen werden.',502);}
   need((parsed.attachments??[]).length<=30,'E-Mail enthält mehr als 30 Anhänge.',413);
@@ -98,8 +118,8 @@ export async function ingestMessage(env,raw,locator,{synthetic=false,notify=true
     for(const attachment of attachments)if(attachment.archived){await env.BUCKET.put(attachment.id,attachment.content,{httpMetadata:{contentType:attachment.mime}});stored.push(attachment.id);}
     const inline=attachments.filter(item=>item.contentId&&/^image\/(png|jpeg|gif|webp)$/.test(item.mime)&&item.size<=2*1024*1024);
     const statements=[env.DB.prepare(`INSERT INTO mail_messages(
-      id,dedupe_key,synthetic,direction,folder,uid,uid_validity,message_id_hash,from_name,from_address,to_json,subject,text_body,html_body,received_at,imported_at,cc_json,reply_to_json,message_id_header,references_header,html_version)
-      VALUES(?,?,?,'INBOUND',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,2)`).bind(id,key,synthetic?1:0,folder,uid,uidValidity,parsed.messageId?hash(parsed.messageId):null,sender.name,sender.address,JSON.stringify(recipients),text(parsed.subject||'(Ohne Betreff)',500),text(parsed.text,200000),sanitizeInboundHtml(parsed.html,inline),parsedDate,at,JSON.stringify(copies),JSON.stringify(replyAddresses),messageIdHeader,referencesHeader)];
+      id,dedupe_key,synthetic,direction,folder,uid,uid_validity,message_id_hash,from_name,from_address,to_json,subject,text_body,html_body,received_at,imported_at,cc_json,reply_to_json,message_id_header,references_header,html_version,account_id)
+      VALUES(?,?,?,'INBOUND',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,2,?)`).bind(id,key,synthetic?1:0,folder,uid,uidValidity,parsed.messageId?hash(parsed.messageId):null,sender.name,sender.address,JSON.stringify(recipients),text(parsed.subject||'(Ohne Betreff)',500),text(parsed.text,200000),sanitizeInboundHtml(parsed.html,inline),parsedDate,at,JSON.stringify(copies),JSON.stringify(replyAddresses),messageIdHeader,referencesHeader,accountId)];
     for(const reference of [parsed.inReplyTo,...(Array.isArray(parsed.references)?parsed.references:[])])if(reference)statements.push(env.DB.prepare('INSERT OR IGNORE INTO mail_thread_links VALUES(?,?)').bind(id,hash(reference)));
     for(const attachment of attachments){
       if(attachment.archived){
@@ -117,8 +137,8 @@ export async function ingestMessage(env,raw,locator,{synthetic=false,notify=true
   return {id,duplicate:false,attachments:attachments.filter(item=>item.documentId).length};
 }
 
-async function accountCredentials(env){
-  const row=await env.DB.prepare('SELECT * FROM mailbox_accounts WHERE id=1').first();need(row,'Postfach ist noch nicht eingerichtet.',409);
+async function accountCredentials(env,accountId){
+  const row=await findAccount(env,accountIdFor(accountId));need(row,'Postfach ist noch nicht eingerichtet.',409);
   let password;try{password=await unprotect(env,row.password);}catch{throw new AppError('Postfachpasswort kann nicht entschlüsselt werden. Bitte erneut geschützt speichern.',503);}
   need(password,'Postfachpasswort fehlt. Bitte erneut geschützt speichern.',409);return {row,password};
 }
@@ -127,19 +147,22 @@ function imapConfig(row,password){return {host:row.imap_host,port:row.imap_port,
 function smtpConfig(row,password){return {host:row.smtp_host,port:row.smtp_port,secure:row.smtp_secure===1,requireTLS:row.smtp_secure!==1,opportunisticTLS:false,auth:{user:row.username,pass:password},connectionTimeout:15000,greetingTimeout:10000,socketTimeout:30000};}
 function connectionError(kind,error){const code=text(error?.code??error?.name??'Verbindungsfehler',80).replace(/[\r\n]/g,' ');return new AppError(kind+'-Verbindung fehlgeschlagen ('+code+'). Zugangsdaten und Server prüfen.',502);}
 
-export async function checkMailbox(env,kind){
-  need(['imap','smtp'].includes(kind),'Unbekannte Postfachprüfung.');const {row,password}=await accountCredentials(env),at=new Date().toISOString();
+export async function checkMailbox(env,kind,accountId){
+  need(['imap','smtp'].includes(kind),'Unbekannte Postfachprüfung.');const {row,password}=await accountCredentials(env,accountId),at=new Date().toISOString();
   try{
     if(env.MAILBOX_ADAPTERS?.[kind==='imap'?'verifyImap':'verifySmtp'])await env.MAILBOX_ADAPTERS[kind==='imap'?'verifyImap':'verifySmtp'](kind==='imap'?imapConfig(row,password):smtpConfig(row,password));
     else if(kind==='imap'){const client=new ImapFlow(imapConfig(row,password));try{await client.connect();need(client.authenticated,'IMAP-Anmeldung nicht bestätigt.',502);}finally{await client.logout().catch(()=>{});}}
     else{const transporter=nodemailer.createTransport(smtpConfig(row,password));try{await transporter.verify();}finally{transporter.close();}}
-  }catch(error){await env.DB.prepare(`UPDATE mailbox_accounts SET ${kind}_verified_at=NULL,updated_at=? WHERE id=1`).bind(at).run();throw error instanceof AppError?error:connectionError(kind.toUpperCase(),error);}
-  await env.DB.prepare(`UPDATE mailbox_accounts SET ${kind}_verified_at=?,updated_at=? WHERE id=1`).bind(at,at).run();
+  }catch(error){await env.DB.prepare(`UPDATE mailbox_accounts SET ${kind}_verified_at=NULL,updated_at=? WHERE id=? AND updated_at=?`).bind(at,row.id,row.updated_at).run();throw error instanceof AppError?error:connectionError(kind.toUpperCase(),error);}
+  const saved=await env.DB.prepare(`UPDATE mailbox_accounts SET ${kind}_verified_at=?,updated_at=? WHERE id=? AND updated_at=?`).bind(at,at,row.id,row.updated_at).run();
+  need(saved.meta.changes===1,'Postfach wurde zwischenzeitlich geändert. Bitte erneut prüfen.',409);
   return {ok:true,message:(kind==='imap'?'IMAP-Empfang':'SMTP-Versand')+' erfolgreich geprüft. Es wurde keine E-Mail versendet.'};
 }
 
-export async function syncMailbox(env,{automatic=false}={}){
-  const {row,password}=await accountCredentials(env);need(row.imap_verified_at,'IMAP-Verbindung zuerst prüfen.',409);if(automatic)need(row.sync_approved===1,'Automatischer Postfachabruf ist nicht freigegeben.',409);
+/** @param {{automatic?: boolean, accountId?: number|string}} [options] */
+export async function syncMailbox(env,options={}){
+  const {automatic=false,accountId}=options;
+  const {row,password}=await accountCredentials(env,accountId);need(row.imap_verified_at,'IMAP-Verbindung zuerst prüfen.',409);if(automatic)need(row.sync_approved===1,'Automatischer Postfachabruf ist nicht freigegeben.',409);
   if(env.MAILBOX_ADAPTERS?.sync)return env.MAILBOX_ADAPTERS.sync(imapConfig(row,password),{automatic});
   const client=new ImapFlow(imapConfig(row,password));let checked=0,imported=0,skipped=0;
   try{
@@ -150,22 +173,23 @@ export async function syncMailbox(env,{automatic=false}={}){
       const entries=total?await client.fetchAll(`${Math.max(1,total-49)}:*`,{uid:true,size:true,envelope:true}):[];
       for(const entry of entries){
         checked++;if(!entry.uid||entry.size>MAX_MAIL){skipped++;continue;}
-        if(await env.DB.prepare('SELECT id FROM mail_messages WHERE dedupe_key=?').bind(`INBOUND:1:INBOX:${uidValidity}:${entry.uid}`).first()){skipped++;continue;}
+        if(await env.DB.prepare('SELECT id FROM mail_messages WHERE dedupe_key=?').bind(inboundKey(row.id,'INBOX',uidValidity,entry.uid)).first()){skipped++;continue;}
         const message=await client.fetchOne(entry.uid,{uid:true,source:true,size:true},{uid:true});
         if(!message||!message.source||message.size>MAX_MAIL){skipped++;continue;}
-        await ingestMessage(env,message.source,{folder:'INBOX',uid:entry.uid,uidValidity},{notify:false});imported++;
+        await ingestMessage(env,message.source,{folder:'INBOX',uid:entry.uid,uidValidity},{notify:false,accountId:row.id});imported++;
       }
     }finally{lock.release();}
-    const at=new Date().toISOString();await env.DB.prepare('UPDATE mailbox_accounts SET last_sync_at=?,last_sync_error=NULL,updated_at=? WHERE id=1').bind(at,at).run();
+    const at=new Date().toISOString();await env.DB.prepare('UPDATE mailbox_accounts SET last_sync_at=?,last_sync_error=NULL WHERE id=? AND updated_at=?').bind(at,row.id,row.updated_at).run();
     if(imported>0)await notifyOwner(env,'mail').catch(()=>({sent:0,failed:0,removed:0}));
     return {checked,imported,skipped,message:`${imported} neue E-Mail${imported===1?'':'s'} übernommen; ${skipped} bereits vorhanden oder übersprungen.`};
   }catch(error){
-    const detail=text(error?.code??error?.name??'Abruffehler',100);await env.DB.prepare('UPDATE mailbox_accounts SET last_sync_error=?,updated_at=? WHERE id=1').bind(detail,new Date().toISOString()).run();throw error instanceof AppError?error:connectionError('IMAP-Abruf',error);
+    const detail=text(error?.code??error?.name??'Abruffehler',100);await env.DB.prepare('UPDATE mailbox_accounts SET last_sync_error=? WHERE id=? AND updated_at=?').bind(detail,row.id,row.updated_at).run();throw error instanceof AppError?error:connectionError('IMAP-Abruf',error);
   }finally{await client.logout().catch(()=>{});}
 }
 
 async function saveAccount(env,input){
-  const old=await env.DB.prepare('SELECT * FROM mailbox_accounts WHERE id=1').first(),email=text(input.email,320).toLowerCase(),username=text(input.username,320);
+  const id=input.create===true?null:accountIdFor(input.accountId),old=id===null?null:await findAccount(env,id),email=text(input.email,320).toLowerCase(),username=text(input.username,320);
+  if(id!==null&&id!==1)need(old,'Postfach nicht gefunden.',404);
   need(EMAIL.test(email),'Gültige Absenderadresse erforderlich.');need(username.length>0&&username.length<=320,'Postfach-Benutzername fehlt oder ist zu lang.');
   const values={displayName:text(input.displayName||'White Gloss',180),imapHost:text(input.imapHost,253).toLowerCase(),smtpHost:text(input.smtpHost,253).toLowerCase(),imapPort:Number(input.imapPort),smtpPort:Number(input.smtpPort)};
   need(HOST.test(values.imapHost)&&HOST.test(values.smtpHost),'IMAP- und SMTP-Server müssen als Hostname angegeben werden.');
@@ -174,12 +198,15 @@ async function saveAccount(env,input){
   const imapSecure=input.imapSecure===true,smtpSecure=input.smtpSecure===true,syncApproved=input.syncApproved===true,at=new Date().toISOString();
   const imapChanged=!old||old.imap_host!==values.imapHost||old.imap_port!==values.imapPort||old.imap_secure!==Number(imapSecure)||old.username!==username||Boolean(text(input.password,500));
   const smtpChanged=!old||old.smtp_host!==values.smtpHost||old.smtp_port!==values.smtpPort||old.smtp_secure!==Number(smtpSecure)||old.username!==username||Boolean(text(input.password,500));
-  await env.DB.prepare(`INSERT INTO mailbox_accounts(
+  const duplicate=await env.DB.prepare('SELECT id FROM mailbox_accounts WHERE email=?').bind(email).first();
+  need(!duplicate||duplicate.id===id,'Für diese Adresse ist bereits ein Postfach eingerichtet.',409);
+  const saved=await env.DB.prepare(`INSERT INTO mailbox_accounts(
     id,email,display_name,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password,sync_approved,imap_verified_at,smtp_verified_at,updated_at)
-    VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(id) DO UPDATE SET email=excluded.email,display_name=excluded.display_name,imap_host=excluded.imap_host,imap_port=excluded.imap_port,imap_secure=excluded.imap_secure,smtp_host=excluded.smtp_host,smtp_port=excluded.smtp_port,smtp_secure=excluded.smtp_secure,username=excluded.username,password=excluded.password,sync_approved=excluded.sync_approved,imap_verified_at=excluded.imap_verified_at,smtp_verified_at=excluded.smtp_verified_at,updated_at=excluded.updated_at`)
-    .bind(email,values.displayName,values.imapHost,values.imapPort,Number(imapSecure),values.smtpHost,values.smtpPort,Number(smtpSecure),username,password,Number(syncApproved),imapChanged?null:old.imap_verified_at,smtpChanged?null:old.smtp_verified_at,at).run();
-  return {ok:true,message:'Postfach geschützt gespeichert. IMAP und SMTP separat prüfen.'};
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET email=excluded.email,display_name=excluded.display_name,imap_host=excluded.imap_host,imap_port=excluded.imap_port,imap_secure=excluded.imap_secure,smtp_host=excluded.smtp_host,smtp_port=excluded.smtp_port,smtp_secure=excluded.smtp_secure,username=excluded.username,password=excluded.password,sync_approved=excluded.sync_approved,imap_verified_at=excluded.imap_verified_at,smtp_verified_at=excluded.smtp_verified_at,updated_at=excluded.updated_at WHERE mailbox_accounts.updated_at=? ON CONFLICT(email) DO NOTHING RETURNING id`)
+    .bind(id,email,values.displayName,values.imapHost,values.imapPort,Number(imapSecure),values.smtpHost,values.smtpPort,Number(smtpSecure),username,password,Number(syncApproved),imapChanged?null:old.imap_verified_at,smtpChanged?null:old.smtp_verified_at,at,old?.updated_at??null).first();
+  need(saved,'Postfach wurde zwischenzeitlich geändert oder die Adresse ist bereits eingerichtet. Bitte neu laden.',409);
+  return {ok:true,accountId:saved.id,message:'Postfach geschützt gespeichert. IMAP und SMTP separat prüfen.'};
 }
 
 function deliveryView(row){return {requestId:row.request_id,messageId:row.message_id,status:row.status,acceptedCount:row.accepted_count,rejectedCount:row.rejected_count,providerMessageId:row.provider_message_id,error:row.error,createdAt:row.created_at,updatedAt:row.updated_at};}
@@ -195,9 +222,9 @@ async function sendMail(env,input){
   need(recipients.length>=1,'Mindestens eine gültige Empfängeradresse erforderlich.');need(recipients.length+copies.length+blind.length<=20,'Höchstens 20 Empfänger insgesamt (An, Cc und Bcc).');
   const subject=text(input.subject,500),html=sanitizeComposeHtml(typeof input.html==='string'?input.html:''),body=text(input.text,50000)||text(htmlToText(html),50000);need(subject,'Betreff fehlt.');need(body,'Nachrichtentext fehlt.');
   const replyTo=input.replyTo?text(input.replyTo,36):null;need(!replyTo||UUID.test(replyTo),'Antwortbezug ist ungültig.');const original=replyTo?await env.DB.prepare('SELECT * FROM mail_messages WHERE id=? AND synthetic=0').bind(replyTo).first():null;if(replyTo)need(original,'Antwortbezug nicht gefunden.',404);
-  const {row,password}=await accountCredentials(env);need(row.smtp_verified_at,'SMTP-Verbindung zuerst erfolgreich prüfen.',409);
   const previous=await env.DB.prepare('SELECT * FROM mail_deliveries WHERE request_id=?').bind(input.requestId).first();
   if(previous){need(previous.status==='SENT'||previous.status==='PARTIAL','Dieser Versand ist noch ungeklärt. Kein automatischer Neuversuch; bitte zuerst das Postfach prüfen.',409);return {ok:true,status:previous.status,duplicate:true};}
+  const {row,password}=await accountCredentials(env,accountIdFor(input.accountId,original?.account_id??1));need(row.smtp_verified_at,'SMTP-Verbindung zuerst erfolgreich prüfen.',409);
   const target=await mailOrderTarget(env,input.orderId,recipients);
   const resolved=await resolveAttachments(env,input.attachments??[],0),files=[];
   for(const item of resolved){const file=await env.BUCKET.get(item.id);need(file&&hash(file.body)===item.sha256,'Anhang „'+item.filename+'“ ist nicht verfügbar oder beschädigt.',503);files.push({...item,content:Buffer.from(file.body),storedId:randomUUID()});}
@@ -208,8 +235,8 @@ async function sendMail(env,input){
   // Jeder Versandanhang erhält eine eigene Archivkopie. Uploads und ihre Bereinigung berühren den Nachweis nie.
   const copied=[];try{for(const file of files){await env.BUCKET.put(file.storedId,file.content,{httpMetadata:{contentType:file.mime}});copied.push(file.storedId);}}catch(error){for(const storedId of copied)await env.BUCKET.delete(storedId).catch(()=>{});throw error;}
   const statements=[
-    env.DB.prepare(`INSERT INTO mail_messages(id,dedupe_key,synthetic,direction,folder,uid,uid_validity,message_id_hash,from_name,from_address,to_json,subject,text_body,html_body,received_at,imported_at,cc_json,bcc_json,message_id_header,references_header)
-      VALUES(?,?,0,'OUTBOUND','Sent',NULL,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,key,hash(providerId),row.display_name,row.email,JSON.stringify(recipients.map(address=>({name:'',address}))),subject,body,html,at,at,JSON.stringify(copies.map(address=>({name:'',address}))),JSON.stringify(blind.map(address=>({name:'',address}))),providerId,references),
+    env.DB.prepare(`INSERT INTO mail_messages(id,dedupe_key,synthetic,direction,folder,uid,uid_validity,message_id_hash,from_name,from_address,to_json,subject,text_body,html_body,received_at,imported_at,cc_json,bcc_json,message_id_header,references_header,account_id)
+      VALUES(?,?,0,'OUTBOUND','Sent',NULL,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,key,hash(providerId),row.display_name,row.email,JSON.stringify(recipients.map(address=>({name:'',address}))),subject,body,html,at,at,JSON.stringify(copies.map(address=>({name:'',address}))),JSON.stringify(blind.map(address=>({name:'',address}))),providerId,references,row.id),
     env.DB.prepare("INSERT INTO mail_deliveries(request_id,message_id,status,created_at,updated_at) VALUES(?,?,'PENDING',?,?)").bind(input.requestId,id,at,at),
     ...mailOrderStatement(env,target,id,at),
     ...files.map(file=>env.DB.prepare('INSERT INTO mail_attachments(id,message_id,filename,mime,size,sha256,archived,document_id,inline) VALUES(?,?,?,?,?,?,1,NULL,0)').bind(file.storedId,id,file.filename,file.mime,file.content.length,file.sha256))
@@ -233,14 +260,17 @@ async function sendMail(env,input){
 
 function previewText(row){const raw=row.text_preview||htmlToText(row.html_preview??'');return String(raw).replace(/\s+/g,' ').trim().slice(0,220);}
 function messageView(row,hint){
-  return {id:row.id,direction:row.direction,folder:row.work_folder||row.folder,originalFolder:row.folder,fromName:row.from_name,fromAddress:row.from_address,to:parse(row.to_json),cc:parse(row.cc_json),subject:row.subject,preview:previewText(row),receivedAt:row.received_at,importedAt:row.imported_at,read:row.direction==='OUTBOUND'||Boolean(row.read_at),flagged:row.flagged===1,attachmentCount:row.attachment_count,receiptCount:row.receipt_count,isReply:Number(row.reference_count??0)>0,crm:hint??null};
+  return {id:row.id,accountId:row.account_id,direction:row.direction,folder:row.work_folder||row.folder,originalFolder:row.folder,fromName:row.from_name,fromAddress:row.from_address,to:parse(row.to_json),cc:parse(row.cc_json),subject:row.subject,preview:previewText(row),receivedAt:row.received_at,importedAt:row.imported_at,read:row.direction==='OUTBOUND'||Boolean(row.read_at),flagged:row.flagged===1,attachmentCount:row.attachment_count,receiptCount:row.receipt_count,isReply:Number(row.reference_count??0)>0,crm:hint??null};
 }
 const partner=row=>row.direction==='INBOUND'?row.from_address:String(parse(row.to_json)[0]?.address??'').toLowerCase();
 async function mailboxView(env,synthetic,params){
-  const account=publicAccount(await env.DB.prepare('SELECT * FROM mailbox_accounts WHERE id=1').first()),query=listQuery(params);
+  const accounts=(await env.DB.prepare('SELECT * FROM mailbox_accounts ORDER BY id').all()).results.map(publicAccount);
+  const account=accounts.find(item=>item.id===1)??null,query={...listQuery(params),accountId:accountIdFor(params.get('accountId'),null)};
   const page=await listMessages(env,synthetic,query),hints=await crmHints(env,synthetic,page.messages.map(partner));
   const deliveries=(await env.DB.prepare('SELECT d.* FROM mail_deliveries d JOIN mail_messages m ON m.id=d.message_id WHERE m.synthetic=? ORDER BY d.created_at DESC LIMIT 50').bind(synthetic).all()).results.map(deliveryView);
-  return {account,messages:page.messages.map(row=>messageView(row,hints.get(partner(row)))),total:page.total,offset:page.offset,limit:page.limit,query:{folder:query.view,q:query.q,filter:query.filter,sort:query.sort},counts:await folderCounts(env,synthetic),deliveries,limits:{attachmentBytes:ATTACHMENT_LIMITS.fileBytes,totalBytes:ATTACHMENT_LIMITS.totalBytes,files:ATTACHMENT_LIMITS.files},...await centerData(env,synthetic)};
+  const counts=await folderCounts(env,synthetic,query.accountId);
+  const totalUnread=(query.accountId===null?counts:await folderCounts(env,synthetic)).Unread.total;
+  return {account,accounts,totalUnread,messages:page.messages.map(row=>messageView(row,hints.get(partner(row)))),total:page.total,offset:page.offset,limit:page.limit,query:{folder:query.view,q:query.q,filter:query.filter,sort:query.sort},counts,deliveries,limits:{attachmentBytes:ATTACHMENT_LIMITS.fileBytes,totalBytes:ATTACHMENT_LIMITS.totalBytes,files:ATTACHMENT_LIMITS.files},...await centerData(env,synthetic,query.accountId)};
 }
 async function detailRow(env,id,synthetic){
   const row=await env.DB.prepare(`SELECT m.*,substr(m.text_body,1,600) text_preview,'' html_preview,s.read_at,s.flagged,s.work_folder,(SELECT COUNT(*) FROM mail_thread_links l WHERE l.message_id=m.id) reference_count FROM mail_messages m LEFT JOIN mail_message_state s ON s.message_id=m.id WHERE m.id=? AND m.synthetic=?`).bind(id,synthetic).first();
@@ -254,7 +284,7 @@ function needsRefresh(row,render){
   if(!render)return true;return Boolean(render.error)&&Date.now()-Date.parse(render.fetched_at)>REFRESH_RETRY_MS;
 }
 async function fetchOriginal(env,row){
-  const {row:account,password}=await accountCredentials(env);need(account.imap_verified_at,'IMAP-Verbindung zuerst prüfen.',409);const config=imapConfig(account,password);
+  const {row:account,password}=await accountCredentials(env,row.account_id);need(account.imap_verified_at,'IMAP-Verbindung zuerst prüfen.',409);const config=imapConfig(account,password);
   if(env.MAILBOX_ADAPTERS?.fetchSource)return env.MAILBOX_ADAPTERS.fetchSource(config,{folder:row.folder,uid:row.uid,uidValidity:row.uid_validity});
   const client=new ImapFlow(config);
   try{
@@ -324,12 +354,12 @@ export async function handleMailbox(env,request,isOwner){
   if(request.method==='POST'&&path===ROOT+'/task')return response(await saveTask(env,await bodyJSON(request),synthetic));
   if(request.method==='POST'&&path===ROOT+'/task/done')return response(await setTaskDone(env,await bodyJSON(request),synthetic));
   if(request.method==='POST'&&path===ROOT+'/task/delete')return response(await deleteTask(env,await bodyJSON(request),synthetic));
-  if(request.method==='POST'&&path===ROOT+'/draft')return response(await saveDraft(env,await bodyJSON(request,400000),synthetic));
+  if(request.method==='POST'&&path===ROOT+'/draft'){const input=await bodyJSON(request,400000);const id=accountIdFor(input.accountId,null);if(id!==null)need(await findAccount(env,id),'Postfach nicht gefunden.',404);return response(await saveDraft(env,{...input,accountId:id},synthetic));}
   if(request.method==='POST'&&path===ROOT+'/draft/delete'){const input=await bodyJSON(request);return response(await deleteDraft(env,text(input.id,36),synthetic));}
   if(request.method==='POST'&&path===ROOT+'/reply-suggestion')return suggestReply(env,await bodyJSON(request),synthetic);
   if(request.method==='POST'&&path===ROOT+'/settings')return response(await saveAccount(env,await bodyJSON(request,16000)));
-  if(request.method==='POST'&&path===ROOT+'/check'){const input=await bodyJSON(request);return response(await checkMailbox(env,input.kind));}
-  if(request.method==='POST'&&path===ROOT+'/sync'){await bodyJSON(request);need(!synthetic,'Im Testbereich wird kein echtes Postfach abgerufen.',409);return response(await syncMailbox(env));}
+  if(request.method==='POST'&&path===ROOT+'/check'){const input=await bodyJSON(request);return response(await checkMailbox(env,input.kind,input.accountId));}
+  if(request.method==='POST'&&path===ROOT+'/sync'){const input=await bodyJSON(request);need(!synthetic,'Im Testbereich wird kein echtes Postfach abgerufen.',409);return response(await syncMailbox(env,{accountId:input.accountId}));}
   if(request.method==='POST'&&path===ROOT+'/send'){const input=await bodyJSON(request,400000);need(!synthetic,'Im Testbereich wird keine E-Mail versendet.',409);return response(await sendMail(env,input));}
   return response({error:'Funktion nicht gefunden.'},404);
 }
@@ -350,6 +380,12 @@ export async function remindDueTasks(env,now=new Date()){
 export async function mailboxBackground(env){
   await pruneUploads(env).catch(()=>0);
   await remindDueTasks(env).catch(()=>0);
-  const row=await env.DB.prepare('SELECT sync_approved,imap_verified_at FROM mailbox_accounts WHERE id=1').first();if(!row||row.sync_approved!==1||!row.imap_verified_at)return {skipped:true};
-  return syncMailbox(env,{automatic:true});
+  const {results:accounts}=await env.DB.prepare('SELECT id FROM mailbox_accounts WHERE sync_approved=1 AND imap_verified_at IS NOT NULL ORDER BY id').all();
+  const errors=[];
+  for(const {id} of accounts){
+    try{await syncMailbox(env,{automatic:true,accountId:id});}
+    catch(error){errors.push(error.message);}
+  }
+  if(errors.length)throw new Error(errors.join(' / '));
+  return {skipped:accounts.length===0};
 }

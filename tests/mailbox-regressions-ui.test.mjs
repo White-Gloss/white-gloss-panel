@@ -80,3 +80,30 @@ test('no communication center form has a control that shadows a built-in form pr
   collect();await ui.click('.cc-rail [data-mail-notes]');collect();await ui.click('.cc-rail [data-mail-compose]');await ui.click('[data-compose-show="cc"]');await ui.click('[data-compose-show="bcc"]');collect();await ui.click('[data-mail-compose-close]');await ui.click('[data-mail-settings]');collect();
   assert.ok(names.size>=15,'all forms were inspected');assert.deepEqual([...names].filter(name=>reserved.has(name)),[]);assert.deepEqual(ui.errors,[]);
 });
+
+test('operator can switch mailboxes and a reply selects the receiving account',async t=>{
+  const secondary='admin@example.invalid';
+  let accountId;
+  const ui=await mount(t,{seed:async(env,call)=>{
+    const added=await call('/api/mailbox/settings',{create:true,email:secondary,username:secondary,password:'synthetic-secondary',imapHost:'imap.example.invalid',imapPort:993,imapSecure:true,smtpHost:'smtp.example.invalid',smtpPort:465,smtpSecure:true});
+    assert.equal(added.status,200);
+    ({accountId}=await added.json());
+    await ingestMessage(env,mail(1,Date.UTC(2026,8,2,8)),{uid:1,uidValidity:'multi'});
+    await ingestMessage(env,mail(2,Date.UTC(2026,8,2,8)),{uid:1,uidValidity:'multi'},{accountId});
+  }});
+  await ui.click('.cc-rail [data-mail-folder="INBOX"]');
+  assert.equal(ui.$$('.cc-row[data-mail-open]').length,2);
+  const picker=ui.$('[data-mail-account]');
+  picker.value=String(accountId);
+  picker.dispatchEvent(new ui.w.Event('change',{bubbles:true}));
+  await ui.settle();
+  assert.equal(ui.$$('.cc-row[data-mail-open]').length,1);
+  assert.match(ui.$('.cc-row[data-mail-open]').textContent,/Sammel 2/);
+  await ui.click('.cc-row[data-mail-open]');
+  await ui.click('[data-mail-reply]');
+  assert.equal(ui.$('select[aria-label="Absenderpostfach"]').value,String(accountId));
+  await ui.click('[data-mail-save-draft]');
+  const view=await (await ui.call('/api/mailbox?accountId='+accountId)).json();
+  assert.equal(view.drafts[0].accountId,accountId);
+  assert.deepEqual(ui.errors,[]);
+});

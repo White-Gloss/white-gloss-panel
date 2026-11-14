@@ -48,20 +48,20 @@ export async function mailCenterSchema(env){
     'CREATE INDEX IF NOT EXISTS mail_thread_reference ON mail_thread_links(reference_hash,message_id)',
     'CREATE INDEX IF NOT EXISTS mail_state_folder ON mail_message_state(work_folder)'
   ].map(sql=>env.DB.prepare(sql)));
-  await addColumns(env,'mail_drafts',[['order_id','TEXT'],['cc',"TEXT NOT NULL DEFAULT ''"],['bcc',"TEXT NOT NULL DEFAULT ''"],['html_body',"TEXT NOT NULL DEFAULT ''"],['attachments_json',"TEXT NOT NULL DEFAULT '[]'"],['mode',"TEXT NOT NULL DEFAULT 'new'"]]);
+  await addColumns(env,'mail_drafts',[['account_id','INTEGER NOT NULL DEFAULT 1'],['order_id','TEXT'],['cc',"TEXT NOT NULL DEFAULT ''"],['bcc',"TEXT NOT NULL DEFAULT ''"],['html_body',"TEXT NOT NULL DEFAULT ''"],['attachments_json',"TEXT NOT NULL DEFAULT '[]'"],['mode',"TEXT NOT NULL DEFAULT 'new'"]]);
   await addColumns(env,'mail_notes',[['customer_id','TEXT'],['pinned','INTEGER NOT NULL DEFAULT 0']]);
   await addColumns(env,'mail_tasks',[['due_time','TEXT'],['remind','INTEGER NOT NULL DEFAULT 0'],['reminded_at','TEXT']]);
 }
 
-export async function centerData(env,synthetic){
+export async function centerData(env,synthetic,accountId=null){
   const folders=(await env.DB.prepare('SELECT id,name,created_at FROM mail_folders ORDER BY name').all()).results.map(row=>({id:row.id,name:row.name,createdAt:row.created_at}));
   const notes=(await env.DB.prepare(`SELECT n.*,o.wg,o.status order_status,m.subject,c.data customer_data FROM mail_notes n LEFT JOIN orders o ON o.id=n.order_id LEFT JOIN mail_messages m ON m.id=n.message_id LEFT JOIN customers c ON c.id=n.customer_id
     WHERE n.synthetic=? ORDER BY n.pinned DESC,n.updated_at DESC LIMIT 500`).bind(synthetic).all()).results.map(row=>{const customer=json(row.customer_data,null);return {id:row.id,body:row.body,orderId:row.order_id,wg:row.wg,orderStatus:row.order_status,messageId:row.message_id,subject:row.subject,customerId:row.customer_id,customerName:customer?customer.name||customer.company||'Kunde':null,pinned:row.pinned===1,createdAt:row.created_at,updatedAt:row.updated_at};});
-  const drafts=(await env.DB.prepare('SELECT * FROM mail_drafts WHERE synthetic=? ORDER BY updated_at DESC LIMIT 200').bind(synthetic).all()).results.map(draftView);
+  const drafts=(await env.DB.prepare('SELECT * FROM mail_drafts WHERE synthetic=? AND (? IS NULL OR account_id=?) ORDER BY updated_at DESC LIMIT 200').bind(synthetic,accountId,accountId).all()).results.map(draftView);
   const tasks=(await env.DB.prepare(`SELECT t.*,o.wg FROM mail_tasks t LEFT JOIN orders o ON o.id=t.order_id WHERE t.synthetic=? ORDER BY t.done ASC,t.important DESC,COALESCE(t.due_date,'9999-12-31'),COALESCE(t.due_time,'99:99'),t.updated_at DESC LIMIT 500`).bind(synthetic).all()).results.map(row=>({id:row.id,title:row.title,body:row.body,due:row.due_date,time:row.due_time,remind:row.remind===1,done:row.done===1,important:row.important===1,orderId:row.order_id,wg:row.wg,messageId:row.message_id,createdAt:row.created_at,updatedAt:row.updated_at}));
   return {folders,notes,drafts,tasks};
 }
-function draftView(row){return {id:row.id,orderId:row.order_id??null,to:row.recipient,cc:row.cc??'',bcc:row.bcc??'',subject:row.subject,text:row.body,html:row.html_body??'',attachments:json(row.attachments_json,[]),mode:row.mode??'new',replyTo:row.reply_to,createdAt:row.created_at,updatedAt:row.updated_at};}
+function draftView(row){return {id:row.id,accountId:row.account_id,orderId:row.order_id??null,to:row.recipient,cc:row.cc??'',bcc:row.bcc??'',subject:row.subject,text:row.body,html:row.html_body??'',attachments:json(row.attachments_json,[]),mode:row.mode??'new',replyTo:row.reply_to,createdAt:row.created_at,updatedAt:row.updated_at};}
 
 // Ordner- und Filterlogik für Liste und Zähler; identisch zur Anzeige im Panel.
 function viewClause(view){
@@ -84,9 +84,10 @@ export function listQuery(params){
   need(VIEWS.has(view)||view.length<=60,'Ordner ist ungültig.');need(['all','unread','flagged','attachments','crm'].includes(filter),'Filter ist ungültig.');need(['newest','oldest','sender'].includes(sort),'Sortierung ist ungültig.');
   return {view,q,filter,sort,offset,limit};
 }
-export async function listMessages(env,synthetic,{view,q,filter,sort,offset,limit}){
+export async function listMessages(env,synthetic,{view,q,filter,sort,offset,limit,accountId=null}){
   if(!VIEWS.has(view))need(await env.DB.prepare('SELECT id FROM mail_folders WHERE name=?').bind(view).first(),'Ordner nicht gefunden.',404);
   const [folderSql,folderValues]=viewClause(view),where=['m.synthetic=?',folderSql],values=[synthetic,...folderValues];
+  if(accountId!==null){where.push('m.account_id=?');values.push(accountId);}
   for(const term of q.split(/\s+/).filter(Boolean).slice(0,6)){where.push(`instr(${fold("m.subject||' '||m.from_name||' '||m.from_address||' '||m.to_json||' '||COALESCE(m.cc_json,'')||' '||m.text_body")},?)>0`);values.push(term);}
   if(filter==='unread')where.push("m.direction='INBOUND' AND s.read_at IS NULL");
   if(filter==='flagged')where.push('COALESCE(s.flagged,0)=1');
@@ -95,14 +96,14 @@ export async function listMessages(env,synthetic,{view,q,filter,sort,offset,limi
   const order=sort==='oldest'?'m.received_at ASC':sort==='sender'?"lower(COALESCE(NULLIF(m.from_name,''),m.from_address)) ASC,m.received_at DESC":'m.received_at DESC';
   const from='FROM mail_messages m LEFT JOIN mail_message_state s ON s.message_id=m.id WHERE '+where.join(' AND ');
   const total=Number((await env.DB.prepare('SELECT COUNT(*) n '+from).bind(...values).first())?.n??0);
-  const rows=(await env.DB.prepare(`SELECT m.id,m.direction,m.folder,m.from_name,m.from_address,m.to_json,m.cc_json,m.subject,substr(m.text_body,1,600) text_preview,
+  const rows=(await env.DB.prepare(`SELECT m.id,m.account_id,m.direction,m.folder,m.from_name,m.from_address,m.to_json,m.cc_json,m.subject,substr(m.text_body,1,600) text_preview,
     CASE WHEN m.text_body='' THEN substr(m.html_body,1,6000) ELSE '' END html_preview,length(m.html_body)>0 has_html,m.received_at,m.imported_at,s.read_at,s.flagged,s.work_folder,
     (SELECT COUNT(*) FROM mail_attachments a WHERE a.message_id=m.id) attachment_count,(SELECT COUNT(*) FROM mail_attachments a WHERE a.message_id=m.id AND a.document_id IS NOT NULL) receipt_count,
     (SELECT COUNT(*) FROM mail_thread_links l WHERE l.message_id=m.id) reference_count
     ${from} ORDER BY ${order} LIMIT ? OFFSET ?`).bind(...values,limit,offset).all()).results;
   return {messages:rows,total,offset,limit};
 }
-export async function folderCounts(env,synthetic){
+export async function folderCounts(env,synthetic,accountId=null){
   const row=await env.DB.prepare(`SELECT
     SUM(CASE WHEN m.direction='INBOUND' AND ${EFFECTIVE}='INBOX' THEN 1 ELSE 0 END) inbox,
     SUM(CASE WHEN m.direction='INBOUND' AND ${EFFECTIVE}='INBOX' AND s.read_at IS NULL THEN 1 ELSE 0 END) inbox_unread,
@@ -110,11 +111,11 @@ export async function folderCounts(env,synthetic){
     SUM(CASE WHEN COALESCE(s.flagged,0)=1 AND ${EFFECTIVE}<>'Trash' THEN 1 ELSE 0 END) flagged,
     SUM(CASE WHEN m.direction='OUTBOUND' AND ${EFFECTIVE}='Sent' THEN 1 ELSE 0 END) sent,
     COUNT(*) total
-    FROM mail_messages m LEFT JOIN mail_message_state s ON s.message_id=m.id WHERE m.synthetic=?`).bind(synthetic).first();
+    FROM mail_messages m LEFT JOIN mail_message_state s ON s.message_id=m.id WHERE m.synthetic=? AND (? IS NULL OR m.account_id=?)`).bind(synthetic,accountId,accountId).first();
   const counts={INBOX:{total:Number(row?.inbox??0),unread:Number(row?.inbox_unread??0)},Unread:{total:Number(row?.unread??0),unread:Number(row?.unread??0)},Flagged:{total:Number(row?.flagged??0),unread:0},Sent:{total:Number(row?.sent??0),unread:0},all:{total:Number(row?.total??0),unread:0}};
   for(const name of ['Archive','Spam','Trash'])counts[name]={total:0,unread:0};
   const grouped=(await env.DB.prepare(`SELECT s.work_folder name,COUNT(*) total,SUM(CASE WHEN m.direction='INBOUND' AND s.read_at IS NULL THEN 1 ELSE 0 END) unread
-    FROM mail_messages m JOIN mail_message_state s ON s.message_id=m.id WHERE m.synthetic=? AND s.work_folder IS NOT NULL AND s.work_folder NOT IN ('INBOX','Sent') GROUP BY s.work_folder`).bind(synthetic).all()).results;
+    FROM mail_messages m JOIN mail_message_state s ON s.message_id=m.id WHERE m.synthetic=? AND (? IS NULL OR m.account_id=?) AND s.work_folder IS NOT NULL AND s.work_folder NOT IN ('INBOX','Sent') GROUP BY s.work_folder`).bind(synthetic,accountId,accountId).all()).results;
   for(const item of grouped)counts[item.name]={total:Number(item.total),unread:Number(item.unread??0)};
   return counts;
 }
@@ -244,13 +245,14 @@ export async function saveDraft(env,input,synthetic){
   const recipient=text(input.to,2000),cc=text(input.cc,2000),bcc=text(input.bcc,2000),subject=text(input.subject,500),html=sanitizeComposeHtml(typeof input.html==='string'?input.html:''),body=text(input.text,50000),replyTo=input.replyTo?text(input.replyTo,36):null,id=input.id?text(input.id,36):randomUUID();
   const orderId=input.orderId?text(input.orderId,36):null;if(orderId)need(await env.DB.prepare('SELECT id FROM orders WHERE id=? AND synthetic=?').bind(orderId,synthetic).first(),'Auftrag nicht gefunden.',404);
   const mode=['new','reply','replyAll','forward'].includes(input.mode)?input.mode:'new';need(UUID.test(id),'Entwurfs-ID ist ungültig.');need(!replyTo||UUID.test(replyTo),'Antwortbezug ist ungültig.');
-  if(replyTo)need(await ownMessage(env,replyTo,synthetic),'Antwortbezug nicht gefunden.',404);
+  const original=replyTo?await ownMessage(env,replyTo,synthetic):null;
+  if(replyTo)need(original,'Antwortbezug nicht gefunden.',404);
   const attachments=(await resolveAttachments(env,input.attachments??[],synthetic)).map(({id,source,filename,mime,size})=>({id,source,filename,mime,size}));
   need(recipient||cc||bcc||subject||body||attachments.length,'Ein leerer Entwurf wird nicht gespeichert.');
   const at=new Date().toISOString(),old=await env.DB.prepare('SELECT * FROM mail_drafts WHERE id=? AND synthetic=?').bind(id,synthetic).first();if(input.id)need(old,'Entwurf nicht gefunden.',404);
-  await env.DB.prepare(`INSERT INTO mail_drafts(id,synthetic,recipient,cc,bcc,subject,body,html_body,attachments_json,mode,reply_to,order_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(id) DO UPDATE SET recipient=excluded.recipient,cc=excluded.cc,bcc=excluded.bcc,subject=excluded.subject,body=excluded.body,html_body=excluded.html_body,attachments_json=excluded.attachments_json,mode=excluded.mode,reply_to=excluded.reply_to,order_id=excluded.order_id,updated_at=excluded.updated_at`)
-    .bind(id,synthetic,recipient,cc,bcc,subject,body,html,JSON.stringify(attachments),mode,replyTo,orderId,old?.created_at??at,at).run();return {ok:true,id};
+  await env.DB.prepare(`INSERT INTO mail_drafts(id,synthetic,recipient,cc,bcc,subject,body,html_body,attachments_json,mode,reply_to,order_id,created_at,updated_at,account_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET recipient=excluded.recipient,cc=excluded.cc,bcc=excluded.bcc,subject=excluded.subject,body=excluded.body,html_body=excluded.html_body,attachments_json=excluded.attachments_json,mode=excluded.mode,reply_to=excluded.reply_to,order_id=excluded.order_id,updated_at=excluded.updated_at,account_id=excluded.account_id`)
+    .bind(id,synthetic,recipient,cc,bcc,subject,body,html,JSON.stringify(attachments),mode,replyTo,orderId,old?.created_at??at,at,input.accountId??old?.account_id??original?.account_id??1).run();return {ok:true,id};
 }
 export async function deleteDraft(env,id,synthetic){need(UUID.test(id),'Entwurf nicht gefunden.',404);await env.DB.prepare('DELETE FROM mail_drafts WHERE id=? AND synthetic=?').bind(id,synthetic).run();return {ok:true};}
 
@@ -276,7 +278,7 @@ export async function threadMessages(env,row,synthetic){
   const hashes=new Set([row.message_id_hash,...(await env.DB.prepare('SELECT reference_hash FROM mail_thread_links WHERE message_id=?').bind(row.id).all()).results.map(item=>item.reference_hash)].filter(Boolean));
   if(!hashes.size)return [];const marks=[...hashes].map(()=>'?').join(',');
   return (await env.DB.prepare(`SELECT DISTINCT m.id,m.direction,m.subject,m.text_body,m.from_name,m.from_address,m.to_json,m.received_at,s.read_at,(SELECT COUNT(*) FROM mail_attachments a WHERE a.message_id=m.id) attachment_count FROM mail_messages m
-    LEFT JOIN mail_thread_links l ON l.message_id=m.id LEFT JOIN mail_message_state s ON s.message_id=m.id WHERE m.synthetic=? AND (m.message_id_hash IN (${marks}) OR l.reference_hash IN (${marks})) ORDER BY m.received_at LIMIT 30`).bind(synthetic,...hashes,...hashes).all()).results.map(item=>({id:item.id,direction:item.direction,subject:item.subject,preview:item.text_body.replace(/\s+/g,' ').trim().slice(0,240),fromName:item.from_name,fromAddress:item.from_address,to:json(item.to_json,[]),receivedAt:item.received_at,read:item.direction==='OUTBOUND'||Boolean(item.read_at),attachmentCount:item.attachment_count}));
+    LEFT JOIN mail_thread_links l ON l.message_id=m.id LEFT JOIN mail_message_state s ON s.message_id=m.id WHERE m.synthetic=? AND (m.account_id=? OR m.direction='OUTBOUND') AND (m.message_id_hash IN (${marks}) OR l.reference_hash IN (${marks})) ORDER BY m.received_at LIMIT 30`).bind(synthetic,row.account_id,...hashes,...hashes).all()).results.map(item=>({id:item.id,direction:item.direction,subject:item.subject,preview:item.text_body.replace(/\s+/g,' ').trim().slice(0,240),fromName:item.from_name,fromAddress:item.from_address,to:json(item.to_json,[]),receivedAt:item.received_at,read:item.direction==='OUTBOUND'||Boolean(item.read_at),attachmentCount:item.attachment_count}));
 }
 
 function outputJSON(data){

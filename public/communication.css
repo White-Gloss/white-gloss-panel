@@ -30,6 +30,7 @@
 .cc .cc-rail-backdrop{display:none}
 .cc-compose-btn{width:100%;min-height:42px;font-size:14px}
 .cc-nav{display:grid;gap:1px}
+.cc-nav [data-mail-account]{min-width:0;width:100%;margin:0 0 6px}
 .cc-nav-heading{padding:0 10px 6px;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--wg-subtle)}
 .cc-nav-item{justify-content:flex-start!important;width:100%;min-height:36px;padding:7px 10px!important;border:0!important;border-radius:4px;background:transparent!important;color:var(--wg-copy)!important;font-size:13px!important;font-weight:400!important;text-align:left}
 .cc-nav-item:hover{background:var(--cc-hover)!important}
@@ -218,6 +219,7 @@
 .cc-field{display:flex!important;align-items:center;gap:10px;margin:0!important;padding:4px 0;border-bottom:1px solid var(--wg-rule);font-size:13px!important;font-weight:400!important}
 .cc-field>span:first-child{flex:none;width:58px;color:var(--wg-subtle)}
 .cc-field input{flex:1;min-width:0;margin:0!important;height:36px;padding:6px 2px!important;border:0!important;background:transparent!important;font-size:14px!important;box-shadow:none!important}
+.cc-field select{flex:1;min-width:0;margin:0!important}
 .cc-field input:focus-visible{outline:none}.cc-field:focus-within{border-bottom-color:var(--cc-accent)}
 .cc-field-toggles{display:flex;gap:2px}.cc-field-toggles button{min-height:28px;padding:2px 8px!important;border:0!important;background:transparent!important;color:var(--cc-accent)!important;font-size:12px!important}
 .cc-toolbar{display:flex;flex-wrap:wrap;gap:2px;padding:6px 12px;border-bottom:1px solid var(--wg-rule)}
@@ -297,7 +299,7 @@
   .cc-compose-layer{padding:0;place-items:stretch}
   .cc-compose{width:100%;height:100%;max-height:none;border:0;border-radius:0;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
   .cc-editor{max-height:none;min-height:180px;font-size:16px}
-  .cc-field input{font-size:16px!important}
+  .cc-field input,.cc-field select,.cc-nav [data-mail-account],.cc-drawer [data-mail-settings-account]{font-size:16px!important}
   .cc-compose-actions{display:grid;grid-template-columns:1fr 1fr}.cc-compose-actions .primary{grid-column:1/-1;order:-1}
   .cc-drawer{width:100%;padding-top:calc(16px + env(safe-area-inset-top,0px))}
   .cc-nav-item{min-height:44px}.cc-icon-btn{width:40px;height:40px;min-height:40px}
