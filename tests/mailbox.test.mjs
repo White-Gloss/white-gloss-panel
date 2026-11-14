@@ -66,3 +66,57 @@ test('unknown SMTP result is not retried automatically and unconfirmed sending i
   await f.call('/api/mailbox/send',input);assert.equal(attempts,1,'unknown delivery must never auto-retry');
   const view=await (await f.call('/api/mailbox')).json();assert.equal(view.deliveries[0].status,'UNKNOWN');assert.match(view.deliveries[0].error,/Ergebnis ungeklärt/);
 });
+
+test('second mailbox keeps independent credentials, deliveries, drafts and IMAP UIDs',async t=>{
+  const checks=[],sent=[];
+  const f=await fixture(t,{
+    async verifyImap(config){checks.push(config.auth);},
+    async verifySmtp(config){checks.push(config.auth);},
+    async sendMail(config,message){sent.push({user:config.auth.user,from:message.from});return {accepted:[message.to]};}
+  });
+  const settings={email:owner,imapHost:'imap.example.invalid',imapPort:993,imapSecure:true,smtpHost:'smtp.example.invalid',smtpPort:465,smtpSecure:true,username:owner,password:'primary-password'};
+  assert.equal((await f.call('/api/mailbox/settings',settings)).status,200);
+  const secondary='admin@example.invalid';
+  const added=await f.call('/api/mailbox/settings',{...settings,create:true,email:secondary,username:secondary,password:'secondary-password'});
+  assert.equal(added.status,200);
+  const {accountId}=await added.json();
+  assert.notEqual(accountId,1);
+  assert.equal((await f.call('/api/mailbox/settings',{...settings,create:true})).status,409);
+  assert.equal((await f.call('/api/mailbox/check',{kind:'imap'})).status,200);
+  assert.equal((await f.call('/api/mailbox/check',{kind:'smtp',accountId})).status,200);
+  assert.deepEqual(checks,[{user:owner,pass:'primary-password'},{user:secondary,pass:'secondary-password'}]);
+  const locator={folder:'INBOX',uid:7,uidValidity:'42'};
+  const primary=await ingestMessage(f.env,mime({subject:'Primär'}),locator);
+  const other=await ingestMessage(f.env,mime({subject:'Sekundär'}),locator,{accountId});
+  assert.notEqual(primary.id,other.id);
+  assert.equal((await ingestMessage(f.env,mime(),locator,{accountId})).duplicate,true);
+  assert.equal((await f.call('/api/mailbox/draft',{accountId,replyTo:other.id,to:owner,subject:'Entwurf'})).status,200);
+  const filtered=await (await f.call('/api/mailbox?accountId='+accountId)).json();
+  assert.deepEqual(filtered.messages.map(item=>item.subject),['Sekundär']);
+  assert.equal(filtered.counts.INBOX.total,1);
+  assert.equal(filtered.totalUnread,2);
+  assert.equal(filtered.drafts[0].accountId,accountId);
+  assert.equal(filtered.accounts[0].email,owner);
+  const response=await f.call('/api/mailbox/send',{requestId:randomUUID(),replyTo:other.id,to:owner,subject:'Antwort',text:'Test',confirmed:true});
+  assert.equal(response.status,200,await response.text());
+  assert.deepEqual(sent,[{user:secondary,from:'"White Gloss" <'+secondary+'>'}]);
+  const sentView=await (await f.call('/api/mailbox?folder=Sent&accountId='+accountId)).json();
+  assert.deepEqual(sentView.messages.map(item=>item.accountId),[accountId]);
+});
+
+test('legacy single-account database keeps the original mailbox after migration',async t=>{
+  const f=await fixture(t);
+  f.env.DB.sql.exec('DROP TABLE mailbox_accounts;');
+  f.env.DB.sql.exec(`CREATE TABLE mailbox_accounts(
+    id INTEGER PRIMARY KEY CHECK(id=1),email TEXT NOT NULL,display_name TEXT NOT NULL,
+    imap_host TEXT NOT NULL,imap_port INTEGER NOT NULL,imap_secure INTEGER NOT NULL,
+    smtp_host TEXT NOT NULL,smtp_port INTEGER NOT NULL,smtp_secure INTEGER NOT NULL,
+    username TEXT NOT NULL,password TEXT NOT NULL,sync_approved INTEGER NOT NULL DEFAULT 0,
+    imap_verified_at TEXT,smtp_verified_at TEXT,last_sync_at TEXT,last_sync_error TEXT,updated_at TEXT NOT NULL)`);
+  f.env.DB.sql.exec(`INSERT INTO mailbox_accounts VALUES(1,'legacy@example.invalid','Legacy','imap.example.invalid',993,1,'smtp.example.invalid',465,1,'legacy@example.invalid','ciphertext',1,'imap','smtp','sync',NULL,'updated')`);
+  const before=await f.env.DB.prepare('SELECT * FROM mailbox_accounts').first();
+  await createApplication(f.env);
+  assert.deepEqual(await f.env.DB.prepare('SELECT * FROM mailbox_accounts WHERE id=1').first(),before);
+  const added=await f.call('/api/mailbox/settings',{create:true,email:owner,username:owner,password:'new-password',imapHost:'imap.example.invalid',imapPort:993,imapSecure:true,smtpHost:'smtp.example.invalid',smtpPort:465,smtpSecure:true});
+  assert.equal(added.status,200,await added.text());
+});

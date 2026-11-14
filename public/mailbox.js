@@ -63,15 +63,15 @@ export function linkify(value){
 function remembered(synthetic){
   let value=memory.get(synthetic);if(value)return value;let section='home';
   try{const stored=localStorage.getItem('wg-cc-section');if(SECTIONS.some(([id])=>id===stored))section=stored;}catch{/* Ohne lokalen Speicher startet die Übersicht. */}
-  value={section,folder:'INBOX',query:'',filter:'all',sort:'newest',openId:null,images:new Set(),hiddenImages:new Set(),noteQuery:'',noteFilter:'all',orderQuery:'',calendarDay:null,taskView:'open'};memory.set(synthetic,value);return value;
+  value={section,accountId:null,folder:'INBOX',query:'',filter:'all',sort:'newest',openId:null,images:new Set(),hiddenImages:new Set(),noteQuery:'',noteFilter:'all',orderQuery:'',calendarDay:null,taskView:'open'};memory.set(synthetic,value);return value;
 }
 
 export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],markSaved=()=>{},openMessageId=null}={}){
   if(!root)return;
   const ui=remembered(synthetic);
-  if(openMessageId){ui.section='mail';ui.folder='all';ui.query='';ui.filter='all';ui.openId=openMessageId;}
+  if(openMessageId){ui.accountId=null;ui.section='mail';ui.folder='all';ui.query='';ui.filter='all';ui.openId=openMessageId;}
   if(root.dataset.openTasks==='1')ui.section='tasks';
-  let data=null,list=[],stale=new Set(),total=0,detail=null,detailState='idle',detailError='',listState='loading',listError='',busy=false,compose=null,selection=new Set(),selectMode=false,railOpen=false,settingsOpen=false,searchTimer=null,loadToken=0,observer=null,confirmDelete=null;
+  let data=null,list=[],stale=new Set(),total=0,detail=null,detailState='idle',detailError='',listState='loading',listError='',busy=false,compose=null,selection=new Set(),selectMode=false,railOpen=false,settingsOpen=false,searchTimer=null,loadToken=0,observer=null,confirmDelete=null,settingsAccountId=null;
 
   async function api(path='',payload,params={}){
     const search=new URLSearchParams(params);if(synthetic)search.set('test','true');const query=search.toString();
@@ -85,7 +85,12 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   const allOrders=()=>{try{return (orders()??[]).filter(order=>!order.trash?.deletedAt);}catch{return [];}};
   const running=()=>allOrders().filter(order=>RUNNING.includes(order.status)).sort((a,b)=>String(a.appointment?.start??'9999').localeCompare(String(b.appointment?.start??'9999')));
   const appointments=()=>allOrders().filter(order=>valid(order.appointment?.start)&&!CLOSED.includes(order.status)).sort((a,b)=>a.appointment.start.localeCompare(b.appointment.start));
-  const ownAddress=()=>String(data?.account?.email??'').toLowerCase();
+  const accounts=()=>data?.accounts??(data?.account?[{...data.account,id:data.account.id??1}]:[]);
+  const accountById=id=>accounts().find(account=>String(account.id)===String(id));
+  const activeAccounts=()=>ui.accountId===null?accounts():accounts().filter(account=>String(account.id)===ui.accountId);
+  const composeAccount=()=>accountById(compose?.accountId);
+  const accountOptions=selected=>accounts().map(account=>`<option value="${account.id}" ${String(account.id)===String(selected)?'selected':''}>${esc(account.email)}</option>`).join('');
+  const accountFilter=()=>ui.accountId===null?{}:{accountId:ui.accountId};
   const counts=name=>data?.counts?.[name]??{total:0,unread:0};
 
   // ---------- Laden ----------
@@ -96,7 +101,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   }
   async function load({append=false}={}){
     const token=++loadToken;if(!append){listState='loading';listError='';}
-    try{const result=await api('',undefined,listParams(append));if(token!==loadToken)return false;data=result;if(append){const known=new Set(list.map(mail=>mail.id));list=[...list,...result.messages.filter(mail=>!known.has(mail.id))];total=result.total+stale.size;}else{stale=new Set();list=result.messages;total=result.total;}listState='ready';announce();return true;}
+    try{const result=await api('',undefined,{...listParams(append),...accountFilter()});if(token!==loadToken)return false;data=result;if(append){const known=new Set(list.map(mail=>mail.id));list=[...list,...result.messages.filter(mail=>!known.has(mail.id))];total=result.total+stale.size;}else{stale=new Set();list=result.messages;total=result.total;}listState='ready';announce();return true;}
     catch(error){if(token!==loadToken)return false;listState='error';listError=error.message;if(!data)throw error;return true;}
   }
   // Lokale Statuswechsel können eine sichtbare Nachricht aus dem Serverfilter nehmen (z. B. gelesen in „Ungelesen“).
@@ -106,8 +111,8 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
     const leavesFlag=patch.flagged===false&&(ui.folder==='Flagged'||ui.filter==='flagged'),backFlag=patch.flagged===true&&(ui.folder==='Flagged'||ui.filter==='flagged');
     if(leavesUnread||leavesFlag)stale.add(id);if(backUnread||backFlag)stale.delete(id);
   }
-  async function refreshMeta(){const result=await api('',undefined,{folder:'INBOX',limit:'1'}).catch(()=>null);if(result){const keep={messages:data?.messages,total:data?.total};data={...result,...keep};drawRail();drawStatus();announce();}}
-  function announce(){const unread=data?.counts?.Unread?.total;if(Number.isFinite(unread))window.dispatchEvent(new window.CustomEvent('wg-mail-count',{detail:{unread}}));}
+  async function refreshMeta(){const result=await api('',undefined,{folder:'INBOX',limit:'1',...accountFilter()}).catch(()=>null);if(result){const keep={messages:data?.messages,total:data?.total};data={...result,...keep};drawRail();drawStatus();announce();}}
+  function announce(){const unread=data?.totalUnread??data?.counts?.Unread?.total;if(Number.isFinite(unread))window.dispatchEvent(new window.CustomEvent('wg-mail-count',{detail:{unread}}));}
 
   // ---------- Gerüst ----------
   function sectionTitle(){if(ui.section!=='mail')return SECTIONS.find(([id])=>id===ui.section)?.[1]??'Übersicht';return FOLDER_LABEL[ui.folder]??ui.folder;}
@@ -119,10 +124,10 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
     drawStatus();drawRail();drawMain();drawCompose();drawSettings();
   }
   function drawStatus(){
-    const element=region('status');if(!element)return;const account=data?.account,ready=Boolean(account?.imapVerifiedAt&&account?.smtpVerifiedAt);
-    const state=!account?['warn','Postfach einrichten']:ready?['good','Verbunden']:!account.imapVerifiedAt?['warn','Empfang prüfen']:['warn','Versand prüfen'];
-    element.innerHTML=`<button type="button" class="cc-connection ${state[0]}" data-mail-settings aria-label="${esc(state[1])} · Postfach-Einstellungen" title="${esc(account?.email||'Postfach-Einstellungen')}"><span class="cc-connection-dot"></span><span><strong>${esc(state[1])}</strong><small>${esc(account?.email||'IMAP & SMTP')}${account?.lastSyncAt?' · '+esc(when(account.lastSyncAt)):''}</small></span></button>
-      <button type="button" class="cc-icon-btn" data-mail-sync ${synthetic||!account?.imapVerifiedAt?'disabled':''} aria-label="Neue E-Mails abrufen" title="Neue E-Mails abrufen">${icon('sync')}</button>
+    const element=region('status');if(!element)return;const visible=activeAccounts(),account=visible[0],ready=visible.every(item=>item.imapVerifiedAt&&item.smtpVerifiedAt);
+    const state=!account?['warn','Postfach einrichten']:ready?['good','Verbunden']:visible.some(item=>!item.imapVerifiedAt)?['warn','Empfang prüfen']:['warn','Versand prüfen'];
+    element.innerHTML=`<button type="button" class="cc-connection ${state[0]}" data-mail-settings aria-label="${esc(state[1])} · Postfach-Einstellungen" title="${esc(account?.email||'Postfach-Einstellungen')}"><span class="cc-connection-dot"></span><span><strong>${esc(state[1])}</strong><small>${esc(visible.length>1?plural(visible.length,'Postfach','Postfächer'):account?.email||'IMAP & SMTP')}${account?.lastSyncAt?' · '+esc(when(account.lastSyncAt)):''}</small></span></button>
+      <button type="button" class="cc-icon-btn" data-mail-sync ${synthetic||!activeAccounts().some(item=>item.imapVerifiedAt)?'disabled':''} aria-label="Neue E-Mails abrufen" title="Neue E-Mails abrufen">${icon('sync')}</button>
       <button type="button" class="cc-icon-btn" data-mail-settings aria-label="Postfach-Einstellungen" title="Postfach-Einstellungen">${icon('settings')}</button>`;
   }
   function navButton({id,label,iconName,count=0,unread=0,active=false,attrs=''}){
@@ -134,7 +139,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
     const custom=(data?.folders??[]).map(item=>`<div class="cc-nav-row">${navButton({label:item.name,iconName:'folder',count:counts(item.name).total,unread:counts(item.name).unread,active:ui.section==='mail'&&ui.folder===item.name,attrs:`data-mail-folder="${esc(item.name)}"`})}${synthetic?'':`<button type="button" class="cc-nav-remove" data-mail-folder-delete="${item.id}" aria-label="Ordner ${esc(item.name)} entfernen" title="Ordner entfernen (E-Mails kehren zurück)">${icon('close')}</button>`}</div>`).join('');
     element.innerHTML=`<button type="button" class="primary cc-compose-btn" data-mail-compose>${icon('plus')}<span>Neue E-Mail</span></button>
       <nav class="cc-nav" aria-label="Übersicht">${navButton({label:'Übersicht',iconName:'home',active:ui.section==='home',attrs:'data-cc-section="home"'})}</nav>
-      <nav class="cc-nav" aria-label="E-Mail-Ordner"><span class="cc-nav-heading">E-Mail</span>${mailNav}
+      <nav class="cc-nav" aria-label="E-Mail-Ordner"><span class="cc-nav-heading">E-Mail</span>${accounts().length>1?`<select data-mail-account aria-label="Postfach"><option value="">Alle Postfächer</option>${accountOptions(ui.accountId)}</select>`:''}${mailNav}
         ${navButton({label:'Aufgaben',iconName:'task',count:(data?.tasks??[]).filter(task=>!task.done).length,active:ui.section==='tasks',attrs:'data-mail-tasks'})}
         ${navButton({label:'Notizen',iconName:'note',count:data?.notes?.length??0,active:ui.section==='notes',attrs:'data-mail-notes'})}
       </nav>
@@ -145,7 +150,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
         <button type="button" class="cc-nav-item cc-nav-out" data-view="whatsapp">${icon('chat')}<span class="cc-nav-label">WhatsApp</span>${icon('arrow','cc-out')}</button>
         <button type="button" class="cc-nav-item cc-nav-out" data-view="customers">${icon('people')}<span class="cc-nav-label">Kunden</span>${icon('arrow','cc-out')}</button>
       </nav>
-      <nav class="cc-nav cc-mobile-tools" aria-label="Postfach">${navButton({label:'Neue E-Mails abrufen',iconName:'sync',attrs:`data-mail-sync ${synthetic||!data?.account?.imapVerifiedAt?'disabled':''}`})}</nav>
+      <nav class="cc-nav cc-mobile-tools" aria-label="Postfach">${navButton({label:'Neue E-Mails abrufen',iconName:'sync',attrs:`data-mail-sync ${synthetic||!activeAccounts().some(item=>item.imapVerifiedAt)?'disabled':''}`})}</nav>
       <p class="cc-rail-note">${icon('lock')}Ordner und Markierungen gelten im Panel. Das Postfach beim Anbieter bleibt unverändert.</p>`;
     markSaved(element);
   }
@@ -160,7 +165,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
 
   // ---------- Übersicht ----------
   function homeHTML(){
-    const account=data?.account,unreadMails=list.slice(0,6),agenda=appointments().filter(order=>new Date(order.appointment.end??order.appointment.start).getTime()>=Date.now()-3600000).slice(0,5),active=running().slice(0,5),notes=(data?.notes??[]).slice(0,4),today=dayKey(Date.now());
+    const account=accounts()[0],unreadMails=list.slice(0,6),agenda=appointments().filter(order=>new Date(order.appointment.end??order.appointment.start).getTime()>=Date.now()-3600000).slice(0,5),active=running().slice(0,5),notes=(data?.notes??[]).slice(0,4),today=dayKey(Date.now());
     const kpi=(label,value,hint,attrs)=>`<button type="button" class="cc-kpi" ${attrs}><span>${esc(label)}</span><strong>${value}</strong><small>${esc(hint)}</small></button>`;
     return `<div class="cc-home">
       ${account?'':`<div class="cc-setup">${icon('lock')}<div><strong>Postfach verbinden</strong><p>IMAP-Empfang und SMTP-Versand werden getrennt geprüft. Zugangsdaten bleiben verschlüsselt auf dem Server.</p></div><button type="button" class="primary" data-mail-settings>Jetzt einrichten</button></div>`}
@@ -188,7 +193,8 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   function listCountText(c){return listState==='loading'?'Wird geladen …':`${plural(total,'E-Mail','E-Mails')}${ui.query||ui.filter!=='all'?' gefunden':''}${c.unread&&!ui.query&&ui.filter==='all'?' · '+c.unread+' ungelesen':''}`;}
   function rowHTML(mail){
     const partner=partnerOf(mail),name=mail.direction==='INBOUND'?mail.fromName||mail.fromAddress:'An: '+(mail.to.map(item=>item.name||item.address).join(', ')||'—'),selected=selection.has(mail.id);
-    const tags=[mail.crm?.order?`<span class="cc-tag crm">${icon('car')}${esc(mail.crm.order)}${mail.crm.status?' · '+esc(mail.crm.status):''}</span>`:'',mail.crm?.customer&&!mail.crm?.order?`<span class="cc-tag crm">${icon('people')}${esc(mail.crm.customer)}</span>`:'',['Unread','Flagged','all'].includes(ui.folder)||ui.query?`<span class="cc-tag">${esc(FOLDER_LABEL[mail.folder]??mail.folder)}</span>`:'',mail.receiptCount?'<span class="cc-tag warn">Beleg</span>':''].join('');
+    const mailbox=accountById(mail.accountId);
+    const tags=[ui.accountId===null&&accounts().length>1&&mailbox?`<span class="cc-tag">${esc(mailbox.email)}</span>`:'',mail.crm?.order?`<span class="cc-tag crm">${icon('car')}${esc(mail.crm.order)}${mail.crm.status?' · '+esc(mail.crm.status):''}</span>`:'',mail.crm?.customer&&!mail.crm?.order?`<span class="cc-tag crm">${icon('people')}${esc(mail.crm.customer)}</span>`:'',['Unread','Flagged','all'].includes(ui.folder)||ui.query?`<span class="cc-tag">${esc(FOLDER_LABEL[mail.folder]??mail.folder)}</span>`:'',mail.receiptCount?'<span class="cc-tag warn">Beleg</span>':''].join('');
     return `<div class="cc-row ${mail.read?'':'unread'} ${ui.openId===mail.id?'active':''} ${selected?'selected':''}" role="listitem" tabindex="0" data-mail-open="${mail.id}" aria-label="${esc((mail.read?'':'Ungelesen, ')+name+', '+mail.subject)}">
       <label class="cc-row-check ${selectMode?'visible':''}" data-mail-quick><input type="checkbox" data-mail-select="${mail.id}" ${selected?'checked':''} aria-label="Auswählen"></label>
       ${avatar(partner.name,partner.address)}
@@ -231,7 +237,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
     const element=region('reader');if(!element)return;$('.cc-mail')?.classList.toggle('has-detail',Boolean(ui.openId));
     if(!ui.openId){element.innerHTML=empty('Keine Nachricht ausgewählt','Wählen Sie eine E-Mail. Verlauf, Anhänge und passende CRM-Vorgänge erscheinen hier.','unread');return;}
     if(detailState==='loading'||!detail){element.innerHTML=detailState==='error'?`<div class="cc-reader-bar"><button type="button" class="cc-icon-btn cc-back" data-mail-close aria-label="Zurück zur Liste">${icon('back')}</button></div>${empty('E-Mail konnte nicht geöffnet werden',detailError,'spam','<button type="button" class="smallbtn" data-mail-retry>Erneut versuchen</button>')}`:`<div class="cc-reader-loading" aria-hidden="true"><i></i><i></i><i></i><i></i></div><p class="visually-hidden">E-Mail wird geladen …</p>`;return;}
-    const mail=detail.message,inbound=mail.direction==='INBOUND',sender=inbound?{name:mail.fromName,address:mail.fromAddress}:{name:data?.account?.displayName||'White Gloss',address:mail.fromAddress},imagesAllowed=imagesShown(mail);
+    const mail=detail.message,inbound=mail.direction==='INBOUND',sender=inbound?{name:mail.fromName,address:mail.fromAddress}:{name:mail.fromName||'White Gloss',address:mail.fromAddress},imagesAllowed=imagesShown(mail);
     const recipients=(label,items)=>items?.length?`<div><dt>${label}</dt><dd>${items.map(item=>esc(item.name?`${item.name} <${item.address}>`:item.address)).join(', ')}</dd></div>`:'';
     const blocked=mail.hasHtml&&mail.blockedImages&&!imagesAllowed?`<div class="cc-images-blocked">${icon('eye')}<span>${plural(mail.blockedImages,'Bild ist','Bilder sind')} ausgeblendet.</span><button type="button" class="smallbtn" data-mail-images>Bilder anzeigen</button></div>`:'';
     const frame=mail.hasHtml?`${blocked}<iframe class="cc-frame" data-mail-frame title="Inhalt der E-Mail" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" src="/api/mailbox/message/${mail.id}/view?images=${imagesAllowed?'1':'0'}${synthetic?'&amp;test=true':''}"></iframe>`:`<div class="mail-plaintext cc-plaintext">${mail.textBody?linkify(mail.textBody):'Diese E-Mail enthält keinen lesbaren Text.'}</div>`;
@@ -282,7 +288,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   }
   function threadHTML(){
     if(detail.thread.length<2)return '';
-    return `<section class="cc-thread"><h3>Unterhaltung · ${detail.thread.length} Nachrichten</h3>${detail.thread.map(item=>{const own=item.direction==='OUTBOUND';return `<button type="button" class="cc-thread-item ${item.id===detail.message.id?'active':''} ${item.read?'':'unread'}" data-mail-open="${item.id}">${avatar(own?'White Gloss':item.fromName,own?ownAddress():item.fromAddress)}<span><strong>${esc(own?'Sie':item.fromName||item.fromAddress)}</strong><span>${esc(item.preview||item.subject)}</span></span><time>${esc(when(item.receivedAt))}</time></button>`;}).join('')}</section>`;
+    return `<section class="cc-thread"><h3>Unterhaltung · ${detail.thread.length} Nachrichten</h3>${detail.thread.map(item=>{const own=item.direction==='OUTBOUND';return `<button type="button" class="cc-thread-item ${item.id===detail.message.id?'active':''} ${item.read?'':'unread'}" data-mail-open="${item.id}">${avatar(own?'White Gloss':item.fromName,item.fromAddress)}<span><strong>${esc(own?'Sie':item.fromName||item.fromAddress)}</strong><span>${esc(item.preview||item.subject)}</span></span><time>${esc(when(item.receivedAt))}</time></button>`;}).join('')}</section>`;
   }
 
   // ---------- Laufende Aufträge ----------
@@ -362,24 +368,25 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   }
   const subjectWith=(prefix,subject)=>new RegExp('^'+prefix+':','i').test(subject)?subject:prefix+': '+subject;
   function replyValues(mode,draftText=''){
-    const mail=detail.message,own=ownAddress(),primary=(mail.replyTo?.length?mail.replyTo:[{address:mail.fromAddress}]).map(item=>item.address).filter(address=>address&&address!==own);
-    const to=mail.direction==='OUTBOUND'?mail.to.map(item=>item.address):primary;const cc=mode==='replyAll'?[...mail.to,...(mail.cc??[])].map(item=>item.address).filter(address=>address&&address!==own&&!to.includes(address)):[];
-    return {mode,to:[...new Set(to)].join(', '),cc:[...new Set(cc)].join(', '),subject:subjectWith('Re',mail.subject),html:(draftText?textToHtml(draftText):'<p><br></p>')+'<p><br></p>'+quoteHTML(mail),replyTo:mail.id};
+    const mail=detail.message,own=new Set(accounts().map(account=>account.email.toLowerCase())),primary=(mail.replyTo?.length?mail.replyTo:[{address:mail.fromAddress}]).map(item=>item.address).filter(address=>address&&!own.has(address));
+    const to=mail.direction==='OUTBOUND'?mail.to.map(item=>item.address):primary;const cc=mode==='replyAll'?[...mail.to,...(mail.cc??[])].map(item=>item.address).filter(address=>address&&!own.has(address)&&!to.includes(address)):[];
+    return {mode,accountId:mail.accountId,to:[...new Set(to)].join(', '),cc:[...new Set(cc)].join(', '),subject:subjectWith('Re',mail.subject),html:(draftText?textToHtml(draftText):'<p><br></p>')+'<p><br></p>'+quoteHTML(mail),replyTo:mail.id};
   }
-  function forwardValues(){const mail=detail.message;return {mode:'forward',subject:subjectWith('Fwd',mail.subject),html:'<p><br></p>'+quoteHTML(mail,{forward:true}),attachments:detail.attachments.filter(item=>item.archived).map(item=>({id:item.id,source:'mail',filename:item.filename,mime:item.mime,size:item.size}))};}
+  function forwardValues(){const mail=detail.message;return {mode:'forward',accountId:mail.accountId,subject:subjectWith('Fwd',mail.subject),html:'<p><br></p>'+quoteHTML(mail,{forward:true}),attachments:detail.attachments.filter(item=>item.archived).map(item=>({id:item.id,source:'mail',filename:item.filename,mime:item.mime,size:item.size}))};}
   function openCompose(values={}){
-    compose={id:null,orderId:'',mode:'new',to:'',cc:'',bcc:'',subject:'',html:'',text:'',attachments:[],replyTo:null,requestId:null,stage:'edit',dirty:false,...values};compose.showCc=Boolean(compose.cc);compose.showBcc=Boolean(compose.bcc);
+    compose={id:null,accountId:ui.accountId??accounts().find(item=>item.smtpVerifiedAt)?.id??accounts()[0]?.id??null,orderId:'',mode:'new',to:'',cc:'',bcc:'',subject:'',html:'',text:'',attachments:[],replyTo:null,requestId:null,stage:'edit',dirty:false,...values};compose.accountId??=ui.accountId??accounts()[0]?.id??null;compose.showCc=Boolean(compose.cc);compose.showBcc=Boolean(compose.bcc);
     if(!compose.html&&compose.text)compose.html=textToHtml(compose.text);drawCompose();
     const form=$('#mailbox-compose');(form?.elements.to.value?form.querySelector('[data-compose-editor]'):form?.elements.to)?.focus();
   }
   function markComposeDirty(){if(!compose)return;compose.dirty=true;const form=$('#mailbox-compose');if(form)form.dataset.dirty='true';}
   function drawCompose(){
     const element=region('compose');if(!element)return;if(!compose){element.innerHTML='';return;}
-    const account=data?.account,canSend=!synthetic&&Boolean(account?.smtpVerifiedAt),title={reply:'Antworten',replyAll:'Allen antworten',forward:'Weiterleiten'}[compose.mode]??'Neue E-Mail';
+    const account=composeAccount(),canSend=!synthetic&&Boolean(account?.smtpVerifiedAt),title={reply:'Antworten',replyAll:'Allen antworten',forward:'Weiterleiten'}[compose.mode]??'Neue E-Mail';
     const contacts=[...new Map([...allOrders().filter(order=>order.source?.email).map(order=>[order.source.email.toLowerCase(),order.source.name]),...list.map(mail=>[partnerOf(mail).address,partnerOf(mail).name])].filter(([address])=>address)).entries()].slice(0,200);
     element.innerHTML=`<div class="cc-compose-layer" data-compose-layer><form id="mailbox-compose" class="cc-compose" role="dialog" aria-modal="true" aria-labelledby="cc-compose-title" novalidate>
-      <header class="cc-compose-head"><div><span class="eyebrow">${esc(account?.email||'Postfach nicht eingerichtet')}</span><strong id="cc-compose-title">${esc(title)}</strong></div><button type="button" class="cc-icon-btn" data-mail-compose-close aria-label="Editor schließen">${icon('close')}</button></header>
+      <header class="cc-compose-head"><div><span class="eyebrow" data-compose-from>${esc(account?.email||'Postfach nicht eingerichtet')}</span><strong id="cc-compose-title">${esc(title)}</strong></div><button type="button" class="cc-icon-btn" data-mail-compose-close aria-label="Editor schließen">${icon('close')}</button></header>
       <div class="cc-compose-fields">
+        ${accounts().length>1?`<label class="cc-field"><span>Von</span><select name="accountId" aria-label="Absenderpostfach">${accountOptions(compose.accountId)}</select></label>`:''}
         <label class="cc-field"><span>An</span><input type="text" name="to" value="${esc(compose.to)}" placeholder="kunde@example.de, weitere@example.de" autocomplete="off" list="cc-contacts" inputmode="email"><span class="cc-field-toggles">${compose.showCc?'':'<button type="button" data-compose-show="cc">Cc</button>'}${compose.showBcc?'':'<button type="button" data-compose-show="bcc">Bcc</button>'}</span></label>
         ${compose.showCc?`<label class="cc-field"><span>Cc</span><input type="text" name="cc" value="${esc(compose.cc)}" autocomplete="off" inputmode="email"></label>`:''}
         ${compose.showBcc?`<label class="cc-field"><span>Bcc</span><input type="text" name="bcc" value="${esc(compose.bcc)}" autocomplete="off" inputmode="email"></label>`:''}
@@ -403,20 +410,20 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
     element.innerHTML=`${compose.attachments.length?`<div class="cc-attach-list">${compose.attachments.map(item=>`<span class="cc-attach-chip ${item.pending?'pending':''}"><span class="cc-file-icon ${item.mime==='application/pdf'?'pdf':'img'}">${esc(UPLOAD_TYPES[item.mime]??'DATEI')}</span><span><strong title="${esc(item.filename)}">${esc(item.filename)}</strong><small>${item.pending?'Wird hochgeladen …':esc(size(item.size))}</small></span>${item.pending?'':`<button type="button" class="cc-icon-btn" data-compose-remove="${esc(item.id)}" aria-label="Anhang ${esc(item.filename)} entfernen">${icon('close')}</button>`}</span>`).join('')}</div>`:''}
       <div class="cc-attach-row"><label class="smallbtn button cc-attach-add">${icon('clip')}Datei anhängen<input type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp" data-compose-file class="visually-hidden"></label><small>PDF, JPG, PNG, WebP · max. 12 MB je Datei · ${size(used)} von 15 MB</small></div>`;
   }
-  function drawComposeFoot(canSend=!synthetic&&Boolean(data?.account?.smtpVerifiedAt)){
+  function drawComposeFoot(canSend=!synthetic&&Boolean(composeAccount()?.smtpVerifiedAt)){
     const element=region('compose-foot');if(!element||!compose)return;
-    if(compose.stage==='confirm'){const value=readCompose();compose.confirmedSnapshot=JSON.stringify(value);const recipients=[value.to,value.cc,value.bcc].join(',').split(/[,;\n]+/).map(item=>item.trim()).filter(Boolean).length;element.innerHTML=`<div class="cc-confirm" role="alertdialog" aria-label="Versand bestätigen"><div><strong>Jetzt an ${plural(recipients,'Empfänger','Empfänger')} senden?</strong><small>Kanal: E-Mail · ${esc(allOrders().find(o=>o.id===value.orderId)?.wg||'Auftrag nicht zugeordnet')} · ${esc(allOrders().find(o=>o.id===value.orderId)?.source?.name||'Kunde nicht zugeordnet')}</small><small>An: ${esc(value.to)}${value.cc?' · Cc: '+esc(value.cc):''}${value.bcc?' · Bcc: '+esc(value.bcc):''}</small><small>Betreff: ${esc(value.subject)}</small><small>Anhänge: ${esc(compose.attachments.map(a=>a.filename).join(', ')||'Keine')}. Ein Versand lässt sich nicht zurückholen.</small></div><div><button type="button" data-compose-stage="edit">Zurück</button><button type="button" class="primary" data-compose-send-confirmed>Jetzt senden</button></div></div>`;element.querySelector('[data-compose-send-confirmed]')?.focus();return;}
+    if(compose.stage==='confirm'){const value=readCompose();compose.confirmedSnapshot=JSON.stringify(value);const recipients=[value.to,value.cc,value.bcc].join(',').split(/[,;\n]+/).map(item=>item.trim()).filter(Boolean).length;element.innerHTML=`<div class="cc-confirm" role="alertdialog" aria-label="Versand bestätigen"><div><strong>Jetzt an ${plural(recipients,'Empfänger','Empfänger')} senden?</strong><small>Kanal: E-Mail · ${esc(allOrders().find(o=>o.id===value.orderId)?.wg||'Auftrag nicht zugeordnet')} · ${esc(allOrders().find(o=>o.id===value.orderId)?.source?.name||'Kunde nicht zugeordnet')}</small><small>Von: ${esc(composeAccount()?.email??'')}</small><small>An: ${esc(value.to)}${value.cc?' · Cc: '+esc(value.cc):''}${value.bcc?' · Bcc: '+esc(value.bcc):''}</small><small>Betreff: ${esc(value.subject)}</small><small>Anhänge: ${esc(compose.attachments.map(a=>a.filename).join(', ')||'Keine')}. Ein Versand lässt sich nicht zurückholen.</small></div><div><button type="button" data-compose-stage="edit">Zurück</button><button type="button" class="primary" data-compose-send-confirmed>Jetzt senden</button></div></div>`;element.querySelector('[data-compose-send-confirmed]')?.focus();return;}
     if(compose.stage==='closing'){element.innerHTML=`<div class="cc-confirm" role="alertdialog" aria-label="Ungespeicherte Änderungen"><div><strong>Ungespeicherte Änderungen</strong><small>Als Entwurf sichern oder verwerfen?</small></div><div><button type="button" data-compose-stage="edit">Weiter schreiben</button><button type="button" class="danger" data-compose-discard>Verwerfen</button><button type="button" class="primary" data-mail-save-draft>Entwurf speichern</button></div></div>`;return;}
-    element.innerHTML=`<p class="hint">${synthetic?'Im Testbereich ist der Versand gesperrt.':!data?.account?.smtpVerifiedAt?'Zum Versenden zuerst SMTP in den Postfach-Einstellungen prüfen.':'Kein automatischer Versand. Entwürfe bleiben bis zum angenommenen SMTP-Versand erhalten.'}</p><div class="cc-compose-actions">${compose.id?'<button type="button" class="danger" data-compose-delete-draft>Entwurf löschen</button>':''}<button type="button" data-mail-save-draft>Entwurf speichern</button><button type="submit" class="primary" ${canSend?'':'disabled'}>${icon('sent')}<span>Senden</span></button></div>`;
+    element.innerHTML=`<p class="hint">${synthetic?'Im Testbereich ist der Versand gesperrt.':!composeAccount()?.smtpVerifiedAt?'Zum Versenden zuerst SMTP in den Postfach-Einstellungen prüfen.':'Kein automatischer Versand. Entwürfe bleiben bis zum angenommenen SMTP-Versand erhalten.'}</p><div class="cc-compose-actions">${compose.id?'<button type="button" class="danger" data-compose-delete-draft>Entwurf löschen</button>':''}<button type="button" data-mail-save-draft>Entwurf speichern</button><button type="submit" class="primary" ${canSend?'':'disabled'}>${icon('sent')}<span>Senden</span></button></div>`;
   }
   function readCompose(){
     const form=$('#mailbox-compose'),editor=form?.querySelector('[data-compose-editor]');if(!form||!editor)return null;
-    return {orderId:form.elements.orderId.value,to:form.elements.to.value,cc:form.elements.cc?.value??compose.cc,bcc:form.elements.bcc?.value??compose.bcc,subject:form.elements.subject.value,html:editor.innerHTML,text:plainText(editor),attachments:compose.attachments.filter(item=>!item.pending).map(item=>item.id)};
+    return {accountId:compose.accountId,orderId:form.elements.orderId.value,to:form.elements.to.value,cc:form.elements.cc?.value??compose.cc,bcc:form.elements.bcc?.value??compose.bcc,subject:form.elements.subject.value,html:editor.innerHTML,text:plainText(editor),attachments:compose.attachments.filter(item=>!item.pending).map(item=>item.id)};
   }
   function closeCompose(force=false){if(!compose)return;if(!force&&compose.dirty){compose.stage='closing';drawComposeFoot();return;}compose=null;drawCompose();}
   async function saveDraft(){
     if(compose.attachments.some(item=>item.pending))throw Error('Bitte warten, bis alle Anhänge hochgeladen sind.');
-    const value=readCompose();const result=await api('/draft',{id:compose.id,...value,mode:compose.mode,replyTo:compose.replyTo});compose=null;drawCompose();ui.section='mail';ui.folder='Drafts';ui.openId=null;await load();drawRail();drawMain();message('Entwurf gespeichert.');return result;
+    const value=readCompose();const result=await api('/draft',{id:compose.id,...value,mode:compose.mode,replyTo:compose.replyTo});if(ui.accountId!==null&&value.accountId!==null)ui.accountId=String(value.accountId);compose=null;drawCompose();ui.section='mail';ui.folder='Drafts';ui.openId=null;await load();drawRail();drawMain();message('Entwurf gespeichert.');return result;
   }
   async function uploadFiles(files){
     const session=compose;if(!session)return;
@@ -446,9 +453,10 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
 
   // ---------- Einstellungen ----------
   function drawSettings(){
-    const element=region('settings');if(!element)return;if(!settingsOpen){element.innerHTML='';return;}const account=data?.account;
+    const element=region('settings');if(!element)return;if(!settingsOpen){element.innerHTML='';return;}const account=accountById(settingsAccountId);
     element.innerHTML=`<div class="cc-drawer-layer"><section class="cc-drawer" role="dialog" aria-modal="true" aria-labelledby="cc-settings-title"><header><div><span class="eyebrow">POSTFACH</span><h2 id="cc-settings-title">Verbindung & Versandprotokoll</h2></div><button type="button" class="cc-icon-btn" data-mail-settings-close aria-label="Einstellungen schließen">${icon('close')}</button></header>
       <section class="cc-setting"><label class="check"><input type="checkbox" data-cc-images-auto ${imagesAuto()?'checked':''}>Bilder und Fotos in E-Mails automatisch anzeigen</label><p class="hint">Gilt für dieses Gerät. Beim Laden externer Bilder kann der Absender erkennen, dass die E-Mail geöffnet wurde. Skripte aus E-Mails werden nie ausgeführt.</p></section>
+      <label>Postfach<select data-mail-settings-account><option value="">Neues Postfach hinzufügen</option>${accountOptions(settingsAccountId)}</select></label>
       <p class="hint">IMAP und SMTP werden getrennt geprüft. Zugangsdaten bleiben verschlüsselt auf dem Server. Eine Prüfung versendet keine E-Mail.</p>
       <form id="mailbox-account"><div class="grid2"><label>Absenderadresse<input type="email" name="email" maxlength="320" required value="${esc(account?.email??'')}"></label><label>Anzeigename<input name="displayName" maxlength="180" value="${esc(account?.displayName??'White Gloss')}"></label></div><div class="grid2"><label>IMAP-Server<input name="imapHost" required value="${esc(account?.imapHost??'')}"></label><label>IMAP-Port<input type="number" name="imapPort" min="1" max="65535" required value="${account?.imapPort??993}"></label></div><label class="check"><input type="checkbox" name="imapSecure" ${account?.imapSecure!==false?'checked':''}>Direkte TLS-Verbindung für IMAP</label><div class="grid2"><label>SMTP-Server<input name="smtpHost" required value="${esc(account?.smtpHost??'')}"></label><label>SMTP-Port<input type="number" name="smtpPort" min="1" max="65535" required value="${account?.smtpPort??465}"></label></div><label class="check"><input type="checkbox" name="smtpSecure" ${account?.smtpSecure!==false?'checked':''}>Direkte TLS-Verbindung für SMTP</label><div class="grid2"><label>Benutzername<input name="username" autocomplete="username" required value="${esc(account?.username??'')}"></label><label>Passwort<input type="password" name="password" autocomplete="new-password" maxlength="500" ${account?'':'required'} placeholder="${account?.passwordConfigured?'Geschützt gespeichert · leer lassen zum Behalten':'Postfachpasswort'}"></label></div><label class="check"><input type="checkbox" name="syncApproved" ${account?.syncApproved?'checked':''}>Geplanten lesenden Hintergrundabruf erlauben</label><div class="actions"><button class="primary" type="submit">Zugang speichern</button><button type="button" data-mail-check="imap" ${account?'':'disabled'}>IMAP prüfen</button><button type="button" data-mail-check="smtp" ${account?'':'disabled'}>SMTP prüfen</button></div></form>
       ${account?.lastSyncError?`<p class="notice">Letzter Abruffehler: ${esc(account.lastSyncError)}</p>`:''}
@@ -526,11 +534,16 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
     if(target.closest('[data-mail-tasks]')){openTasks();return;}
     if(target.closest('[data-cc-rail]')){railOpen=!$('[data-cc]').classList.contains('cc-rail-open');$('[data-cc]').classList.toggle('cc-rail-open',railOpen);target.closest('[data-cc-rail]').setAttribute('aria-expanded',String(railOpen));if(railOpen)region('rail')?.querySelector('button')?.focus();return;}
     if(target.closest('[data-cc-rail-close]')){railOpen=false;$('[data-cc]').classList.remove('cc-rail-open');return;}
-    if(target.closest('[data-mail-settings]')){settingsOpen=true;drawSettings();return;}
+    if(target.closest('[data-mail-settings]')){settingsAccountId=ui.accountId??accounts()[0]?.id??null;settingsOpen=true;drawSettings();return;}
     if(target.closest('[data-mail-settings-close]')||target.matches('.cc-drawer-layer')){settingsOpen=false;drawSettings();return;}
     if(target.closest('[data-mail-refresh]'))return run(async()=>{await load();if(ui.openId&&ui.section==='mail'){const result=await api('/message/'+ui.openId).catch(()=>null);if(result){detail=result;detailState='ready';}}drawStatus();drawRail();drawMain();});
-    if(target.closest('[data-mail-sync]'))return run(async()=>{const result=await api('/sync',{});await load();drawStatus();drawRail();drawMain();message(result.message);});
-    const check=target.closest('[data-mail-check]');if(check)return run(async()=>{const result=await api('/check',{kind:check.dataset.mailCheck});await refreshMeta();drawSettings();message(result.message);});
+    if(target.closest('[data-mail-sync]'))return run(async()=>{const results=[];
+      for(const account of activeAccounts().filter(item=>item.imapVerifiedAt)){
+        try{results.push({text:account.email+': '+(await api('/sync',{accountId:account.id})).message});}
+        catch(error){results.push({text:account.email+': '+error.message,error:true});}
+      }
+      await load();drawStatus();drawRail();drawMain();message(results.map(result=>result.text).join(' '),results.some(result=>result.error));});
+    const check=target.closest('[data-mail-check]');if(check)return run(async()=>{const result=await api('/check',{kind:check.dataset.mailCheck,accountId:settingsAccountId});await refreshMeta();drawSettings();message(result.message);});
     if(target.closest('[data-mail-more]')){loadMore();return;}
     if(target.closest('[data-mail-reset]')){ui.query='';ui.filter='all';drawList();run(async()=>{await load();drawItems();});return;}
     const filter=target.closest('[data-mail-filter]');if(filter){ui.filter=filter.dataset.mailFilter;selection.clear();for(const chip of root.querySelectorAll('[data-mail-filter]')){chip.classList.toggle('active',chip===filter);chip.setAttribute('aria-pressed',String(chip===filter));}listState='loading';drawItems();run(async()=>{await load();drawItems();});return;}
@@ -578,7 +591,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   async function sendCompose(){
     const value=readCompose();if(JSON.stringify(value)!==compose.confirmedSnapshot){compose.stage='confirm';drawComposeFoot();message('Die Nachricht wurde geändert. Bitte die aktualisierten Angaben nochmals bestätigen.',true);return;}compose.requestId??=crypto.randomUUID();
     const result=await api('/send',{requestId:compose.requestId,draftId:compose.id,...value,replyTo:compose.replyTo,confirmed:true});
-    compose=null;drawCompose();ui.section='mail';ui.folder='Sent';ui.openId=null;await load();drawRail();drawMain();
+    if(ui.accountId!==null&&value.accountId!==null)ui.accountId=String(value.accountId);compose=null;drawCompose();ui.section='mail';ui.folder='Sent';ui.openId=null;await load();drawRail();drawMain();
     message(result.status==='PARTIAL'?'Nur ein Teil der Empfänger wurde angenommen. Bitte Versandprotokoll prüfen.':'SMTP hat die E-Mail angenommen. Die endgültige Zustellung ist damit noch nicht bestätigt.');
   }
   root.addEventListener('keydown',event=>{
@@ -604,6 +617,12 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   root.addEventListener('drop',event=>{if(!compose||!event.target.closest?.('[data-compose-layer]'))return;event.preventDefault();$('#mailbox-compose')?.classList.remove('dropping');const files=[...(event.dataTransfer?.files??[])];if(files.length)uploadFiles(files);});
   root.addEventListener('change',event=>{
     const target=event.target;
+    if(target.matches('[data-mail-settings-account]')){settingsAccountId=target.value||null;drawSettings();$('[data-mail-settings-account]')?.focus();return;}
+    if(target.matches('[data-mail-account]'))return run(async()=>{
+      ui.accountId=target.value||null;ui.openId=null;detail=null;selection.clear();list=[];listState='loading';drawMain();
+      await load();drawStatus();drawRail();drawMain();$('[data-mail-account]')?.focus();
+    });
+    if(target.matches('select[name="accountId"]')&&compose){compose.accountId=target.value;const label=$('[data-compose-from]');if(label)label.textContent=composeAccount()?.email??'';markComposeDirty();drawComposeFoot();return;}
     if(target.matches('[data-mail-select]')){toggleSelect(target.dataset.mailSelect);return;}
     if(target.matches('[data-cc-images-auto]')){setImagesAuto(target.checked);ui.images.clear();ui.hiddenImages.clear();drawReader();message(target.checked?'Bilder werden automatisch angezeigt.':'Bilder werden erst nach Klick angezeigt.');return;}
     if(target.matches('[data-mail-sort]')){ui.sort=target.value;listState='loading';drawItems();run(async()=>{await load();drawItems();});return;}
@@ -614,7 +633,7 @@ export function mountMailbox(root,{synthetic=false,toast=()=>{},orders=()=>[],ma
   root.addEventListener('submit',event=>{
     // getAttribute statt form.id: ein Formularfeld namens „id“ würde form.id im Browser überdecken.
     event.preventDefault();event.stopPropagation();const form=event.target,formId=form.getAttribute('id');
-    if(formId==='mailbox-account')return run(async()=>{const fields=new FormData(form),result=await api('/settings',{email:fields.get('email'),displayName:fields.get('displayName'),imapHost:fields.get('imapHost'),imapPort:Number(fields.get('imapPort')),imapSecure:form.elements.imapSecure.checked,smtpHost:fields.get('smtpHost'),smtpPort:Number(fields.get('smtpPort')),smtpSecure:form.elements.smtpSecure.checked,username:fields.get('username'),password:fields.get('password'),syncApproved:form.elements.syncApproved.checked});await refreshMeta();drawSettings();message(result.message);});
+    if(formId==='mailbox-account')return run(async()=>{const fields=new FormData(form),result=await api('/settings',{accountId:settingsAccountId,create:settingsAccountId===null&&accounts().length>0,email:fields.get('email'),displayName:fields.get('displayName'),imapHost:fields.get('imapHost'),imapPort:Number(fields.get('imapPort')),imapSecure:form.elements.imapSecure.checked,smtpHost:fields.get('smtpHost'),smtpPort:Number(fields.get('smtpPort')),smtpSecure:form.elements.smtpSecure.checked,username:fields.get('username'),password:fields.get('password'),syncApproved:form.elements.syncApproved.checked});settingsAccountId=result.accountId??settingsAccountId??1;await refreshMeta();drawSettings();message(result.message);});
     if(formId==='mailbox-compose'){if(!compose)return;const value=readCompose();
       if(!value.to.trim()){message('Bitte mindestens einen Empfänger angeben.',true);form.elements.to.focus();return;}
       if(!value.subject.trim()){message('Bitte einen Betreff angeben.',true);form.elements.subject.focus();return;}
